@@ -2,9 +2,12 @@
 -> Kreuzungsspuren, die die Fahrspuren aller Arme exakt verbinden."""
 import math, collections
 import numpy as np
-from .config import RADIUS, KI, choose_spline
+from .config import RADIUS, KI, choose_spline, is_oneway
 from .custom_splines import KREUZ_GAPS
 from .geom import heading, norm180, rvec, end_of, straight, connect
+
+
+CORNER_ROOM = 6.0      # zusaetzliche Kuerzung der Arme an Kreuzungen (Platz fuer Bordsteinradien)
 
 
 def key(p):
@@ -22,6 +25,26 @@ def proj_point(p, a, b):
         return 0, math.dist(p, a)
     s = max(0, min(1, ((p[0] - a[0]) * dx + (p[1] - a[1]) * dz) / L2))
     return s, math.dist(p, (a[0] + s * dx, a[1] + s * dz))
+
+
+def _at(P, s):
+    """Punkt und Richtung nach s Metern entlang P"""
+    for a, b in zip(P, P[1:]):
+        d = math.dist(a, b)
+        if s <= d or b is P[-1]:
+            f = min(1.0, s / d) if d else 0
+            return (a[0] + (b[0] - a[0]) * f, a[1] + (b[1] - a[1]) * f), heading(a, b)
+        s -= d
+    return P[-1], heading(P[-2], P[-1])
+
+
+def _closest(p, P):
+    best = (1e18, P[0])
+    for a, b in zip(P, P[1:]):
+        t, d = proj_point(p, a, b)
+        if d < best[0]:
+            best = (d, (a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t))
+    return best
 
 
 def build(ways_in, sdb):
@@ -98,6 +121,27 @@ def build(ways_in, sdb):
             e['P'] = e['P'][::-1]
         e['force'] = force != 0
         e['ring'] = e['t'].get('junction') in ('roundabout', 'circular')
+
+    # Einbahnstrassen: Gehweg nur auf Seiten, neben denen keine andere Strasse liegt (Bypaesse, Richtungsfahrbahnen
+    # ohne gleichen Namen) - sonst ueberlappen die Gehwege mit der Nachbarfahrbahn
+    for e in edges:
+        if not is_oneway(e['t']):
+            continue
+        walk = [True, True]
+        me = sdb[e['spl']]
+        L = plen(e['P'])
+        for s_ in [L * f for f in (0.25, 0.5, 0.75)] if L > 16 else [L / 2]:
+            m, h = _at(e['P'], s_)
+            for o in edges:
+                if o is e:
+                    continue
+                d, q = _closest(m, o['P'])
+                need = me['cw'] + 3.5 + sdb[o['spl']]['half']
+                if d < need:
+                    side = (q[0] - m[0]) * math.cos(math.radians(h)) - (q[1] - m[1]) * math.sin(math.radians(h))
+                    walk[1 if side > 0 else 0] = False
+        if walk != [True, True]:
+            e['spl'], _ = choose_spline(e['t'], e['dual'], tuple(walk))
 
     # ============================================================ Kreisverkehre auf Kreis legen
     groups = []
@@ -183,10 +227,11 @@ def build(ways_in, sdb):
                     continue
                 ang = abs(norm180(dirs[i] - dirs[j]))
                 if 20 <= ang <= 160:
-                    d = max(d, sdb[o['spl']]['cw'] / math.sin(math.radians(ang)) + 2.5)
+                    # Platz fuer die Fahrbahn des anderen Arms und fuer die Bordsteinausrundung
+                    d = max(d, sdb[o['spl']]['cw'] / math.sin(math.radians(ang)) + CORNER_ROOM)
             if len(lst) == 2:
                 d = 6.0
-            trim_d[(id(e), end)] = min(max(d, 4.0), 25.0)
+            trim_d[(id(e), end)] = min(max(d, 4.0), 30.0)
     for e in edges:
         a, b = trim_d.get((id(e), 0), 0), trim_d.get((id(e), -1), 0)
         L = plen(e['P'])
@@ -369,12 +414,23 @@ def build(ways_in, sdb):
         return out
 
 
+    def arm_info(ch, which):
+        """Strassenende an einer Kreuzung: Mittelpunkt, Richtung von der Kreuzung weg, Spline,
+        und ob die Splinerichtung von der Kreuzung weg zeigt"""
+        if which == 's':
+            el = ch['els'][0]
+            return dict(pos=(el[0], el[1]), h=el[2] % 360, spl=el[5], away=True)
+        el = ch['els'][-1]
+        pos, h = end_of(el)
+        return dict(pos=pos, h=(h + 180) % 360, spl=el[5], away=False)
+
     arms_at = collections.defaultdict(list)
+    arm_meta = collections.defaultdict(list)
     for ch in road_chains:
         if ch['node_s'] in JN:
-            arms_at[ch['node_s']].append(lane_ends(ch, 's'))
+            arms_at[ch['node_s']].append(lane_ends(ch, 's')); arm_meta[ch['node_s']].append(arm_info(ch, 's'))
         if ch['node_e'] in JN:
-            arms_at[ch['node_e']].append(lane_ends(ch, 'e'))
+            arms_at[ch['node_e']].append(lane_ends(ch, 'e')); arm_meta[ch['node_e']].append(arm_info(ch, 'e'))
 
     conn_chains, conn_fail, n_moves = [], 0, collections.Counter()
     SPUR = KI + 'AB_kreuzung_spur.sli'
@@ -418,7 +474,8 @@ def build(ways_in, sdb):
                         conn_fail += 1
                         continue
                     n_moves[mv] += 1
-                    conn_chains.append(dict(els=els, name='Kreuzung', hw='junction'))
+                    conn_chains.append(dict(els=els, name='Kreuzung', hw='junction', node=k, mv=mv,
+                                            arms=(ia, ib)))
         # Nachlauf: jede ankommende Spur braucht ein Ziel, jede abgehende Spur einen Zulauf
         allin = [l for A in arms for l in A if l['kind'] == 'in']
         allout = [l for A in arms for l in A if l['kind'] == 'out']
@@ -434,7 +491,8 @@ def build(ways_in, sdb):
                 if pr:
                     els = connect(pr[0]['p'], pr[0]['h'], pr[1]['p'], pr[1]['h'], SPUR)
                     if els:
-                        conn_chains.append(dict(els=els, name='Kreuzung', hw='junction')); n_moves['nachlauf'] += 1
+                        conn_chains.append(dict(els=els, name='Kreuzung', hw='junction', node=k, mv='nachlauf'))
+                        n_moves['nachlauf'] += 1
                         used_out.add(key(pr[1]['p']))
         for b in allout:
             if key(b['p']) not in used_out:
@@ -442,9 +500,11 @@ def build(ways_in, sdb):
                 if pr:
                     els = connect(pr[0]['p'], pr[0]['h'], pr[1]['p'], pr[1]['h'], SPUR)
                     if els:
-                        conn_chains.append(dict(els=els, name='Kreuzung', hw='junction')); n_moves['nachlauf'] += 1
+                        conn_chains.append(dict(els=els, name='Kreuzung', hw='junction', node=k, mv='nachlauf'))
+                        n_moves['nachlauf'] += 1
 
 
     return dict(road_chains=road_chains, conn_chains=conn_chains, junctions=[list(k) for k in JN],
+                arms=dict(arm_meta), node_pos={k: tuple(k) for k in JN},
                 stats=dict(kreuzungen=len(JN), verbindungen=len(conn_chains), fehlgeschlagen=conn_fail,
                            bewegungen=dict(n_moves)))

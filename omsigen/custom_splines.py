@@ -64,11 +64,10 @@ def sli(name, lanes, lane_w=3.5, walk_l=3.5, walk_r=3.5, single_w=5.0):
 
 
 SPLINES = {}
-for lanes in (1, 2, 3):
-    for side in ('', '_rechts'):
+for lanes in (1, 2, 3):        # Gehweg beidseitig / nur rechts / nur links / keiner (nur Bordstein)
+    for side, wl, wr in (('', 3.5, 3.5), ('_rechts', 0, 3.5), ('_links', 3.5, 0), ('_ohne', 0, 0)):
         n = f'AB_einbahn_{lanes}spur{side}.sli'
-        txt, half = sli(n, lanes, walk_l=0 if side else 3.5)
-        SPLINES[n] = (txt, half)
+        SPLINES[n] = sli(n, lanes, walk_l=wl, walk_r=wr)
 
 def kreuz(gap=None):
     """Kreuzungsspur: 3,5 m Asphalt mit einem Fahrpfad. gap -> zusaetzlich Asphalt bis

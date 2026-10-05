@@ -56,15 +56,18 @@ Kreuzungsobjekte; Klick auf eine Spur zeigt Spline/Objekt, Datei, Kachel und Pfa
 
 - Strecke über das echte Straßennetz (Einbahnstraßen beachtet), Korridor drumherum
 - Straßen aus Geraden und Kreisbögen, Spurenzahl und Einbahnstraßen aus OSM, getrennte Richtungsfahrbahnen
-- **Kreuzungsbauer**: alle Arme werden gekürzt, die Kreuzung mit Abbiege- und Geradeausspuren gefüllt,
-  die die Fahrspuren exakt verbinden; Rechtsabbieger mit Gehwegecke; Kreisverkehre
+- **Kreuzungsobjekte**: jede Kreuzung wird ein eigenes OMSI-Objekt wie in den Standardkarten – eine
+  durchgehende Platte (.x-Modell) aus Asphalt, Bordsteinen und gerundeten Gehwegecken, dazu die Abbiege-,
+  Geradeaus- und Gehwegpfade, die exakt an die Straßen anschließen; Mittelinseln bei getrennten Fahrbahnen,
+  Kreisverkehre (`--kreuzungen spline` baut noch wie früher nur aus Spur-Splines)
+- Gehwege an Einbahnstraßen nur dort, wo daneben Platz ist (Bypässe, Richtungsfahrbahnen)
 - Haltestellenschilder an den OSM-Haltestellen
 - automatische Prüfung jedes Spurendes + Draufsicht als PNG
 
 ## Noch offen (Roadmap)
 
 1. Vorfahrt / Ampeln an Kreuzungen
-2. Fußwege an Kreuzungen verbinden, Zebrastreifen
+2. Fußwege über die Fahrbahn (Zebrastreifen/Querungen); um die Ecken sind sie verbunden
 3. Höhen (SRTM bzw. amtliches DGM)
 4. Haltestellen mit Haltepunkten, Linien und Fahrplänen (aus GTFS-Daten)
 5. Gebäude (OSM-Umrisse, ggf. LoD2-Modelle), Bäume, Straßenmöbel
@@ -77,7 +80,8 @@ omsigen/
   cli.py            Kommandozeile, Ablauf in 6 Schritten
   osm.py            Ortssuche (Nominatim), Download (Overpass), Zwischenspeicher
   route.py          Projektion, Routing (Dijkstra), Korridor
-  network.py        Kanten, Knoten, Kreisverkehre, Kürzen, Ketten, Kreuzungsbauer
+  network.py        Kanten, Knoten, Kreisverkehre, Kürzen, Ketten, Kreuzungsspuren
+  kreuzung.py       Kreuzungsobjekte: Fläche, Bordsteine, Pfade -> .sco + .x
   geom.py           Geraden/Bögen/Doppelbögen in OMSI-Konvention
   config.py         welche Spline für welche Straße
   custom_splines.py eigene .sli (Einbahnstraßen, Kreuzungsspuren)

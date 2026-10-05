@@ -6,7 +6,8 @@ Projekt: `omsigen` erzeugt OMSI-2-Karten aus OpenStreetMap (siehe README.md). Sp
 ## Arbeitsweise
 
 - **Nie bestehende Karten oder OMSI-Dateien verändern.** Neue Karten immer in einen neuen Ordner
-  (`--name …_v2` usw.). Eigene Splines nur in `Splines/Aschaffenburg_KI/`.
+  (`--name …_v2` usw.). Eigene Splines nur in `Splines/Aschaffenburg_KI/`, eigene Objekte
+  (Kreuzungen) nur in `Sceneryobjects/Aschaffenburg_KI/<Kartenname>/`.
 - Nach jeder Änderung: `python -m pytest` und einen Beispiellauf mit `--osm-datei samples/...` und
   `--vorschau`. Ziel: „ohne Anschluss: 0“. Das PNG ansehen.
 - Zusätzlich `python -m omsigen.ansicht <Karte> --png …` (Ziel: Beinahe-Anschlüsse 0) und für installierte
@@ -25,7 +26,9 @@ Projekt: `omsigen` erzeugt OMSI-2-Karten aus OpenStreetMap (siehe README.md). Sp
 - Kacheln 300 m, Richtung im Uhrzeigersinn ab Nord, Radius > 0 = Rechtskurve, positive Querlage = rechts.
 - Spline-Zeilen: x, **Höhe**, z; Objekt-Zeilen: x, z, **Höhe**.
 - `.map`/`global.cfg` als UTF-16 LE mit BOM schreiben.
-- Verbindungen entstehen nur, wenn Spurenden in Lage und Richtung zusammenfallen → Kreuzungsspuren.
+- Verbindungen entstehen nur, wenn Spurenden in Lage und Richtung zusammenfallen.
+- Kreuzungen sind eigene Objekte (`omsigen/kreuzung.py`: .sco + .x-Modell + Pfade), wie in den Standardkarten.
+  Nur so erkennt die KI Vorfahrtskonflikte, und nur dort gibt es Ampeln.
 
 ## Pfad-Konventionen beim Nutzer
 

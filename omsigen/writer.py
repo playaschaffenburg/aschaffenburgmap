@@ -68,15 +68,16 @@ def flat_terrain():
 
 
 def write_map(out_maps_dir, name, chains, stops, omsi_dir=None, friendly=None, description='', cam_xz=None,
-              overwrite=False):
-    """chains: Liste Ketten (els in Metern, beliebiger Ursprung). Gibt Infos inkl. Verschiebung zurueck."""
+              overwrite=False, junctions=()):
+    """chains: Liste Ketten (els in Metern, beliebiger Ursprung); junctions: Kreuzungsobjekte (kreuzung.py) mit
+    origin und rel (Pfad der .sco). Gibt Infos inkl. Verschiebung zurueck."""
     D = os.path.join(out_maps_dir, name)
     if os.path.exists(D) and not overwrite:
         raise FileExistsError(f'Kartenordner {D} existiert schon - anderen Namen waehlen')
     os.makedirs(os.path.join(D, 'texture'), exist_ok=True)
 
-    xs = [el[0] for c in chains for el in c['els']] + [s['x'] for s in stops]
-    zs = [el[1] for c in chains for el in c['els']] + [s['z'] for s in stops]
+    xs = [el[0] for c in chains for el in c['els']] + [s['x'] for s in stops] + [j['origin'][0] for j in junctions]
+    zs = [el[1] for c in chains for el in c['els']] + [s['z'] for s in stops] + [j['origin'][1] for j in junctions]
     ox, oz = math.floor(min(xs)) - 20.0, math.floor(min(zs)) - 20.0     # Karte beginnt bei Kachel 0_0
 
     nid, tiles = 1, collections.defaultdict(list)
@@ -98,6 +99,12 @@ def write_map(out_maps_dir, name, chains, stops, omsi_dir=None, friendly=None, d
         objs[t].append(['[object]', '0', 'Sceneryobjects\\Generic\\bus_stop.sco', str(nid), fmt(x - TILE * t[0]),
                         fmt(z - TILE * t[1]), '0', fmt(s['rot']), '0', '0', '7', s['name'], '20', '5', '0', '', '', '',
                         '', ''])
+        nid += 1
+    for j in junctions:          # Kreuzungsobjekt: Drehung 0, Hoehe 0, keine Texte
+        x, z = j['origin'][0] - ox, j['origin'][1] - oz
+        t = (int(x // TILE), int(z // TILE))
+        objs[t].append(['[object]', '0', j['rel'], str(nid), fmt(x - TILE * t[0]), fmt(z - TILE * t[1]), '0', '0',
+                        '0', '0', '0', ''])
         nid += 1
     # Nachbarkacheln mit anlegen, damit rundherum Gelaende ist
     used = set(tiles) | set(objs)

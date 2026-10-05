@@ -10,20 +10,26 @@ def read_text(path):
 
 
 def parse_sli(txt):
-    """-> dict(lanes=[(querlage, richtung)], cw=halbe Fahrbahnbreite, half=halbe Gesamtbreite)"""
+    """-> dict(lanes=[(querlage, richtung)], cw=halbe Fahrbahnbreite, half=halbe Gesamtbreite,
+    cl/cr = Fahrbahnkante links/rechts, ol/or_ = Aussenkante links/rechts (Querlage, links negativ),
+    walks=[Querlage der Gehwegpfade])"""
     L = [l.strip() for l in txt.replace('\r', '').split('\n')]
-    lanes, asph, total = [], [], []
+    lanes, asph, total, walks = [], [], [], []
     for i, l in enumerate(L):
         if l == '[path]' and L[i + 1] == '0':                  # Typ 0 = Fahrzeugpfad
             lanes.append((float(L[i + 2]), int(L[i + 5])))
+        if l == '[path]' and L[i + 1] == '1':                  # Typ 1 = Gehweg
+            walks.append(float(L[i + 2]))
         if l == '[heightprofile]':
             a, b, h1 = float(L[i + 1]), float(L[i + 2]), float(L[i + 3])
             total += [a, b]
             if h1 < 0.2:                                      # Fahrbahnhoehe (Gehweg liegt hoeher)
                 asph += [a, b]
-    return dict(lanes=lanes,
-                cw=max(abs(min(asph)), abs(max(asph))) if asph else 3.0,
-                half=max(abs(min(total)), abs(max(total))) if total else 7.0)
+    asph = asph or [-3.0, 3.0]
+    total = total or [-7.0, 7.0]
+    return dict(lanes=lanes, walks=walks,
+                cw=max(abs(min(asph)), abs(max(asph))), half=max(abs(min(total)), abs(max(total))),
+                cl=min(asph), cr=max(asph), ol=min(total), or_=max(total))
 
 
 class SplineDB(dict):

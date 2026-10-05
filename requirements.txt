@@ -2,3 +2,4 @@ numpy
 requests
 matplotlib
 pytest
+shapely>=2.1

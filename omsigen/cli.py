@@ -10,7 +10,7 @@ from .route import Projection, route, corridor
 from .network import build
 from .splinedb import SplineDB
 from .writer import write_map, place_stops, install_splines
-from .check import validate, preview
+from . import ansicht, kreuzung
 
 
 def main(argv=None):
@@ -29,6 +29,8 @@ def main(argv=None):
     ap.add_argument('--ueberschreiben', action='store_true', help='vorhandenen Kartenordner mit gleichem Namen ersetzen')
     ap.add_argument('--vorschau', default=None, help='PNG-Draufsicht hierhin schreiben')
     ap.add_argument('--ansicht', default=None, help='interaktive HTML-Ansicht aller Pfade hierhin schreiben')
+    ap.add_argument('--kreuzungen', choices=['objekt', 'spline'], default='objekt',
+                    help='Kreuzungen als eigene Objekte mit Flaeche (Standard) oder nur aus Spur-Splines (alt)')
     a = ap.parse_args(argv)
 
     print('1/6 Orte suchen ...')
@@ -70,37 +72,53 @@ def main(argv=None):
     stops = place_stops(stops_m, net['road_chains'], sdb)
 
     print('5/6 Karte schreiben ...')
-    target = os.path.join(a.omsi, 'maps') if a.omsi else os.path.join(a.ausgabe, 'maps')
-    if a.omsi:
-        install_splines(a.omsi)
+    root = a.omsi if a.omsi else a.ausgabe
+    target = os.path.join(root, 'maps')
+    os.makedirs(root, exist_ok=True)
+    install_splines(root)
+    chains, junctions = net['road_chains'], []
+    if a.kreuzungen == 'objekt':
+        junctions = kreuzung.build_objects(net, sdb, a.name)
     else:
-        os.makedirs(a.ausgabe, exist_ok=True)
-        install_splines(a.ausgabe)
+        chains = chains + net['conn_chains']
     desc = (f'Automatisch erzeugt mit omsigen: {a.von} -> {a.nach}' + (f' ({a.stadt})' if a.stadt else '') +
             f', Korridor {a.breite:.0f} m.\nStrassendaten (c) OpenStreetMap-Mitwirkende, ODbL.')
-    info = write_map(target, a.name, net['road_chains'] + net['conn_chains'], stops, omsi_dir=a.omsi,
-                     friendly=a.titel or a.name, description=desc, cam_xz=line[0], overwrite=a.ueberschreiben)
+    if junctions:     # vor der Karte pruefen, ob der Objektordner frei ist
+        kdir = os.path.join(root, 'Sceneryobjects', 'Aschaffenburg_KI', a.name)
+        if os.path.exists(kdir) and not a.ueberschreiben:
+            raise FileExistsError(f'Objektordner {kdir} existiert schon - anderen Kartennamen waehlen')
+    info = write_map(target, a.name, chains, stops, omsi_dir=a.omsi, friendly=a.titel or a.name,
+                     description=desc, cam_xz=line[0], overwrite=a.ueberschreiben, junctions=junctions)
+    if junctions:
+        kdir, _ = kreuzung.install_objects(root, a.name, junctions, omsi_dir=a.omsi, overwrite=a.ueberschreiben)
     with open(os.path.join(info['dir'], 'omsigen.json'), 'w', encoding='utf-8') as f:
         json.dump(dict(args=vars(a), origin=[proj.lat0, proj.lon0], offset=info['offset'], length_m=length,
                        stats=st), f, ensure_ascii=False, indent=1)
-    print(f'    {info["dir"]}: {info["tiles"]} Kacheln, {info["splines"]} Splines, {info["objects"]} Haltestellen')
+    print(f'    {info["dir"]}: {info["tiles"]} Kacheln, {info["splines"]} Splines, '
+          f'{len(junctions)} Kreuzungsobjekte, {len(stops)} Haltestellen')
+    if junctions:
+        print(f'    Kreuzungsobjekte: {kdir} ({sum(j["faces"] for j in junctions)} Dreiecke, '
+              f'{sum(j["paths"] for j in junctions)} Pfade)')
 
     print('6/6 Pruefen ...')
     ox, oz = info['offset']
-    res = validate(info['dir'], sdb, edge_points=[(x - ox, z - oz) for x, z in cuts])
-    print(f'    {res["lane_ends"]} Spurenden, ohne Anschluss: {len(res["open"])} '
-          f'(+ {len(res["dead_ends"])} Strassenenden am Rand/Sackgassen)')
-    for p, h, sid in res['open'][:10]:
-        print(f'      offen: Spline {sid} bei x={p[0]:.1f} z={p[1]:.1f}')
+    r = ansicht.analyse(info['dir'], a.omsi)
+    offen, enden = ansicht.classify(r['lanes'], r['ends'], edge_points=[(x - ox, z - oz) for x, z in cuts])
+    se = r['summary']['Strasse_enden']
+    print(f'    {se["gesamt"]} Spurenden, ohne Anschluss: {len(offen)} (+ {len(enden)} Strassenenden am '
+          f'Rand/Sackgassen)')
+    for e in offen[:10]:
+        src = r['lanes'][e['lane']]['src']
+        print(f'      offen: {src["art"]} {src["id"]} Pfad {src["pfad"]} bei x={e["p"][0]:.1f} z={e["p"][1]:.1f}')
+    if r['summary']['fehlende_dateien']:
+        print('    Nicht gefunden: ' + ', '.join(r['summary']['fehlende_dateien'][:5]))
     if a.vorschau:
-        preview(res, sdb, a.vorschau)
+        ansicht.write_png(a.vorschau, r['lanes'], r['roads'], r['objs'], r['ends'])
         print(f'    Vorschau: {a.vorschau}')
     if a.ansicht:
-        from . import ansicht
-        r = ansicht.analyse(info['dir'], a.omsi)
         ansicht.write_html(a.ansicht, r['m'], r['lanes'], r['roads'], r['objs'], r['ends'], r['summary'])
         print(f'    Ansicht: {a.ansicht}')
-    return 0 if not res['open'] else 2
+    return 0 if not offen else 2
 
 
 if __name__ == '__main__':

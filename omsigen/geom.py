@@ -157,3 +157,35 @@ def rechain(els, b=None, a=None, ha=None):
         if e[3] > 1e-6:
             e[2] = heading((e[0], e[1]), b)
     return els
+
+
+def fillet(p, hp, q, hq, r, spl=None):
+    """Eckausrundung: Gerade ab p (Richtung hp) bis vor den Schnittpunkt mit der Geraden, die in q mit Richtung hq
+    endet, Kreisbogen mit Radius <= r, Gerade bis q. -> Elemente oder None, wenn sich die Geraden nicht vor p und
+    vor q schneiden (dann passt keine Ausrundung)."""
+    th = norm180(hq - hp)
+    u, v = dvec(hp), dvec(hq)
+    if abs(th) < 0.5:                                    # (fast) gleiche Richtung: gerade durch, wenn auf Linie
+        side = (q[0] - p[0]) * u[1] - (q[1] - p[1]) * u[0]
+        return straight(p, q, spl) if abs(side) < 0.05 else None
+    if abs(th) > 179.0:
+        return None
+    # p + t u = q - s v  <=>  t u + s v = q - p
+    det = u[0] * v[1] - u[1] * v[0]
+    dx, dz = q[0] - p[0], q[1] - p[1]
+    t = (dx * v[1] - dz * v[0]) / det
+    s = (u[0] * dz - u[1] * dx) / det
+    if t < -0.01 or s < -0.01:
+        return None
+    t, s = max(t, 0.0), max(s, 0.0)
+    tn = math.tan(math.radians(abs(th)) / 2)
+    r = min(r, t / tn, s / tn)
+    T = r * tn
+    X = (p[0] + t * u[0], p[1] + t * u[1])
+    A = (X[0] - T * u[0], X[1] - T * u[1])
+    B = (X[0] + T * v[0], X[1] + T * v[1])
+    els = straight(p, A, spl)
+    if r > 0.01:
+        els.append([A[0], A[1], hp % 360, r * math.radians(abs(th)), r if th > 0 else -r, spl])
+    els += straight(B, q, spl)
+    return els

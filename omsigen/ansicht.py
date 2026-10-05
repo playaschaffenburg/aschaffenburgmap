@@ -365,6 +365,31 @@ def summary(m, lanes, objs, ends, inh):
     return s
 
 
+def classify(lanes, ends, edge_points=(), edge_radius=12.0, kind=0):
+    """Nicht verbundene Spurenden einordnen -> (offen, enden). 'enden' sind gewollte Strassenenden: am
+    Korridorrand (edge_points) oder Sackgassen mit wenigen Spurenden in 15 m Umkreis. Ein Ende mit Partner in
+    <= 5 m (Beinahe-Anschluss) ist immer offen."""
+    allp = [e['p'] for e in ends if lanes[e['lane']]['kind'] == kind]
+    g = collections.defaultdict(list)
+    for p in allp:
+        g[(int(p[0] // 5), int(p[1] // 5))].append(p)
+
+    def crowd(p):
+        cx, cz = int(p[0] // 5), int(p[1] // 5)
+        return sum(1 for dx in range(-3, 4) for dz in range(-3, 4) for q in g[(cx + dx, cz + dz)]
+                   if math.dist(p, q) < 15)
+    offen, enden = [], []
+    for e in ends:
+        if e['strict'] or lanes[e['lane']]['kind'] != kind:
+            continue
+        if e['naechster'] is None and (crowd(e['p']) <= 4 or
+                                       any(math.dist(e['p'], q) < edge_radius for q in edge_points)):
+            enden.append(e)
+        else:
+            offen.append(e)
+    return offen, enden
+
+
 def near_misses(lanes, ends, kind=0):
     """Spurenden, die einen Partner in <= 5 m haben, aber nicht streng verbunden sind (meist Fehler)"""
     out = []

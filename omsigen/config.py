@@ -5,15 +5,18 @@ KI = 'Splines\\Aschaffenburg_KI\\'    # eigene, vom Tool erzeugte Splines
 
 # Ersatzwerte fuer die Fahrspuren der benutzten Standard-Splines (aus den .sli-Dateien ausgelesen).
 # Werden benutzt, wenn keine OMSI-Installation angegeben ist (z. B. in Tests).
-# lanes: (Querlage in m, Richtung 0 = mit Splinerichtung / 1 = dagegen); cw = halbe Fahrbahnbreite; half = halbe Gesamtbreite
+# lanes: (Querlage in m, Richtung 0 = mit Splinerichtung / 1 = dagegen); cw = halbe Fahrbahnbreite; half = halbe Gesamtbreite;
+# walks: Querlage der Gehwegpfade. Alle Standardsplines sind symmetrisch (cl/cr/ol/or_ werden unten ergaenzt).
 FALLBACK_SPLINES = {
-    MARCEL + 'str_2spur_11m_SeeburgerStr1.sli': dict(lanes=[(-1.639, 1), (1.639, 0)], cw=5.5, half=10.5),
-    MARCEL + 'str_2spur_8m_altonaer1.sli': dict(lanes=[(-2.0, 1), (2.0, 0)], cw=4.0, half=7.0),
-    MARCEL + 'str_2spur_6m_staakener1.sli': dict(lanes=[(-1.5, 1), (1.5, 0)], cw=3.0, half=7.0),
-    MARCEL + 'str_3spur_12m_Charlottenstr1.sli': dict(lanes=[(-4.485, 1), (-1.485, 1), (1.485, 0)], cw=6.0, half=10.0),
-    MARCEL + 'str_4spur_12,5m_Heerstr1.sli': dict(lanes=[(-4.75, 1), (-1.609, 1), (1.609, 0), (4.75, 0)], cw=6.25, half=8.0),
-    MARCEL + 'str_2spur_13m_Omnibushof.sli': dict(lanes=[(-1.609, 1), (1.609, 0)], cw=6.5, half=10.5),
+    MARCEL + 'str_2spur_11m_SeeburgerStr1.sli': dict(lanes=[(-1.639, 1), (1.639, 0)], cw=5.5, half=10.5, walks=[-7.806, 7.806]),
+    MARCEL + 'str_2spur_8m_altonaer1.sli': dict(lanes=[(-2.0, 1), (2.0, 0)], cw=4.0, half=7.0, walks=[-5.384, 5.384]),
+    MARCEL + 'str_2spur_6m_staakener1.sli': dict(lanes=[(-1.5, 1), (1.5, 0)], cw=3.0, half=7.0, walks=[-4.845, 4.845]),
+    MARCEL + 'str_3spur_12m_Charlottenstr1.sli': dict(lanes=[(-4.485, 1), (-1.485, 1), (1.485, 0)], cw=6.0, half=10.0, walks=[-7.845, 7.845]),
+    MARCEL + 'str_4spur_12,5m_Heerstr1.sli': dict(lanes=[(-4.75, 1), (-1.609, 1), (1.609, 0), (4.75, 0)], cw=6.25, half=8.0, walks=[]),
+    MARCEL + 'str_2spur_13m_Omnibushof.sli': dict(lanes=[(-1.609, 1), (1.609, 0)], cw=6.5, half=10.5, walks=[-8.345, 8.345]),
 }
+for _v in FALLBACK_SPLINES.values():
+    _v.update(cl=-_v['cw'], cr=_v['cw'], ol=-_v['half'], or_=_v['half'])
 
 # Rang fuer die Wahl der Hauptrichtung und Kurvenradien je Strassenklasse
 RANK = {'trunk': 7, 'primary': 6, 'secondary': 5, 'secondary_link': 4, 'primary_link': 4, 'tertiary': 4,
@@ -27,16 +30,25 @@ DRIVABLE = {'motorway', 'motorway_link', 'trunk', 'trunk_link', 'primary', 'prim
             'service', 'busway'}
 
 
-def choose_spline(t, dual):
-    """t: OSM-Tags einer Strasse (nach osm.normalize), dual: Richtungsfahrbahn einer getrennten Strasse.
+WALK_SUFFIX = {(True, True): '', (False, True): '_rechts', (True, False): '_links', (False, False): '_ohne'}
+
+
+def is_oneway(t):
+    return t.get('oneway') in ('yes', '1', '-1', 'true') or t.get('junction') in ('roundabout', 'circular')
+
+
+def choose_spline(t, dual, walk=(True, True)):
+    """t: OSM-Tags einer Strasse (nach osm.normalize), dual: Richtungsfahrbahn einer getrennten Strasse,
+    walk: (links, rechts) Gehweg moeglich (nur fuer Einbahnstrassen, in Splinerichtung).
     -> (Splinepfad, Richtungszwang) mit +1 = Spline in OSM-Richtung, -1 = umgekehrt, 0 = egal"""
     hw = t.get('highway')
     lanes = _int(t.get('lanes'))
-    oneway = t.get('oneway') in ('yes', '1', '-1', 'true') or t.get('junction') in ('roundabout', 'circular')
-    if oneway:
+    if is_oneway(t):
         n = max(1, min(3, lanes or 1))
-        side = '_rechts' if (dual or t.get('junction') in ('roundabout', 'circular')) else ''
-        return KI + f'AB_einbahn_{n}spur{side}.sli', (-1 if t.get('oneway') == '-1' else +1)
+        wl, wr = walk
+        if dual or t.get('junction') in ('roundabout', 'circular'):
+            wl = False                      # Mittelstreifen bzw. Kreisinsel
+        return KI + f'AB_einbahn_{n}spur{WALK_SUFFIX[(wl, wr)]}.sli', (-1 if t.get('oneway') == '-1' else +1)
     lf, lb = _int(t.get('lanes:forward')), _int(t.get('lanes:backward'))
     if lanes == 3 and (lf, lb) in ((1, 2), (2, 1)):
         # Charlottenstr1: 2 Streifen gegen, 1 Streifen mit der Splinerichtung

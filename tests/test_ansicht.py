@@ -1,8 +1,6 @@
 import os
 from omsigen.ansicht import analyse, near_misses
 from omsigen.cli import main
-from omsigen.check import validate
-from omsigen.splinedb import SplineDB
 from omsigen.writer import write_utf16
 
 SAMPLE = os.path.join(os.path.dirname(__file__), '..', 'samples', 'aschaffenburg_hbf_citygalerie.json')
@@ -77,14 +75,11 @@ def test_beinahe_anschluss(tmp_path):
     assert r['summary']['Strasse_enden']['frei'] == 2
 
 
-def test_eigene_karte_wie_validate(tmp_path):
-    """Fuer omsigen-Karten: freie Strassenenden = Strassenenden aus check.validate, keine Beinahe-Anschluesse."""
+def test_eigene_karte(tmp_path):
+    """omsigen-Karte mit Kreuzungsobjekten: keine Beinahe-Anschluesse, HTML-Ansicht entsteht."""
     rc = main(['--von', '49.98053,9.14023', '--nach', '49.97790,9.14998', '--name', 'T', '--breite', '120',
                '--osm-datei', SAMPLE, '--ausgabe', str(tmp_path), '--ansicht', str(tmp_path / 'a.html')])
     assert rc == 0 and (tmp_path / 'a.html').exists()
-    d = str(tmp_path / 'maps' / 'T')
-    r = analyse(d)
-    se = r['summary']['Strasse_enden']
-    assert se['beinahe'] == 0
-    res = validate(d, SplineDB(), edge_points=[(0, 0)])
-    assert se['frei'] == len(res['open']) + len(res['dead_ends'])
+    r = analyse(str(tmp_path / 'maps' / 'T'))
+    assert r['summary']['Strasse_enden']['beinahe'] == 0
+    assert r['summary']['objekte_mit_pfaden'] > 20

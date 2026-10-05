@@ -116,8 +116,17 @@ warten auf den Gegenverkehr. In Grundorf hängen alle 53 `priority`-Regeln an Kr
 ## Kreuzungsobjekte `.sco` (so bauen die Standardkarten Kreuzungen)
 
 Grundorf und Spandau verwenden fertige Kreuzungsobjekte: eine Platte (`[mesh]`) mit eigenen Pfaden, an die die
-Straßen-Splines heranführen. omsigen macht es bisher anders (Kreuzungsspuren als kleine Splines), beides
-funktioniert über die Endpunkt-Verbindung.
+Straßen-Splines heranführen. omsigen macht es seit Okt. 2026 genauso (`omsigen/kreuzung.py`):
+
+- `Sceneryobjects\Aschaffenburg_KI\<Karte>\K_nnn.sco`, Modell in `model\K_nnn.x`, Texturen in `texture\`
+  (kopiert aus `Splines\Marcel	exture`). Kopf wie `Kreuz_MC\Einm_See.sco`: `[rendertype] surface`,
+  `[LightMapMapping]`, `[fixed]`, `[surface]`.
+- Objekt am Kreuzungsmittelpunkt, Drehung 0; Modell-Koordinaten x = Ost, y = Höhe, z = Nord (Direct3D: x rechts,
+  y oben, z vorwärts). Fahrbahn 0,10 m, Gehweg 0,25 m hoch, senkrechte Bordsteinflächen dazwischen.
+- Dreiecke im Uhrzeigersinn von der Sichtseite aus (Direct3D-Vorderseite); geprüft im openOMSI-Spielbild.
+- `.x`-Modelle (Textformat `xof 0302txt`) liest OMSI wie `.o3d` (Standardobjekte, z. B. `Aachen_Gruenzeug\Baum1.sco`).
+- Nur Pfade **eines** Kreuzungsobjekts werden auf Konflikte (Vorfahrt) geprüft *[openOMSI: `compute_conflicts`]*:
+  mit Kreuzungsobjekten meldet openOMSI für Aschaffenburg_Live_v2 101 Konfliktpaare, mit Spline-Kreuzungen 0.
 
 `[path]` in einer `.sco`, 12 Zeilen *[openOMSI]*, geprüft an `Einm_See.sco`:
 
