@@ -1,0 +1,6 @@
+__pycache__/
+*.pyc
+.cache/
+build/
+vorschau*.png
+.pytest_cache/

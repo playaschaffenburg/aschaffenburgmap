@@ -1,0 +1,15 @@
+[project]
+name = "omsigen"
+version = "0.1.0"
+description = "Reale Strecken aus OpenStreetMap als OMSI-2-Karte erzeugen"
+requires-python = ">=3.9"
+dependencies = ["numpy", "requests", "matplotlib"]
+
+[project.scripts]
+omsigen = "omsigen.cli:main"
+
+[tool.setuptools]
+packages = ["omsigen"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
