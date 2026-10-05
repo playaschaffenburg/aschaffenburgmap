@@ -4,13 +4,13 @@ Beispiel:
   python -m omsigen --omsi "C:/Program Files (x86)/Steam/steamapps/common/OMSI 2" \\
       --stadt Aschaffenburg --von "Hauptbahnhof" --nach "City Galerie" --name Aschaffenburg_Test
 """
-import argparse, json, os, sys, math
+import argparse, collections, json, os, sys, math
 from . import osm
 from .route import Projection, route, corridor
 from .network import build
 from .splinedb import SplineDB
 from .writer import write_map, place_stops, install_splines
-from . import ansicht, kreuzung
+from . import ansicht, kreuzung, vorfahrt
 
 
 def main(argv=None):
@@ -29,6 +29,7 @@ def main(argv=None):
     ap.add_argument('--ueberschreiben', action='store_true', help='vorhandenen Kartenordner mit gleichem Namen ersetzen')
     ap.add_argument('--vorschau', default=None, help='PNG-Draufsicht hierhin schreiben')
     ap.add_argument('--ansicht', default=None, help='interaktive HTML-Ansicht aller Pfade hierhin schreiben')
+    ap.add_argument('--korrekturen', help='JSON-Datei mit Korrekturen (Vorfahrt), siehe korrekturen/beispiel.json')
     ap.add_argument('--kreuzungen', choices=['objekt', 'spline'], default='objekt',
                     help='Kreuzungen als eigene Objekte mit Flaeche (Standard) oder nur aus Spur-Splines (alt)')
     a = ap.parse_args(argv)
@@ -58,7 +59,9 @@ def main(argv=None):
     print('4/6 Strassennetz und Kreuzungen bauen ...')
     ways, cuts = corridor(data['ways'], proj, line, a.breite)
     sdb = SplineDB(a.omsi)
-    net = build(ways, sdb)
+    signs = [dict(kind=g['kind'], p=proj.to_m(g['lat'], g['lon']), direction=g.get('direction'))
+             for g in data.get('signs', [])]
+    net = build(ways, sdb, signs)
     st = net['stats']
     print(f'    {len(net["road_chains"])} Strassenzuege, {st["kreuzungen"]} Kreuzungen, '
           f'{st["verbindungen"]} Kreuzungsspuren {st["bewegungen"]}')
@@ -78,7 +81,12 @@ def main(argv=None):
     install_splines(root)
     chains, junctions = net['road_chains'], []
     if a.kreuzungen == 'objekt':
-        junctions = kreuzung.build_objects(net, sdb, a.name)
+        junctions = kreuzung.build_objects(net, sdb, a.name, vorfahrt.load_corrections(a.korrekturen), proj.to_ll)
+        V = [j['vorfahrt'] for j in junctions if j['vorfahrt']]
+        q = collections.Counter(v['quelle'] for v in V)
+        print(f'    Vorfahrt: {len(signs)} Schilder/Ampeln aus OSM; Quelle je Kreuzung: ' +
+              ', '.join(f'{k} {n}' for k, n in q.most_common()) +
+              f" (davon mit Ampel {sum(v['ampel'] for v in V)})")
     else:
         chains = chains + net['conn_chains']
     desc = (f'Automatisch erzeugt mit omsigen: {a.von} -> {a.nach}' + (f' ({a.stadt})' if a.stadt else '') +
@@ -93,7 +101,10 @@ def main(argv=None):
         kdir, _ = kreuzung.install_objects(root, a.name, junctions, omsi_dir=a.omsi, overwrite=a.ueberschreiben)
     with open(os.path.join(info['dir'], 'omsigen.json'), 'w', encoding='utf-8') as f:
         json.dump(dict(args=vars(a), origin=[proj.lat0, proj.lon0], offset=info['offset'], length_m=length,
-                       stats=st), f, ensure_ascii=False, indent=1)
+                       stats=st, kreuzungen=[dict(j['vorfahrt'], objekt=j['name'], x=j['origin'][0] - info['offset'][0],
+                                                   z=j['origin'][1] - info['offset'][1])
+                                              for j in junctions if j['vorfahrt']]),
+                  f, ensure_ascii=False, indent=1)
     print(f'    {info["dir"]}: {info["tiles"]} Kacheln, {info["splines"]} Splines, '
           f'{len(junctions)} Kreuzungsobjekte, {len(stops)} Haltestellen')
     if junctions:
@@ -116,7 +127,8 @@ def main(argv=None):
         ansicht.write_png(a.vorschau, r['lanes'], r['roads'], r['objs'], r['ends'])
         print(f'    Vorschau: {a.vorschau}')
     if a.ansicht:
-        ansicht.write_html(a.ansicht, r['m'], r['lanes'], r['roads'], r['objs'], r['ends'], r['summary'])
+        ansicht.write_html(a.ansicht, r['m'], r['lanes'], r['roads'], r['objs'], r['ends'], r['summary'],
+                           r['kreuzungen'])
         print(f'    Ansicht: {a.ansicht}')
     return 0 if not offen else 2
 

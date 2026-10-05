@@ -103,8 +103,11 @@ def write_map(out_maps_dir, name, chains, stops, omsi_dir=None, friendly=None, d
     for j in junctions:          # Kreuzungsobjekt: Drehung 0, Hoehe 0, keine Texte
         x, z = j['origin'][0] - ox, j['origin'][1] - oz
         t = (int(x // TILE), int(z // TILE))
-        objs[t].append(['[object]', '0', j['rel'], str(nid), fmt(x - TILE * t[0]), fmt(z - TILE * t[1]), '0', '0',
-                        '0', '0', '0', ''])
+        blk = ['[object]', '0', j['rel'], str(nid), fmt(x - TILE * t[0]), fmt(z - TILE * t[1]), '0', '0',
+               '0', '0', '0', '']
+        for idx, val in j.get('rules', ()):     # Vorfahrt: [rule] gilt fuer den Pfad idx des Objekts davor
+            blk += ['[rule]', str(idx), 'priority', str(val), '0', '']
+        objs[t].append(blk)
         nid += 1
     # Nachbarkacheln mit anlegen, damit rundherum Gelaende ist
     used = set(tiles) | set(objs)

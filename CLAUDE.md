@@ -30,6 +30,12 @@ Projekt: `omsigen` erzeugt OMSI-2-Karten aus OpenStreetMap (siehe README.md). Sp
 - Kreuzungen sind eigene Objekte (`omsigen/kreuzung.py`: .sco + .x-Modell + Pfade), wie in den Standardkarten.
   Nur so erkennt die KI Vorfahrtskonflikte, und nur dort gibt es Ampeln.
 
+## Vorfahrt
+
+Regelwerk in `omsigen/vorfahrt.py` (Reihenfolge: Korrektur, Kreisel, Schild, Vorfahrtstraße, StVO, Vermutung).
+Vermutete Kreuzungen in der HTML-Ansicht orange; Nutzer korrigiert über `korrekturen/*.json`. Muster der
+Prioritäten aus der Kartenstudie (docs/kartenstudie.md), nicht ändern ohne neue Auswertung.
+
 ## Pfad-Konventionen beim Nutzer
 
 - OMSI: `C:\Program Files (x86)\Steam\steamapps\common\OMSI 2`
@@ -38,4 +44,4 @@ Projekt: `omsigen` erzeugt OMSI-2-Karten aus OpenStreetMap (siehe README.md). Sp
 
 ## Nächste Schritte (Roadmap im README)
 
-Vorfahrt/Ampeln → Fußwege an Kreuzungen → Höhen → Haltestellen/Linien/Fahrpläne aus GTFS → Gebäude.
+Ampeln → Fußgängerquerungen → Höhen → Haltestellen/Linien/Fahrpläne aus GTFS → Gebäude.

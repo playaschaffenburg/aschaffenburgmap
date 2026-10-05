@@ -14,6 +14,7 @@ import shapely
 from shapely.geometry import Polygon, LineString, Point
 from shapely.ops import unary_union
 from .geom import end_of, rvec, dvec, heading, connect, sample, norm180, fillet
+from . import vorfahrt
 
 ASPH_H, WALK_H = 0.10, 0.25          # Hoehe Fahrbahn / Gehweg wie in den Splines
 U_KERB, U_OUT = 0.953, 0.187         # str_side1.bmp: u an der Bordsteinkante / 3,5 m weiter aussen
@@ -248,8 +249,9 @@ def sco_text(name, mesh_file, moves, walks):
 BLINKER = {'links': 2, 'rechts': 3}
 
 
-def build_objects(net, sdb, map_name):
-    """-> Liste dict(name, origin (Welt), sco, x, paths, rel) fuer alle Kreuzungen des Netzes"""
+def build_objects(net, sdb, map_name, korrekturen=(), to_ll=None):
+    """-> Liste dict(name, origin (Welt), sco, x, paths, rel, rules, vorfahrt) fuer alle Kreuzungen des Netzes.
+    to_ll: (x, z) -> (lat, lon) fuer Korrekturdatei und Bericht"""
     moves_at = {}
     for c in net['conn_chains']:
         moves_at.setdefault(c.get('node'), []).append(c)
@@ -259,15 +261,30 @@ def build_objects(net, sdb, map_name):
         if J is None or J['asphalt'].is_empty:
             continue
         O = J['origin']
-        moves = []
+        ll = to_ll(*O) if to_ll else None
+        kor = vorfahrt.match_correction(korrekturen, *ll) if (ll and korrekturen) else None
+        V_ = vorfahrt.decide(arms, net.get('node_flags', {}).get(k, ()), kor) if len(arms) >= 3 else None
+        n_haupt = V_['rollen'].count(vorfahrt.HAUPT) if V_ else 0
+        moves, rules, idx = [], [], 0
         for c in moves_at.get(k, []):
             els = [[e[0] - O[0], e[1] - O[1]] + list(e[2:5]) for e in c['els']]
             moves.append((els, BLINKER.get(c.get('mv'), 0)))
+            if V_ and c.get('arms'):
+                ia, ib = c['arms']
+                pr = vorfahrt.priority(V_['rollen'][ia], V_['rollen'][ib], c.get('mv'), n_haupt)
+                if pr is not None:
+                    rules += [(idx + j, pr) for j in range(len(els))]
+            idx += len(els)
         V, F = mesh(J)
         name = f'K_{n + 1:03d}'
-        out.append(dict(name=name, origin=O, x=x_file(V, F), faces=len(F),
+        info = None
+        if V_:
+            info = dict(V_, lat=ll[0] if ll else None, lon=ll[1] if ll else None, x=O[0], z=O[1],
+                        arme=[dict(name=a['name'], strasse=a['tags'].get('highway'), schild=a['sign'], rolle=r)
+                              for a, r in zip(arms, V_['rollen'])])
+        out.append(dict(name=name, origin=O, x=x_file(V, F), faces=len(F), rules=rules, vorfahrt=info,
                         sco=sco_text(f'{map_name} Kreuzung {n + 1}', name + '.x', moves, J['walks']),
-                        paths=sum(len(m[0]) for m in moves) + sum(len(w) for w in J['walks']),
+                        paths=idx + sum(len(w) for w in J['walks']),
                         rel=f'Sceneryobjects\\Aschaffenburg_KI\\{map_name}\\{name}.sco', geom=J))
     return out
 

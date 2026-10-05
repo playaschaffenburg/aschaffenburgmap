@@ -26,6 +26,8 @@ Die Karte erscheint danach in OMSI bzw. im nEditor unter dem angegebenen Namen. 
 | `--omsi` | OMSI-Ordner: Karte und eigene Splines werden direkt installiert |
 | `--ausgabe` | ohne `--omsi`: Ausgabe in diesen Ordner (Standard `build/`) |
 | `--osm-datei` | Daten aus Datei statt Download, z. B. `samples/aschaffenburg_hbf_citygalerie.json` |
+| `--korrekturen` | eigene Korrekturen (Vorfahrt), JSON |
+| `--ansicht` | interaktive HTML-Ansicht der fertigen Karte |
 
 Ohne Internet/OMSI ausprobieren:
 
@@ -61,12 +63,18 @@ Kreuzungsobjekte; Klick auf eine Spur zeigt Spline/Objekt, Datei, Kachel und Pfa
   Geradeaus- und Gehwegpfade, die exakt an die Straßen anschließen; Mittelinseln bei getrennten Fahrbahnen,
   Kreisverkehre (`--kreuzungen spline` baut noch wie früher nur aus Spur-Splines)
 - Gehwege an Einbahnstraßen nur dort, wo daneben Platz ist (Bypässe, Richtungsfahrbahnen)
+- **Vorfahrt nach realem Vorbild** (`omsigen/vorfahrt.py`): aus OSM-Schildern (Vorfahrt gewähren, Stopp),
+  Vorfahrtstraßen (`priority_road`), Kreisverkehren, StVO-Regeln (Tempo-30-Zone, Ausfahrt aus Zufahrten) und
+  zuletzt der Straßenklasse. Prioritäten wie in den Standardkarten (192/64, siehe docs/kartenstudie.md). Jede
+  Kreuzung vermerkt ihre Quelle; die HTML-Ansicht zeigt sie farbig (orange = nur vermutet).
+- **Korrekturdatei** `--korrekturen korrekturen/<stadt>.json`: Hauptstraße oder „rechts vor links“ je Kreuzung
+  festlegen (Vorlage: `korrekturen/beispiel.json`, Koordinaten per Klick in der HTML-Ansicht)
 - Haltestellenschilder an den OSM-Haltestellen
 - automatische Prüfung jedes Spurendes + Draufsicht als PNG
 
 ## Noch offen (Roadmap)
 
-1. Vorfahrt / Ampeln an Kreuzungen
+1. Ampeln (Phasen, Signalobjekte) – Vorfahrt ist erledigt
 2. Fußwege über die Fahrbahn (Zebrastreifen/Querungen); um die Ecken sind sie verbunden
 3. Höhen (SRTM bzw. amtliches DGM)
 4. Haltestellen mit Haltepunkten, Linien und Fahrplänen (aus GTFS-Daten)
@@ -82,6 +90,8 @@ omsigen/
   route.py          Projektion, Routing (Dijkstra), Korridor
   network.py        Kanten, Knoten, Kreisverkehre, Kürzen, Ketten, Kreuzungsspuren
   kreuzung.py       Kreuzungsobjekte: Fläche, Bordsteine, Pfade -> .sco + .x
+  vorfahrt.py       Vorfahrt je Kreuzung (Schilder, Vorfahrtstraßen, StVO, Korrekturen)
+  studie.py         vorhandene OMSI-Karten auswerten (docs/kartenstudie.md)
   geom.py           Geraden/Bögen/Doppelbögen in OMSI-Konvention
   config.py         welche Spline für welche Straße
   custom_splines.py eigene .sli (Einbahnstraßen, Kreuzungsspuren)

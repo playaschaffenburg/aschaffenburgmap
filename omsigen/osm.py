@@ -6,6 +6,8 @@ from .config import DRIVABLE
 UA = 'omsigen/0.1 (OMSI-2-Kartengenerator; https://github.com/playaschaffenburg/aschaffenburgmap)'
 NOMINATIM = 'https://nominatim.openstreetmap.org/search'
 OVERPASS = 'https://overpass-api.de/api/interpreter'
+# Ausweichserver, falls der Hauptserver ueberlastet ist (wird reihum versucht)
+OVERPASS_ALT = ['https://overpass.private.coffee/api/interpreter', 'https://overpass.kumi.systems/api/interpreter']
 
 
 def _requests():
@@ -103,7 +105,7 @@ def fetch(bbox, cache_dir=None):
     """bbox = (sued, west, nord, ost) -> normalisierte Daten (siehe normalize)"""
     s, w, n, e = bbox
     b = f'{s:.6f},{w:.6f},{n:.6f},{e:.6f}'
-    cached = _cache_get(cache_dir, 'osm', b)
+    cached = _cache_get(cache_dir, 'osm2', b)
     if cached:
         return cached
     q = f"""[out:json][timeout:120];
@@ -111,37 +113,72 @@ def fetch(bbox, cache_dir=None):
   way["highway"]({b});
   node["highway"="bus_stop"]({b});
   node["public_transport"="platform"]["bus"="yes"]({b});
+  node["highway"~"^(give_way|stop|traffic_signals|mini_roundabout)$"]({b});
+  node["traffic_sign"]({b});
 );
 out tags geom;"""
-    for attempt in range(4):
-        r = _requests().post(OVERPASS, data={'data': q}, headers={'User-Agent': UA}, timeout=180)
-        if r.status_code in (429, 504):
-            time.sleep(10 * (attempt + 1))
+    servers = [OVERPASS] + OVERPASS_ALT
+    req, last = _requests(), None
+    for attempt in range(2 * len(servers)):
+        url = servers[attempt % len(servers)]
+        try:
+            r = req.post(url, data={'data': q}, headers={'User-Agent': UA}, timeout=180)
+        except req.exceptions.RequestException as ex:      # Zeitueberschreitung, Verbindung
+            last = type(ex).__name__
+            continue
+        if r.status_code in (429, 502, 503, 504):
+            last = f'HTTP {r.status_code}'
+            time.sleep(5 * (attempt // len(servers) + 1))
             continue
         r.raise_for_status()
         break
     else:
-        raise RuntimeError(f'Overpass-Server ueberlastet (HTTP {r.status_code}), bitte spaeter erneut versuchen')
+        raise RuntimeError(f'Overpass-Server ueberlastet ({last}), bitte spaeter erneut versuchen')
     js = r.json()
     if 'runtime error' in js.get('remark', ''):   # Abbruch auf dem Server -> Daten unvollstaendig
         raise RuntimeError(f'Overpass-Abfrage abgebrochen: {js["remark"]}')
     data = normalize(js, bbox)
-    _cache_put(cache_dir, 'osm', b, data)
+    _cache_put(cache_dir, 'osm2', b, data)
     return data
 
 
+# Verkehrszeichen (StVO-Nummern in traffic_sign=DE:...) -> Art fuer die Vorfahrt
+SIGN_CODES = {'205': 'give_way', '206': 'stop', '306': 'priority_road', '301': 'priority_next',
+              '215': 'roundabout'}
+
+
+def sign_kind(t):
+    """Vorfahrt-relevante Art eines OSM-Punkts oder None"""
+    hw = t.get('highway')
+    if hw in ('give_way', 'stop', 'mini_roundabout'):
+        return hw
+    if hw == 'traffic_signals' or t.get('crossing') == 'traffic_signals' and hw != 'crossing':
+        return 'signals'
+    for part in str(t.get('traffic_sign', '')).replace(';', ',').split(','):
+        code = part.strip().split(':')[-1].split('-')[0].split('[')[0]
+        if part.strip().upper().startswith('DE:') or part.strip()[:1].isdigit():
+            if code in SIGN_CODES:
+                return SIGN_CODES[code]
+    return None
+
+
 def normalize(overpass_json, bbox=None):
-    ways, stops = [], []
+    ways, stops, signs = [], [], []
     for el in overpass_json.get('elements', []):
         t = el.get('tags', {})
         if el['type'] == 'node':
-            if t.get('name'):
+            k = sign_kind(t)
+            if k:
+                signs.append(dict(kind=k, lat=el['lat'], lon=el['lon'], direction=t.get('direction') or
+                                  t.get('traffic_signals:direction') or t.get('traffic_sign:direction')))
+            if t.get('name') and (t.get('highway') == 'bus_stop' or t.get('public_transport') == 'platform'):
                 stops.append(dict(name=t['name'], lat=el['lat'], lon=el['lon']))
         elif el['type'] == 'way' and 'geometry' in el:
             tt = classify(t)
             if tt:
                 ways.append(dict(id=el['id'], tags=tt, coords=[[p['lat'], p['lon']] for p in el['geometry']]))
-    return dict(source='OpenStreetMap (ODbL)', bbox=list(bbox) if bbox else None, ways=ways, stops=stops)
+    return dict(source='OpenStreetMap (ODbL)', bbox=list(bbox) if bbox else None, ways=ways, stops=stops,
+                signs=signs)
 
 
 def classify(t, include_service=False):
@@ -152,7 +189,8 @@ def classify(t, include_service=False):
     bus = t.get('psv') in ('yes', 'designated') or t.get('bus') in ('yes', 'designated') or hw == 'busway'
     tt = {k: v for k, v in t.items() if k in (
         'highway', 'name', 'lanes', 'lanes:forward', 'lanes:backward', 'oneway', 'junction', 'layer',
-        'tunnel', 'bridge', 'service', 'access', 'psv', 'bus', 'covered')}
+        'tunnel', 'bridge', 'service', 'access', 'psv', 'bus', 'covered', 'priority_road', 'maxspeed',
+        'zone:maxspeed', 'zone:traffic')}
     if hw == 'service' or hw == 'busway':
         if bus and t.get('access') in ('no', 'private', None) and (t.get('psv') or t.get('bus') or hw == 'busway'):
             tt['highway'] = 'bus'

@@ -1,0 +1,17 @@
+{
+  "hinweis": "Korrekturen fuer omsigen: --korrekturen korrekturen/<datei>.json. Koordinaten einer Kreuzung zeigt die HTML-Ansicht (--ansicht) beim Klick auf den Kreuzungspunkt. Gilt fuer die Kreuzung im Umkreis von 30 m.",
+  "vorfahrt": [
+    {
+      "lat": 49.979812,
+      "lon": 9.146213,
+      "haupt": ["Elisenstraße"],
+      "notiz": "Beispiel: Elisenstraße ist Vorfahrtstraße, alle anderen Arme warten"
+    },
+    {
+      "lat": 49.977350,
+      "lon": 9.148020,
+      "regel": "rechts_vor_links",
+      "notiz": "Beispiel: hier gilt rechts vor links"
+    }
+  ]
+}

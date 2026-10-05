@@ -442,7 +442,11 @@ def write_png(path, lanes, roads, objs, ends, bereich=None, titel=''):
     plt.close(fig)
 
 
-def write_html(path, m, lanes, roads, objs, ends, s):
+QUELLE_FARBE = {'OSM Schild': '#1f9e3a', 'OSM Vorfahrtstrasse': '#1f6fd6', 'Korrektur': '#8e44ad',
+                'vermutet': '#ff8c00', 'OSM Mini-Kreisel': '#17a2b8'}     # StVO-Regeln: grau
+
+
+def write_html(path, m, lanes, roads, objs, ends, s, kreuzungen=()):
     def r1(v):
         return round(v, 2)
     L = []
@@ -459,6 +463,9 @@ def write_html(path, m, lanes, roads, objs, ends, s):
                -1 if e['naechster'] is None else r1(e['naechster'][0]),
                -1 if e['naechster'] is None else r1(e['naechster'][1])] for e in ends
               if not e['strict'] and e['naechster'] is not None],
+        kreuz=[[r1(k['x']), r1(k['z']), k['quelle'], k['text'], int(k.get('ampel', 0)),
+                [[a['name'], a['strasse'], a['schild'], a['rolle']] for a in k['arme']],
+                k.get('lat'), k.get('lon'), QUELLE_FARBE.get(k['quelle'], '#888888')] for k in kreuzungen],
         stats=s)
     html = HTML.replace('__TITLE__', m['name']).replace('__DATA__', json.dumps(data, ensure_ascii=False,
                                                                                separators=(',', ':')))
@@ -496,6 +503,7 @@ color:var(--ink);cursor:pointer}
 <label><input type="checkbox" id="lPrio" checked> Vorfahrt</label>
 <label><input type="checkbox" id="lObj" checked> Objekte</label>
 <label><input type="checkbox" id="lBad" checked> Beinahe-Anschluesse</label>
+<label><input type="checkbox" id="lKr" checked> Vorfahrt-Quelle</label>
 <span><input type="text" id="q" placeholder="ID suchen"> <button id="go">Suchen</button> <button id="home">Ganz</button></span>
 </header>
 <div id="wrap"><canvas id="c"></canvas><div id="info"></div><div id="stats"></div></div>
@@ -533,6 +541,9 @@ function draw(){ctx.fillStyle=css('--bg');ctx.fillRect(0,0,W,H);ctx.lineCap='but
  if(on('lBad')){ctx.strokeStyle=css('--bad');ctx.lineWidth=2;for(const e of D.ends){const x=X(e[0]),z=Z(e[1]);
   ctx.beginPath();ctx.moveTo(x-6,z-6);ctx.lineTo(x+6,z+6);ctx.moveTo(x+6,z-6);ctx.lineTo(x-6,z+6);ctx.stroke();}}
  if(sel){ctx.strokeStyle='#ff00ff';ctx.lineWidth=lw*4;poly(sel[2]);ctx.stroke();}
+ if(on('lKr')){for(const k of D.kreuz){const x=X(k[0]),z=Z(k[1]);if(x<-9||x>W+9||z<-9||z>H+9)continue;
+  ctx.beginPath();ctx.arc(x,z,7,0,7);ctx.fillStyle=k[8];ctx.fill();ctx.lineWidth=k[4]?3:1;
+  ctx.strokeStyle=k[4]?'#d000d0':'#fff';ctx.stroke();}}
 }
 function arrows(l){const p=l[2],n=p.length/2;if(n<2)return;const m=Math.floor((n-1)/2)*2;const x0=p[m],z0=p[m+1],x1=p[m+2],z1=p[m+3];
  let a=Math.atan2(-(z1-z0),x1-x0);if(l[1]===1)a+=Math.PI;const x=X((x0+x1)/2),z=Z((z0+z1)/2),r=Math.min(8,s*0.8);
@@ -554,7 +565,16 @@ let drag=null;
 cv.addEventListener('mousedown',e=>{drag=[e.clientX,e.clientY,cx,cz,false];cv.style.cursor='grabbing';});
 addEventListener('mousemove',e=>{if(!drag)return;const dx=e.clientX-drag[0],dy=e.clientY-drag[1];if(Math.abs(dx)+Math.abs(dy)>3)drag[4]=true;
  cx=drag[2]-dx/s;cz=drag[3]+dy/s;draw();});
-addEventListener('mouseup',e=>{if(drag&&!drag[4]){const r=cv.getBoundingClientRect();const [l,wx,wz]=pick(e.clientX-r.left,e.clientY-r.top);show(l,wx,wz);}
+function pickK(mx,my){if(!on('lKr'))return null;for(const k of D.kreuz){if(Math.hypot(X(k[0])-mx,Z(k[1])-my)<9)return k;}return null;}
+function showK(k){sel=null;let t=`Kreuzung - Vorfahrt: ${k[2]}${k[4]?' (Ampel)':''}
+${k[3]}
+`;
+ for(const a of k[5])t+=`  ${a[3].padEnd(6)} ${a[0]||'(ohne Name)'} [${a[1]}]${a[2]?' Schild: '+a[2]:''}
+`;
+ if(k[6]!==null)t+=`lat ${k[6].toFixed(6)}, lon ${k[7].toFixed(6)}  (fuer die Korrekturdatei)`;
+ info.textContent=t;info.style.display='block';draw();}
+addEventListener('mouseup',e=>{if(drag&&!drag[4]){const r=cv.getBoundingClientRect();const mx=e.clientX-r.left,my=e.clientY-r.top;
+ const k=pickK(mx,my);if(k)showK(k);else{const [l,wx,wz]=pick(mx,my);show(l,wx,wz);}}
  drag=null;cv.style.cursor='grab';});
 cv.addEventListener('wheel',e=>{e.preventDefault();const r=cv.getBoundingClientRect(),mx=e.clientX-r.left,my=e.clientY-r.top;
  const wx=(mx-W/2)/s+cx,wz=cz-(my-H/2)/s,f=Math.exp(-e.deltaY*0.0015);s=Math.max(0.01,Math.min(200,s*f));
@@ -587,7 +607,12 @@ def analyse(map_dir, omsi=None):
     m = read_map(map_dir)
     lanes, roads, objs = build_lanes(m, inh)
     ends = check(lanes)
-    return dict(m=m, lanes=lanes, roads=roads, objs=objs, ends=ends, inhalte=inh,
+    kreuz = []
+    meta = os.path.join(map_dir, 'omsigen.json')
+    if os.path.exists(meta):                      # von omsigen erzeugte Karte: Vorfahrt-Herkunft je Kreuzung
+        with open(meta, encoding='utf-8') as f:
+            kreuz = json.load(f).get('kreuzungen', [])
+    return dict(m=m, lanes=lanes, roads=roads, objs=objs, ends=ends, inhalte=inh, kreuzungen=kreuz,
                 summary=summary(m, lanes, objs, ends, inh))
 
 
@@ -628,7 +653,7 @@ def main(argv=None):
         write_png(a.png, r['lanes'], r['roads'], r['objs'], r['ends'], bereich, f"{s['karte']}")
         print(f'PNG: {a.png}')
     if a.html:
-        write_html(a.html, r['m'], r['lanes'], r['roads'], r['objs'], r['ends'], s)
+        write_html(a.html, r['m'], r['lanes'], r['roads'], r['objs'], r['ends'], s, r['kreuzungen'])
         print(f'HTML: {a.html}')
     if a.json:
         with open(a.json, 'w', encoding='utf-8') as f:

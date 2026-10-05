@@ -24,6 +24,9 @@ def test_hbf_city_galerie(tmp_path):
     assert r['summary']['Strasse_enden']['beinahe'] == 0
     raw = (d / 'tile_0_0.map').read_bytes()
     assert raw[:2] == b'\xff\xfe'   # OMSI-Karten sind UTF-16
+    tiles = ''.join(p.read_bytes().decode('utf-16') for p in d.glob('tile_*.map'))
+    assert tiles.count('priority') > 20                       # Vorfahrt an den Kreuzungsobjekten
+    assert any(l['prio'] for l in r['lanes'])
 
 
 def test_alte_spline_kreuzungen(tmp_path):

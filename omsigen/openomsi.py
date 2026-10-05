@@ -21,6 +21,7 @@ PATTERNS = {
     'konflikte': r'path network: (\d+) conflicting lane pairs at crossings, (\d+) footpath crossings',
     'sackgassen': r'path network: (\d+) street lanes lead into a dead end',
     'fehlend': r'(\d+) unresolved',
+    'vorfahrt': r'(\d+) with a \[rule\] priority',
 }
 
 
@@ -73,6 +74,8 @@ def main(argv=None):
     if 'konflikte' in w:
         print(f"  Kreuzungskonflikte (nur in Kreuzungsobjekten): {w['konflikte'][0]}, "
               f"Fussweg-Querungen {w['konflikte'][1]}")
+    if 'vorfahrt' in w:
+        print(f"  Spuren mit Vorfahrtsregel ([rule] priority): {w['vorfahrt'][0]}")
     if 'sackgassen' in w:
         print(f"  Fahrspuren, die in <= 500 m in einer Sackgasse enden: {w['sackgassen'][0]}")
     for l in r['warnungen'][:10]:

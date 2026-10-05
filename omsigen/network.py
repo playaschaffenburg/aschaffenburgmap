@@ -47,8 +47,8 @@ def _closest(p, P):
     return best
 
 
-def build(ways_in, sdb):
-    """ways_in: Liste dict(tags, P=[(x,z),...]) in Metern. -> dict(road_chains, conn_chains, junctions, stats)
+def build(ways_in, sdb, signs=()):
+    """ways_in: Liste dict(tags, P=[(x,z),...]) in Metern; signs: Vorfahrt-Schilder/Ampeln dict(kind, p, direction). -> dict(road_chains, conn_chains, junctions, stats)
     Kette = dict(els=[[x, z, h, L, R, spline], ...], name, hw)"""
     ways = [dict(t=w['tags'], P=[tuple(p) for p in w['P']]) for w in ways_in
             if not (w['tags'].get('layer', '0') != '0' or w['tags'].get('tunnel') or w['tags'].get('bridge'))]
@@ -117,6 +117,7 @@ def build(ways_in, sdb):
 
     for e in edges:
         e['spl'], force = choose_spline(e['t'], e['dual'])
+        e['osm_rev'] = force == -1
         if force == -1:
             e['P'] = e['P'][::-1]
         e['force'] = force != 0
@@ -214,6 +215,61 @@ def build(ways_in, sdb):
                 break
         return heading(P[0], q)
 
+
+    # Vorfahrt-Schilder und Ampeln den Kantenenden zuordnen (vor dem Kuerzen: P reicht noch bis zum Knoten)
+    node_flags = collections.defaultdict(set)
+    for e in edges:
+        e['signs'] = {}
+    RANK_SIGN = {'stop': 3, 'give_way': 2, 'priority_road': 1, 'priority_next': 1}
+    for sg in signs:
+        p = sg['p']
+        near_jn = [k for k in JN if math.dist(p, k) < 2.5]
+        best = None
+        for e in edges:
+            acc = 0.0
+            for i in range(len(e['P']) - 1):
+                seg = math.dist(e['P'][i], e['P'][i + 1])
+                t_, d = proj_point(p, e['P'][i], e['P'][i + 1])
+                if d < 4 and (best is None or d < best[0]):
+                    best = (d, e, acc + t_ * seg, heading(e['P'][i], e['P'][i + 1]))
+                acc += seg
+        if best is None:
+            continue
+        d, e, s_al, h_fwd = best
+        L = plen(e['P'])
+        d0, d1 = s_al, L - s_al
+        if sg['kind'] in ('signals', 'mini_roundabout'):
+            k = e['n0'] if d0 <= d1 else e['n1']
+            if min(d0, d1) < 35:
+                node_flags[k].add(sg['kind'])
+            continue
+        if sg['kind'] in ('priority_road', 'priority_next'):
+            e['prio_road'] = True
+            continue
+        dirn = str(sg.get('direction') or '').strip().lower()
+        travel = None                                    # Fahrtrichtung des Verkehrs, fuer den das Schild gilt
+        try:
+            travel = (float(dirn) + 180) % 360           # Zahl = Blickrichtung des Schilds
+        except ValueError:
+            pass
+        if near_jn and travel is not None:               # Schild auf dem Knoten selbst: Arm nach Richtung waehlen
+            k = near_jn[0]
+            cand = [(abs(norm180(out_dir(o, oe) + 180 - travel)), o, oe) for o, oe in node_edges[k]]
+            if cand and min(cand)[0] < 50:
+                _, o, oe = min(cand, key=lambda c: c[0])
+                if RANK_SIGN[sg['kind']] > RANK_SIGN.get(o['signs'].get(oe), 0):
+                    o['signs'][oe] = sg['kind']
+            continue
+        if near_jn:
+            continue                                     # auf dem Knoten ohne Richtung: nicht zuzuordnen
+        end = 0 if d0 < d1 else -1
+        if dirn in ('forward', 'backward'):
+            to_n1 = (dirn == 'forward') != e['osm_rev']
+            end = -1 if to_n1 else 0
+        elif travel is not None and d0 < 45 and d1 < 45:
+            end = -1 if abs(norm180(travel - h_fwd)) < 90 else 0
+        if (d0 if end == 0 else d1) < 45 and RANK_SIGN[sg['kind']] > RANK_SIGN.get(e['signs'].get(end), 0):
+            e['signs'][end] = sg['kind']
 
     # Kuerzungslaengen je Kantenende
     trim_d = {}
@@ -389,7 +445,8 @@ def build(ways_in, sdb):
             continue
         e0, r0 = ch[0]; e1, r1 = ch[-1]
         road_chains.append(dict(els=els, name=e0['t'].get('name', ''), hw=e0['t'].get('highway'),
-                                node_s=(e0['n1'] if r0 else e0['n0']), node_e=(e1['n0'] if r1 else e1['n1'])))
+                                node_s=(e0['n1'] if r0 else e0['n0']), node_e=(e1['n0'] if r1 else e1['n1']),
+                                edge_s=(e0, -1 if r0 else 0), edge_e=(e1, 0 if r1 else -1)))
 
     # ============================================================ Kreuzungsbauer
     def lane_ends(ch, which):
@@ -417,12 +474,15 @@ def build(ways_in, sdb):
     def arm_info(ch, which):
         """Strassenende an einer Kreuzung: Mittelpunkt, Richtung von der Kreuzung weg, Spline,
         und ob die Splinerichtung von der Kreuzung weg zeigt"""
+        e, end = ch['edge_s'] if which == 's' else ch['edge_e']
+        osm = dict(tags=e['t'], sign=e['signs'].get(end), prio_road=e.get('prio_road', False), ring=e['ring'],
+                   name=e['t'].get('name', ''))
         if which == 's':
             el = ch['els'][0]
-            return dict(pos=(el[0], el[1]), h=el[2] % 360, spl=el[5], away=True)
+            return dict(pos=(el[0], el[1]), h=el[2] % 360, spl=el[5], away=True, **osm)
         el = ch['els'][-1]
         pos, h = end_of(el)
-        return dict(pos=pos, h=(h + 180) % 360, spl=el[5], away=False)
+        return dict(pos=pos, h=(h + 180) % 360, spl=el[5], away=False, **osm)
 
     arms_at = collections.defaultdict(list)
     arm_meta = collections.defaultdict(list)
@@ -505,6 +565,6 @@ def build(ways_in, sdb):
 
 
     return dict(road_chains=road_chains, conn_chains=conn_chains, junctions=[list(k) for k in JN],
-                arms=dict(arm_meta), node_pos={k: tuple(k) for k in JN},
+                arms=dict(arm_meta), node_pos={k: tuple(k) for k in JN}, node_flags=dict(node_flags),
                 stats=dict(kreuzungen=len(JN), verbindungen=len(conn_chains), fehlgeschlagen=conn_fail,
                            bewegungen=dict(n_moves)))
