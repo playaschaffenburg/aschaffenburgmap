@@ -44,26 +44,26 @@ Automatisch erzeugt mit `python -m omsigen.studie` am 05.10.2026 aus 21 Karten. 
 
 ## Ampeln
 
-- Kaiserstadt Aachen: 159 Signalgruppen, Umlauf Median 69 s, haeufig 60 s (34x), 90 s (18x), 80 s (11x), 70 s (11x), 65 s (7x)
+- Kaiserstadt Aachen: 159 Signalgruppen, Umlauf Median 69 s, haeufig 60 s (34x), 90 s (18x), 70 s (11x), 80 s (11x), 65 s (7x)
 - Berlin-Spandau: 276 Signalgruppen, Umlauf Median 51.0 s, haeufig 35 s (21x), 47 s (15x), 55 s (14x), 36 s (12x), 28 s (12x)
-- Express 91.06: 28 Signalgruppen, Umlauf Median 64.0 s, haeufig 64 s (6x), 37 s (5x), 36 s (5x), 80 s (2x), 90 s (1x)
+- Express 91.06: 28 Signalgruppen, Umlauf Median 64.0 s, haeufig 64 s (6x), 37 s (5x), 36 s (5x), 80 s (2x), 97 s (1x)
 - Gladbeck: 94 Signalgruppen, Umlauf Median 78.0 s, haeufig 78 s (21x), 82 s (16x), 79 s (7x), 110 s (6x), 36 s (5x)
 - Grundorf (Tutorial): 20 Signalgruppen, Umlauf Median 46.5 s, haeufig 69 s (3x), 61 s (3x), 46 s (2x), 38 s (2x), 51 s (2x)
 - Bremen-Nord Fiktiv So: 13 Signalgruppen, Umlauf Median 49 s, haeufig 49 s (4x), 50 s (2x), 46 s (2x), 36 s (2x), 27 s (1x)
-- Bremen-Nord Modern 2026 Mo-Fr: 219 Signalgruppen, Umlauf Median 52 s, haeufig 82 s (10x), 50 s (8x), 1 s (8x), 70 s (8x), 49 s (8x)
-- Bremen-Nord: 129 Signalgruppen, Umlauf Median 50 s, haeufig 50 s (7x), 58 s (6x), 49 s (5x), 27 s (5x), 70 s (5x)
-- HafenCity - Hamburg Modern: 1088 Signalgruppen, Umlauf Median 73.0 s, haeufig 100 s (41x), 90 s (37x), 74 s (32x), 80 s (28x), 76 s (28x)
-- Hamburg Tag & Nacht: 541 Signalgruppen, Umlauf Median 75 s, haeufig 100 s (37x), 80 s (22x), 90 s (20x), 97 s (15x), 91 s (15x)
+- Bremen-Nord Modern 2026 Mo-Fr: 219 Signalgruppen, Umlauf Median 52 s, haeufig 82 s (10x), 50 s (8x), 1 s (8x), 49 s (8x), 70 s (8x)
+- Bremen-Nord: 129 Signalgruppen, Umlauf Median 50 s, haeufig 50 s (7x), 58 s (6x), 27 s (5x), 70 s (5x), 82 s (5x)
+- HafenCity - Hamburg Modern: 1088 Signalgruppen, Umlauf Median 73.0 s, haeufig 100 s (41x), 90 s (37x), 74 s (32x), 76 s (28x), 80 s (28x)
+- Hamburg Tag & Nacht: 541 Signalgruppen, Umlauf Median 75 s, haeufig 100 s (37x), 80 s (22x), 90 s (20x), 91 s (15x), 97 s (15x)
 - Hamburg - Innovationslinie 109: 589 Signalgruppen, Umlauf Median 76 s, haeufig 100 s (42x), 90 s (19x), 80 s (19x), 71 s (17x), 91 s (16x)
-- Hamburg Linie 20: 1427 Signalgruppen, Umlauf Median 72 s, haeufig 74 s (42x), 90 s (41x), 1 s (38x), 100 s (38x), 80 s (36x)
-- Köln: 90 Signalgruppen, Umlauf Median 90.0 s, haeufig 90 s (45x), 94 s (5x), 71 s (5x), 89 s (5x), 88 s (4x)
-- Neuendorf: 70 Signalgruppen, Umlauf Median 55.5 s, haeufig 35 s (4x), 41 s (4x), 61 s (4x), 83 s (3x), 72 s (3x)
+- Hamburg Linie 20: 1427 Signalgruppen, Umlauf Median 72 s, haeufig 74 s (42x), 90 s (41x), 100 s (38x), 1 s (38x), 80 s (36x)
+- Köln: 90 Signalgruppen, Umlauf Median 90.0 s, haeufig 90 s (45x), 89 s (5x), 94 s (5x), 71 s (5x), 88 s (4x)
+- Neuendorf: 70 Signalgruppen, Umlauf Median 55.5 s, haeufig 61 s (4x), 41 s (4x), 35 s (4x), 36 s (3x), 69 s (3x)
 - Rheinhausen: 313 Signalgruppen, Umlauf Median 60 s, haeufig 110 s (24x), 35 s (16x), 55 s (12x), 66 s (11x), 41 s (11x)
 - Ruhrgebiet: 140 Signalgruppen, Umlauf Median 78.0 s, haeufig 78 s (24x), 82 s (24x), 103 s (10x), 36 s (8x), 28 s (8x)
 - X10 Berlin: 899 Signalgruppen, Umlauf Median 60 s, haeufig 1 s (71x), 203 s (22x), 58 s (20x), 284 s (20x), 57 s (18x)
-- Ahlheim 4: 1835 Signalgruppen, Umlauf Median 48 s, haeufig 1 s (66x), 29 s (53x), 65 s (48x), 30 s (48x), 48 s (47x)
-- Ahlheim 5: 2071 Signalgruppen, Umlauf Median 48 s, haeufig 1 s (80x), 29 s (57x), 65 s (56x), 30 s (56x), 41 s (51x)
-- Mainzer Linien 68 und 69: 29 Signalgruppen, Umlauf Median 65 s, haeufig 70 s (6x), 60 s (6x), 78 s (3x), 45 s (2x), 65 s (2x)
+- Ahlheim 4: 1835 Signalgruppen, Umlauf Median 48 s, haeufig 1 s (66x), 29 s (53x), 30 s (48x), 65 s (48x), 48 s (47x)
+- Ahlheim 5: 2071 Signalgruppen, Umlauf Median 48 s, haeufig 1 s (80x), 29 s (57x), 30 s (56x), 65 s (56x), 41 s (51x)
+- Mainzer Linien 68 und 69: 29 Signalgruppen, Umlauf Median 65 s, haeufig 60 s (6x), 70 s (6x), 78 s (3x), 40 s (2x), 65 s (2x)
 
 ## Haeufigste Strassen-Splines je Karte
 

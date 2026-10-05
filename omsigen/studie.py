@@ -175,7 +175,7 @@ def study_map(d, omsi=DEFAULT_OMSI, bilder=None):
                arme=dict(sorted(arm_n.items())), mit_vorfahrt=sum(c['prio'] for c in kreuz),
                mit_ampel=sum(1 for c in kreuz if c['ampeln']), mit_gehwegpfaden=sum(1 for c in kreuz if c['gehwege']),
                mit_splinehelper=sum(1 for c in kreuz if c['helpers']),
-               vorfahrt_muster={f'{p}/{t}/{a}': n for (p, t, a), n in sorted(prio_typ.items())},
+               vorfahrt_muster={f'{int(p)}/{t}/{a}': n for (p, t, a), n in sorted(prio_typ.items())},
                radien={k: dict(n=len(v), median=round(statistics.median(v), 1),
                                p10=round(sorted(v)[len(v) // 10], 1), p90=round(sorted(v)[len(v) * 9 // 10], 1))
                        for k, v in radien.items() if v},
