@@ -4,6 +4,13 @@ Abgeleitet aus den Standardkarten (vor allem Grundorf) und geprüft, indem die D
 die Anschlüsse nachgerechnet wurden. Wenn etwas hier nicht stimmt: bitte korrigieren und vermerken, woher die
 neue Erkenntnis stammt.
 
+**Quellen** (bei jeder Angabe vermerkt, wo es nicht offensichtlich ist):
+- *[Grundorf]*, *[Spandau]*: an den Standardkarten nachgezählt/nachgerechnet.
+- *[openOMSI]*: aus dem Nachbau [openOMSI](https://github.com/openOMSI-Project/openOMSI) (MIT-Lizenz),
+  `docs/FORMATS.md` und Quelltext (`crates/omsi-map/src/tile.rs`, `crates/omsi-sim/src/traffic.rs`), Stand
+  Commit `d322526` (Okt. 2026). Lokale Kopie: `Documents\OpenOmsi\source`. openOMSI ist ein Nachbau im frühen
+  Stadium – bei Widerspruch gilt, was OMSI selbst tut.
+
 ## Kartenordner `maps/<Name>/`
 
 | Datei | Inhalt |
@@ -11,16 +18,24 @@ neue Erkenntnis stammt.
 | `global.cfg` | Name, Beschreibung, `[NextIDCode]`, Kamera, Jahreszeiten, Liste der Kacheln (`[map]` x, z, Datei) |
 | `tile_X_Z.map` | eine Kachel, 300 × 300 m; X nach Osten, Z nach Norden, auch negativ möglich |
 | `tile_X_Z.map.terrain` | Gelände: int32 `60`, dann 61 × 61 float32 Höhen (alle 0 = flach) |
-| `tile_X_Z.map.LM.bmp` | Lightmap 256 × 256 (kann aus `template/NewMap` kopiert werden) |
+| `tile_X_Z.map.LM.bmp` | Nacht-Lichtkarte 256 × 256 für die Kachel **und ihre 8 Nachbarn** (Kachel = mittleres Drittel) *[openOMSI]*; kann aus `template/NewMap` kopiert werden |
 | `ailists.cfg`, `humans.txt`, `Holidays*.txt`, … | Vorlagen aus `OMSI 2/template/NewMap` |
+| `TTData/` | Fahrplan: `Busstops.cfg`, `StnLinks.cfg`, `*.ttp` (Fahrten), `*.ttr` (Spurfolgen), `*.ttl` (Linien) – siehe unten |
 
-Textdateien sind bei neueren Karten **UTF-16 LE mit BOM** und CRLF; ältere ANSI (cp1252) werden auch gelesen.
+`.map`, `global.cfg` und Situationen (`.osn`) sind **UTF-16 LE mit BOM** und CRLF; alle anderen Textdateien
+(`.sli`, `.sco`, `.cfg` …) liest OMSI in der ANSI-Codepage (cp1252) *[openOMSI]*.
+
+Mit `[worldcoordinates]` in `global.cfg` (nur Berlin-Spandau) ist das Kachelraster 1/300 Grad und eine Kachel
+371,9 m groß *[openOMSI]*. omsigen benutzt das nicht (300-m-Kacheln).
+
+Allgemeines Blockformat aller Textdateien: Ein `[schlüsselwort]` muss **allein und ohne Leerzeichen** auf der
+Zeile stehen, danach folgen die Parameter je Zeile; alles andere ist Kommentar *[openOMSI]*.
 
 ## Spline in einer `.map`-Datei
 
 ```
-[spline]            ([spline_h] gibt es auch)
-0
+[spline]            ([spline_h]: nach den Steigungen eine zusätzliche Zeile Höhenänderung)
+0                   Detailstufe
 Splines\Marcel\str_2spur_11m_SeeburgerStr1.sli
 <ID>                eindeutig in der ganzen Karte, < NextIDCode
 <ID Vorgänger>      0 = keiner (nur Editor-Hinweis; Verbindung entsteht über passende Endpunkte)
@@ -31,9 +46,20 @@ Splines\Marcel\str_2spur_11m_SeeburgerStr1.sli
 <Richtung>          Grad, im Uhrzeigersinn ab Nord (0 = +z, 90 = +x)
 <Länge>             m (bei Bögen: Bogenlänge)
 <Radius>            0 = Gerade, > 0 Rechtskurve, < 0 Linkskurve
-<Steigung Anfang>, <Steigung Ende>, <?>, <Überhöhung Anfang>, <Überhöhung Ende>, <?>   (bei uns alle 0)
+<Steigung Anfang>   %
+<Steigung Ende>     %
+<Querneigung Anfang>
+<Querneigung Ende>
+<Skew Anfang>
+<Skew Ende>
 <Längen-Offset>     aufsummierte Länge in der Kette (für Texturverlauf)
+[mirror]            optional: Querschnitt gespiegelt (alle Pfade bei −x und in Gegenrichtung)
 ```
+
+Feldfolge nach dem Radius *[openOMSI]*, bestätigt an Spandau: die Felder 14/15 sind nur paarweise belegt
+(Querneigung, 18 Splines), 16/17 bei Kabeln und Zäunen (Skew). **Früher stand hier fälschlich „?, Überhöhung,
+Überhöhung, ?“** – omsigen schreibt alle sechs Werte als 0, die Karten waren davon nicht betroffen. Für Höhen und
+Querneigung (Roadmap) gilt die Folge oben.
 
 Endpunkt eines Bogens: Mittelpunkt = Start + R·(cos h, −sin h); Endrichtung = h + L/R (rad → Grad).
 Geprüft an Grundorf: Fehler < 0,1 mm (Test `test_arc_convention`).
@@ -42,23 +68,76 @@ Geprüft an Grundorf: Fehler < 0,1 mm (Test `test_arc_convention`).
 
 ```
 [object]
-0
+0                   Detailstufe
 Sceneryobjects\Generic\bus_stop.sco
 <ID>
 <x> <z> <Höhe>      ACHTUNG: andere Reihenfolge als bei Splines (dort x, Höhe, z)
-<Drehung>
-0
-0
-<Anzahl Texte> und die Texte (Haltestellenschild: Name, "20", "5", "0", "", "", "")
+<Drehung>           Grad, im Uhrzeigersinn ab Nord
+<Neigung>           (pitch)
+<Rollen>            (bank)
+<Anzahl Texte> und genau so viele Zeilen (auch leere) – Haltestellenschild: Name, "20", "5", "0", "", "", ""
 ```
+
+Die Höhe ist relativ zum Gelände – außer bei Objekten mit `[absheight]` und bei Objekten mit
+`[splinehelper]` (Kreuzungen, Weichen): deren Höhe ist absolut wie die der Splines *[openOMSI]*.
+
+Straßennamen stehen nirgends in der Karte außer auf Straßenschildern (`StreetSign_*`, erster Text = Name,
+Drehung = Straßenrichtung + 90°) – das Navi liest sie *[openOMSI]*.
+
+## Regeln `[rule]` (Vorfahrt, Tempo, Verkehrsdichte)
+
+Ein `[rule]` gehört zum `[spline]` oder `[object]` **direkt davor** und gilt für einen seiner Pfade *[openOMSI]*:
+
+```
+[rule]
+<Pfad-Index>        0-basiert: Reihenfolge der [path]-Einträge in .sli bzw. .sco
+<Art>               priority | speedlimit | trafficdensity | overtaking_prohib | bus | trucks | no_cars
+<Wert>
+<Zusatz>            meist 0
+```
+
+**Vorfahrt** *[openOMSI, Grundorf]*: `priority` 192 auf den Geradeaus-Pfaden der Hauptstraße, 64 auf den Pfaden,
+die aus der Nebenstraße kommen; ohne Regel gilt 128. Bei gleicher Priorität: rechts vor links, Linksabbieger
+warten auf den Gegenverkehr. In Grundorf hängen alle 53 `priority`-Regeln an Kreuzungsobjekten
+(`Kreuz_See_Elsflether.sco`, `Einm_See*.sco`), nicht an Splines. Weitere Zählung Grundorf: 217
+`trafficdensity`, 110 `trucks`, 28 `no_cars`, 8 `speedlimit` (80), 2 `bus`.
 
 ## Spline-Definition `.sli`
 
 - `[heightprofile]` x1 x2 h1 h2: befahrbare Fläche (Fahrbahn 0,10 m, Gehweg 0,25 m).
 - `[texture]` Dateien im Unterordner `texture` des Spline-Ordners.
 - `[profile]` Texturindex, dann `[profilepnt]` x, y, u, v-Wiederholung.
-- `[path]` Typ (0 = Fahrzeug, 1 = Fußgänger), Querlage x, Höhe, Breite, Richtung (0 = mit Spline, 1 = dagegen, 2 = beide).
-  Positive x = rechts der Splinerichtung (Rechtsverkehr: Spur mit Richtung 0 liegt bei +x).
+- `[path]` Typ (0 = Fahrzeug, 1 = Fußgänger, 2 = Schiene), Querlage x, Höhe, Breite, Richtung
+  (0 = mit Spline, 1 = dagegen, 2 = beide). Positive x = rechts der Splinerichtung (Rechtsverkehr: Spur mit
+  Richtung 0 liegt bei +x).
+- `[terrainholeprofile]`/`[terrainholeprofilepnt]`: Umriss, der das Gelände unter der Straße ausschneidet
+  *[openOMSI]* – wichtig, sobald Höhen dazukommen.
+
+## Kreuzungsobjekte `.sco` (so bauen die Standardkarten Kreuzungen)
+
+Grundorf und Spandau verwenden fertige Kreuzungsobjekte: eine Platte (`[mesh]`) mit eigenen Pfaden, an die die
+Straßen-Splines heranführen. omsigen macht es bisher anders (Kreuzungsspuren als kleine Splines), beides
+funktioniert über die Endpunkt-Verbindung.
+
+`[path]` in einer `.sco`, 12 Zeilen *[openOMSI]*, geprüft an `Einm_See.sco`:
+
+```
+<x> <y> <z>         Start im Objekt (x rechts, y vorwärts, z hoch)
+<Richtung>          Grad, relativ zum Objekt
+<Radius>            0 = gerade, > 0 rechts
+<Länge>
+0
+<Höhenänderung>
+<Art>               0 Straße, 1 Gehweg, 2 Schiene
+<Breite>
+<Richtung>          0/1/2 wie bei .sli
+<Blinker>           0 keiner, 2 links, 3 rechts (für die KI)
+```
+
+**Ampeln** *[openOMSI]*: `[use_traffic_light] n` nach einem Pfad bindet ihn an Ampel n; `[traffic_light] name`
+und `[phase] zustand sekunden` (0 rot, 3 rot-gelb, 6 grün, 8 gelb, 9 alles rot; letzte Phase `0 0` = rot bis
+zum Neustart des Umlaufs `[traffic_lights_group]`). Lampen sind eigene Objekte mit `[varparent] <ID der Kreuzung>`.
+Weitere Kreuzungs-Schlüsselwörter: `[splinehelper]`, `[blockpath]`, `[crossing_heightdeformation]`.
 
 ## Verbindungen
 
@@ -66,8 +145,21 @@ OMSI verbindet Pfade, wenn Endpunkt und Richtung zweier Pfade zusammenfallen. De
 Kreuzung eigene Kreuzungs-Splines (eine Fahrspur je Abbiegebeziehung), die exakt an den Spurenden der Arme
 beginnen und enden. `omsigen.check.validate` rechnet das für jede Karte nach (Toleranz 5 cm / 1°).
 
+openOMSI verbindet großzügiger: Abstand ≤ 1,5 m, Richtung < 40°, Höhe < 3 m *[openOMSI]*. Wie tolerant das
+Original ist, ist nicht geprüft – deshalb bleibt unsere Prüfung streng.
+
+## Fahrplan `TTData/` *[openOMSI]*
+
+- `Busstops.cfg`: `[busstop]` Name, Kachel-Index (Position in `[map]` von global.cfg), Objekt-ID, Offset, 0, 0.
+- `*.ttp` Fahrt: `[trip]` + 3 Zeilen (Strecke, Ziel, Linie), `[station_typ2] <Objekt-ID>` je Halt,
+  `[profile] name minuten`.
+- `*.ttr` Spurfolge: `[track_entry] <ID> <Pfad-Index> <Kachel-Index> <interne Nr> <Länge> 0`.
+- `*.ttl` Linie: `[newtour] nummer KI-Gruppe extra`, `[addtrip] fahrt profil abfahrt-minuten`.
+- `StnLinks.cfg`: Wege zwischen Haltestellen aus `[StnLink_entry]`.
+
 ## nEditor
 
 Der nEditor (Unity, eigener Spielstand in `Documents/nEditor/Library`) liest die OMSI-Dateien beim Laden ein.
 Neue Spline-Dateien erkennt er erst nach einem Neustart. Mit „Show paths“ werden Fahrspuren (gelb) und
-Fußwege (grün) angezeigt – ideal zum Kontrollieren.
+Fußwege (grün) angezeigt – ideal zum Kontrollieren. Start nur über `nEditor-downloader` („nEditor starten“),
+direkter Start der exe meldet „Licencja w użyciu (409)“.

@@ -9,8 +9,14 @@ Projekt: `omsigen` erzeugt OMSI-2-Karten aus OpenStreetMap (siehe README.md). Sp
   (`--name …_v2` usw.). Eigene Splines nur in `Splines/Aschaffenburg_KI/`.
 - Nach jeder Änderung: `python -m pytest` und einen Beispiellauf mit `--osm-datei samples/...` und
   `--vorschau`. Ziel: „ohne Anschluss: 0“. Das PNG ansehen.
+- Zusätzlich `python -m omsigen.ansicht <Karte> --png …` (Ziel: Beinahe-Anschlüsse 0) und für installierte
+  Karten `python -m omsigen.openomsi <Karte> --png … --cam …` (Spielbild aus openOMSI). Bilder ansehen.
+- Standardkarten (Grundorf, Berlin-Spandau) sind die Referenz: mit `omsigen.ansicht` nachsehen, wie OMSI etwas
+  baut, bevor wir es nachbauen. Format-Wissen aus openOMSI (`Documents\OpenOmsi\source`) in
+  docs/omsi-format.md immer mit Quelle eintragen.
 - Kontrolle im nEditor (`C:\Users\ewanh\Documents\nEditor\nEditor.exe`): Karte wählen → Start → „Show paths“.
-  Neue `.sli`-Dateien erkennt der nEditor erst nach Neustart. Der nEditor hat einen eigenen Spielstand – neue
+  Neue `.sli`-Dateien erkennt der nEditor erst nach Neustart. Start nur über `nEditor-downloader` → „nEditor
+  starten“ (direkt gestartet: Lizenzfehler 409). Der nEditor hat einen eigenen Spielstand – neue
   Karten-Versionen deshalb unter neuem Namen laden.
 - Erst im Spiel testen lassen, wenn Prüfung und nEditor sauber sind.
 

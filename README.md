@@ -35,6 +35,23 @@ python -m omsigen --von "49.98053,9.14023" --nach "49.97790,9.14998" --name Test
 python -m pytest
 ```
 
+## Karten prüfen und ansehen
+
+```powershell
+# beliebige Karte lesen (eigene oder Standardkarten), Anschlüsse prüfen, Draufsicht + interaktive Ansicht
+python -m omsigen.ansicht Aschaffenburg_Live_v1 --png build/ansicht.png --html build/ansicht.html
+python -m omsigen.ansicht Grundorf --png build/kreuzung.png --bereich=340,-230,420,-150
+
+# Karte im Nachbau openOMSI laden und ein Spielbild rendern (Kamera: x,y,z,gier,neigung in Kartenmetern)
+python -m omsigen.openomsi Aschaffenburg_Live_v1 --png build/spiel.png --cam 390,320,60,0,-40
+```
+
+`omsigen.ansicht` ersetzt „Show paths“ im nEditor: Fahrspuren, Gehwege, Vorfahrt-Regeln, Ampelpfade und
+Kreuzungsobjekte; Klick auf eine Spur zeigt Spline/Objekt, Datei, Kachel und Pfad-Index. Gemeldet werden
+„Beinahe-Anschlüsse“ (Spurenden mit Partner in ≤ 5 m, aber nicht exakt verbunden). Beim Generator erzeugt
+`--ansicht build/x.html` die Ansicht gleich mit. `omsigen.openomsi` braucht
+[openOMSI](https://github.com/openOMSI-Project/openOMSI) unter `Documents\OpenOmsi`.
+
 ## Was das Tool kann
 
 - Strecke über das echte Straßennetz (Einbahnstraßen beachtet), Korridor drumherum
@@ -67,6 +84,8 @@ omsigen/
   splinedb.py       Fahrspuren aus .sli lesen
   writer.py         Kartenordner schreiben
   check.py          Spurprüfung und Vorschau
+  ansicht.py        Karten-Betrachter für beliebige OMSI-Karten (PNG, HTML, Bericht)
+  openomsi.py       Karte in openOMSI rendern, dessen Pfadnetz-Auswertung lesen
 docs/omsi-format.md alles, was wir über das Dateiformat wissen
 samples/            Testdaten (OSM-Auszug Aschaffenburg)
 ```

@@ -28,6 +28,7 @@ def main(argv=None):
     ap.add_argument('--cache', default='.cache', help='Zwischenspeicher fuer Downloads')
     ap.add_argument('--ueberschreiben', action='store_true', help='vorhandenen Kartenordner mit gleichem Namen ersetzen')
     ap.add_argument('--vorschau', default=None, help='PNG-Draufsicht hierhin schreiben')
+    ap.add_argument('--ansicht', default=None, help='interaktive HTML-Ansicht aller Pfade hierhin schreiben')
     a = ap.parse_args(argv)
 
     print('1/6 Orte suchen ...')
@@ -94,6 +95,11 @@ def main(argv=None):
     if a.vorschau:
         preview(res, sdb, a.vorschau)
         print(f'    Vorschau: {a.vorschau}')
+    if a.ansicht:
+        from . import ansicht
+        r = ansicht.analyse(info['dir'], a.omsi)
+        ansicht.write_html(a.ansicht, r['m'], r['lanes'], r['roads'], r['objs'], r['ends'], r['summary'])
+        print(f'    Ansicht: {a.ansicht}')
     return 0 if not res['open'] else 2
 
 

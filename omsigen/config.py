@@ -58,3 +58,7 @@ def _int(v):
         return int(str(v).split(';')[0])
     except (TypeError, ValueError):
         return 0
+
+# Standard-Installationsort beim Nutzer (Steam); wird nur benutzt, wenn der Ordner existiert
+_OMSI_STEAM = r'C:\Program Files (x86)\Steam\steamapps\common\OMSI 2'
+DEFAULT_OMSI = _OMSI_STEAM if __import__('os').path.isdir(_OMSI_STEAM) else None
