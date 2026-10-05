@@ -127,7 +127,11 @@ class Inhalte:
                 elif k == 'use_traffic_light' and info['paths']:
                     info['paths'][-1]['ampel'] = int(r.num())
                 elif k == 'traffic_light':
-                    info['ampeln'].append(r.line().strip())
+                    info['ampeln'].append(dict(name=r.line().strip(), phasen=[]))
+                elif k == 'phase' and info['ampeln']:
+                    info['ampeln'][-1]['phasen'].append((int(r.num()), r.num()))
+                elif k == 'traffic_lights_group':
+                    info['umlauf'] = r.num()
                 elif k == 'splinehelper':
                     info['helpers'] += 1
         else:

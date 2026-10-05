@@ -1,0 +1,3998 @@
+[
+ {
+  "karte": "Kaiserstadt Aachen",
+  "ordner": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\OMSI 2\\maps\\Aachen Linie 33",
+  "kacheln": 112,
+  "kachelgroesse": 371.9,
+  "splines": 2263,
+  "objekte": 28032,
+  "pfade": {
+   "Strasse": 6127,
+   "Gehweg": 4249,
+   "Schiene": 177
+  },
+  "kreuzungsobjekte": 60,
+  "kreuzungen_aus_splines": 6,
+  "arme": {
+   "3": 22,
+   "4": 13,
+   "5": 10,
+   "6": 4,
+   "7": 7,
+   "8": 3,
+   "10": 1
+  },
+  "mit_vorfahrt": 43,
+  "mit_ampel": 30,
+  "mit_gehwegpfaden": 60,
+  "mit_splinehelper": 47,
+  "vorfahrt_muster": {
+   "64.0/gerade/3": 13,
+   "64.0/gerade/4": 13,
+   "64.0/gerade/5": 26,
+   "64.0/links/3": 14,
+   "64.0/links/4": 28,
+   "64.0/links/5": 33,
+   "64.0/rechts/3": 14,
+   "64.0/rechts/4": 22,
+   "64.0/rechts/5": 38,
+   "64.0/wenden/3": 5,
+   "64.0/wenden/4": 2,
+   "64.0/wenden/5": 18,
+   "128/gerade/3": 46,
+   "128/gerade/4": 27,
+   "128/gerade/5": 118,
+   "128/links/3": 35,
+   "128/links/4": 32,
+   "128/links/5": 77,
+   "128/rechts/3": 50,
+   "128/rechts/4": 30,
+   "128/rechts/5": 146,
+   "128/wenden/3": 3,
+   "128/wenden/4": 2,
+   "128/wenden/5": 41,
+   "192.0/gerade/3": 9,
+   "192.0/gerade/4": 25,
+   "192.0/gerade/5": 39,
+   "192.0/links/3": 5,
+   "192.0/links/4": 9,
+   "192.0/links/5": 15,
+   "192.0/rechts/3": 3,
+   "192.0/rechts/4": 14,
+   "192.0/rechts/5": 51,
+   "192.0/wenden/3": 1,
+   "192.0/wenden/4": 1,
+   "192.0/wenden/5": 18
+  },
+  "radien": {
+   "links": {
+    "n": 1340,
+    "median": 67.2,
+    "p10": 10.6,
+    "p90": 705.1
+   },
+   "rechts": {
+    "n": 1731,
+    "median": 55.0,
+    "p10": 6.5,
+    "p90": 700.0
+   }
+  },
+  "ampel_umlauf": {
+   "n": 159,
+   "median": 69,
+   "haeufig": [
+    [
+     60,
+     34
+    ],
+    [
+     90,
+     18
+    ],
+    [
+     80,
+     11
+    ],
+    [
+     70,
+     11
+    ],
+    [
+     65,
+     7
+    ]
+   ]
+  },
+  "ampel_phasen": {
+   "0": 268,
+   "3": 117,
+   "6": 123,
+   "9": 126,
+   "8": 11,
+   "7": 46,
+   "4": 6,
+   "10": 7,
+   "1": 8,
+   "11": 2,
+   "2": 1
+  },
+  "anschluss_abstand": {
+   "50": 0.0,
+   "90": 0.001,
+   "99": 0.063
+  },
+  "strassen_splines": [
+   {
+    "datei": "Splines\\Aachen\\6_Meter_2R.sli",
+    "anzahl": 116,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 5.5
+   },
+   {
+    "datei": "Splines\\Aachen\\Kornelimuensterweg.sli",
+    "anzahl": 33,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 7.0
+   },
+   {
+    "datei": "Splines\\Aachen\\65_Meter_2R_NL.sli",
+    "anzahl": 27,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 5.75
+   },
+   {
+    "datei": "Splines\\Aachen\\Eilfschornsteinstr.sli",
+    "anzahl": 25,
+    "spuren": 2,
+    "gegen": 0,
+    "gehwege": 2,
+    "halbe_breite": 5.5
+   },
+   {
+    "datei": "Splines\\Aachen\\Fahrstreifen.sli",
+    "anzahl": 49,
+    "spuren": 1,
+    "gegen": 0,
+    "gehwege": 0,
+    "halbe_breite": 0.0
+   },
+   {
+    "datei": "Splines\\Aachen\\Pariser_Ring.sli",
+    "anzahl": 12,
+    "spuren": 4,
+    "gegen": 2,
+    "gehwege": 0,
+    "halbe_breite": 10.25
+   },
+   {
+    "datei": "Splines\\Aachen\\4_Meter_2R.sli",
+    "anzahl": 20,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 4.0
+   },
+   {
+    "datei": "Splines\\Aachen\\Forckenbeckstr.sli",
+    "anzahl": 18,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 12.0
+   },
+   {
+    "datei": "Splines\\Aachen\\4_Meter_2R_Asp_Weg.sli",
+    "anzahl": 13,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 4.0
+   },
+   {
+    "datei": "Splines\\Aachen\\Campusboulevard.sli",
+    "anzahl": 13,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 8.0
+   },
+   {
+    "datei": "Splines\\Aachen\\Pariser_Ring_Abf_1.sli",
+    "anzahl": 5,
+    "spuren": 5,
+    "gegen": 2,
+    "gehwege": 0,
+    "halbe_breite": 14.5
+   },
+   {
+    "datei": "Splines\\Aachen\\Pontwall2.sli",
+    "anzahl": 5,
+    "spuren": 5,
+    "gegen": 2,
+    "gehwege": 1,
+    "halbe_breite": 12.7
+   }
+  ],
+  "fehlend": 0,
+  "dauer_s": 0.9,
+  "beispiel": {
+   "datei": "Sceneryobjects\\Aachen_X\\X_Audimax.sco",
+   "bild": "build/studie\\Aachen_Linie_33.png"
+  }
+ },
+ {
+  "karte": "Aschaffenbzrg",
+  "ordner": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\OMSI 2\\maps\\Aschaffenbzrg",
+  "kacheln": 1,
+  "kachelgroesse": 300.0,
+  "splines": 0,
+  "objekte": 0,
+  "pfade": {},
+  "kreuzungsobjekte": 0,
+  "kreuzungen_aus_splines": 0,
+  "arme": {},
+  "mit_vorfahrt": 0,
+  "mit_ampel": 0,
+  "mit_gehwegpfaden": 0,
+  "mit_splinehelper": 0,
+  "vorfahrt_muster": {},
+  "radien": {},
+  "ampel_umlauf": {
+   "n": 0,
+   "median": null,
+   "haeufig": []
+  },
+  "ampel_phasen": {},
+  "anschluss_abstand": {},
+  "strassen_splines": [],
+  "fehlend": 0,
+  "dauer_s": 0.0
+ },
+ {
+  "karte": "Berlin-Spandau",
+  "ordner": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\OMSI 2\\maps\\Berlin-Spandau",
+  "kacheln": 329,
+  "kachelgroesse": 371.9,
+  "splines": 2486,
+  "objekte": 29450,
+  "pfade": {
+   "Gehweg": 3989,
+   "Strasse": 7271,
+   "Schiene": 1122,
+   "Flug": 45
+  },
+  "kreuzungsobjekte": 181,
+  "kreuzungen_aus_splines": 2,
+  "arme": {
+   "3": 116,
+   "4": 54,
+   "5": 9,
+   "6": 2
+  },
+  "mit_vorfahrt": 86,
+  "mit_ampel": 84,
+  "mit_gehwegpfaden": 181,
+  "mit_splinehelper": 181,
+  "vorfahrt_muster": {
+   "64.0/gerade/3": 4,
+   "64.0/gerade/4": 34,
+   "64.0/gerade/5": 30,
+   "64.0/links/3": 37,
+   "64.0/links/4": 60,
+   "64.0/links/5": 32,
+   "64.0/rechts/3": 41,
+   "64.0/rechts/4": 52,
+   "64.0/rechts/5": 37,
+   "64.0/wenden/3": 4,
+   "64.0/wenden/4": 6,
+   "64.0/wenden/5": 21,
+   "128/gerade/3": 208,
+   "128/gerade/4": 143,
+   "128/gerade/5": 33,
+   "128/links/3": 171,
+   "128/links/4": 117,
+   "128/links/5": 17,
+   "128/rechts/3": 194,
+   "128/rechts/4": 156,
+   "128/rechts/5": 29,
+   "128/wenden/3": 3,
+   "128/wenden/4": 7,
+   "128/wenden/5": 6,
+   "192.0/gerade/3": 90,
+   "192.0/gerade/4": 125,
+   "192.0/gerade/5": 62,
+   "192.0/links/3": 5,
+   "192.0/links/4": 29,
+   "192.0/links/5": 29,
+   "192.0/rechts/3": 7,
+   "192.0/rechts/4": 31,
+   "192.0/rechts/5": 38,
+   "192.0/wenden/3": 1,
+   "192.0/wenden/4": 8,
+   "192.0/wenden/5": 13
+  },
+  "radien": {
+   "rechts": {
+    "n": 1315,
+    "median": 21.0,
+    "p10": 7.0,
+    "p90": 391.8
+   },
+   "links": {
+    "n": 1269,
+    "median": 30.0,
+    "p10": 8.5,
+    "p90": 330.0
+   }
+  },
+  "ampel_umlauf": {
+   "n": 276,
+   "median": 51.0,
+   "haeufig": [
+    [
+     35,
+     21
+    ],
+    [
+     47,
+     15
+    ],
+    [
+     55,
+     14
+    ],
+    [
+     36,
+     12
+    ],
+    [
+     28,
+     12
+    ]
+   ]
+  },
+  "ampel_phasen": {
+   "3": 121,
+   "6": 281,
+   "9": 127,
+   "0": 223,
+   "12": 6,
+   "8": 2
+  },
+  "anschluss_abstand": {
+   "50": 0.0,
+   "90": 0.035,
+   "99": 0.204
+  },
+  "strassen_splines": [
+   {
+    "datei": "Splines\\Marcel\\str_2spur_6m_erzgebirgs.sli",
+    "anzahl": 134,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 6.0
+   },
+   {
+    "datei": "Splines\\Marcel\\str_6spur_falkenseer1.sli",
+    "anzahl": 35,
+    "spuren": 6,
+    "gegen": 3,
+    "gehwege": 2,
+    "halbe_breite": 20.0
+   },
+   {
+    "datei": "Splines\\Marcel\\str_2spur_8m_sedan1.sli",
+    "anzahl": 74,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 7.0
+   },
+   {
+    "datei": "Splines\\Marcel\\Hstr_6spur_Ruhlebener1.sli",
+    "anzahl": 32,
+    "spuren": 3,
+    "gegen": 0,
+    "gehwege": 1,
+    "halbe_breite": 15.1
+   },
+   {
+    "datei": "Splines\\Marcel\\str_2spur_12m_SeeburgerWeg1.sli",
+    "anzahl": 42,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 10.0
+   },
+   {
+    "datei": "Splines\\Marcel\\str_6spur_ruhlebener1.sli",
+    "anzahl": 14,
+    "spuren": 6,
+    "gegen": 3,
+    "gehwege": 2,
+    "halbe_breite": 17.3
+   },
+   {
+    "datei": "Splines\\Marcel\\str_2spur_8m_altonaer1.sli",
+    "anzahl": 38,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 7.0
+   },
+   {
+    "datei": "Splines\\Marcel\\str_2spur_8m_borkumer1.sli",
+    "anzahl": 36,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 7.0
+   },
+   {
+    "datei": "Splines\\Marcel\\str_2spur_11m_SeeburgerStr1.sli",
+    "anzahl": 36,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 10.5
+   },
+   {
+    "datei": "Splines\\Marcel\\str_2spur_9m_westerwald1.sli",
+    "anzahl": 32,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 7.5
+   },
+   {
+    "datei": "Splines\\Marcel\\str_2spur_6m_Leubnitzer.sli",
+    "anzahl": 30,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 6.0
+   },
+   {
+    "datei": "Splines\\Marcel\\Hstr_6spur_Wilhelm2.sli",
+    "anzahl": 16,
+    "spuren": 3,
+    "gegen": 0,
+    "gehwege": 1,
+    "halbe_breite": 13.9
+   }
+  ],
+  "fehlend": 0,
+  "dauer_s": 1.0,
+  "beispiel": {
+   "datei": "Sceneryobjects\\Kreuz_MC\\Kreuz_Altst_Klost_Seeg_Stabholz_2.sco",
+   "bild": "build/studie\\Berlin-Spandau.png"
+  }
+ },
+ {
+  "karte": "Express 91.06",
+  "ordner": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\OMSI 2\\maps\\Express 91.06",
+  "kacheln": 298,
+  "kachelgroesse": 300.0,
+  "splines": 27671,
+  "objekte": 139061,
+  "pfade": {
+   "Strasse": 6596,
+   "Gehweg": 3747,
+   "Schiene": 392
+  },
+  "kreuzungsobjekte": 8,
+  "kreuzungen_aus_splines": 223,
+  "arme": {
+   "3": 6,
+   "4": 1,
+   "7": 1
+  },
+  "mit_vorfahrt": 1,
+  "mit_ampel": 8,
+  "mit_gehwegpfaden": 0,
+  "mit_splinehelper": 0,
+  "vorfahrt_muster": {
+   "64.0/gerade/5": 4,
+   "64.0/links/5": 4,
+   "64.0/rechts/5": 1,
+   "64.0/wenden/5": 2,
+   "128/gerade/3": 15,
+   "128/gerade/4": 4,
+   "128/links/3": 4,
+   "128/links/4": 1,
+   "128/rechts/3": 5,
+   "128/rechts/4": 1,
+   "128/rechts/5": 3,
+   "192.0/links/5": 1,
+   "192.0/rechts/5": 1
+  },
+  "radien": {
+   "links": {
+    "n": 27,
+    "median": 28.1,
+    "p10": 17.7,
+    "p90": 75.0
+   },
+   "rechts": {
+    "n": 27,
+    "median": 24.4,
+    "p10": 12.2,
+    "p90": 93.8
+   }
+  },
+  "ampel_umlauf": {
+   "n": 28,
+   "median": 64.0,
+   "haeufig": [
+    [
+     64,
+     6
+    ],
+    [
+     37,
+     5
+    ],
+    [
+     36,
+     5
+    ],
+    [
+     80,
+     2
+    ],
+    [
+     90,
+     1
+    ]
+   ]
+  },
+  "ampel_phasen": {
+   "6": 44,
+   "9": 29,
+   "0": 41,
+   "7": 11,
+   "8": 3
+  },
+  "anschluss_abstand": {
+   "50": 0.0,
+   "90": 0.001,
+   "99": 0.058
+  },
+  "strassen_splines": [
+   {
+    "datei": "Splines\\Marcel\\invis_street.sli",
+    "anzahl": 3014,
+    "spuren": 1,
+    "gegen": 0,
+    "gehwege": 0,
+    "halbe_breite": 0.0
+   },
+   {
+    "datei": "Splines\\Express 91.06\\Grundorf FR\\str_2spur_8m_chevreuse.sli",
+    "anzahl": 511,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 0,
+    "halbe_breite": 4.0
+   },
+   {
+    "datei": "Splines\\Express 91.06\\Grundorf FR\\str_2spur_8m_TCSPMassy1.sli",
+    "anzahl": 104,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 0,
+    "halbe_breite": 4.0
+   },
+   {
+    "datei": "Splines\\Express 91.06\\BS_ADDON_CreativeStreets\\Sonstiges\\BS_Sonstiges_InvisStreet_ER_2Spur.sli",
+    "anzahl": 93,
+    "spuren": 2,
+    "gegen": 0,
+    "gehwege": 0,
+    "halbe_breite": 0.0
+   },
+   {
+    "datei": "Splines\\Express 91.06\\str_2spur_8m_2TSens-GrassGw.sli",
+    "anzahl": 84,
+    "spuren": 2,
+    "gegen": 0,
+    "gehwege": 0,
+    "halbe_breite": 4.0
+   },
+   {
+    "datei": "Splines\\Express 91.06\\Grundorf FR\\RQ_9,5_2spur_6,5m-no line.sli",
+    "anzahl": 82,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 0,
+    "halbe_breite": 4.75
+   },
+   {
+    "datei": "Splines\\Express 91.06\\Grundorf FR\\str_2spur_8m_altland1.sli",
+    "anzahl": 80,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 0,
+    "halbe_breite": 4.0
+   },
+   {
+    "datei": "Splines\\Express 91.06\\BS_ADDON_CreativeStreets\\Sonstiges\\BS_Sonstiges_InvisStreet_ER_3Spur.sli",
+    "anzahl": 40,
+    "spuren": 3,
+    "gegen": 0,
+    "gehwege": 0,
+    "halbe_breite": 0.0
+   },
+   {
+    "datei": "Splines\\Express 91.06\\str_2spur_8m_altland1.sli",
+    "anzahl": 48,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 0,
+    "halbe_breite": 4.0
+   },
+   {
+    "datei": "Splines\\Express 91.06\\Grundorf FR\\str_2spur_8m_TCSPMassy.sli",
+    "anzahl": 43,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 0,
+    "halbe_breite": 4.0
+   },
+   {
+    "datei": "Splines\\Express 91.06\\str_2spur_8m_altland1-puddles.sli",
+    "anzahl": 37,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 0,
+    "halbe_breite": 4.0
+   },
+   {
+    "datei": "Splines\\Express 91.06\\str_2spur_8m_GrassGw.sli",
+    "anzahl": 36,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 0,
+    "halbe_breite": 4.0
+   }
+  ],
+  "fehlend": 0,
+  "dauer_s": 3.1,
+  "beispiel": {
+   "datei": "Sceneryobjects\\Express 91.06\\Cubes AI\\CEA-Algo TCSP.sco",
+   "bild": "build/studie\\Express_91.06.png"
+  }
+ },
+ {
+  "karte": "Gladbeck",
+  "ordner": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\OMSI 2\\maps\\Gladbeck",
+  "kacheln": 1744,
+  "kachelgroesse": 300.0,
+  "splines": 87377,
+  "objekte": 242118,
+  "pfade": {
+   "Gehweg": 22006,
+   "Strasse": 35774,
+   "Schiene": 5352
+  },
+  "kreuzungsobjekte": 578,
+  "kreuzungen_aus_splines": 834,
+  "arme": {
+   "3": 434,
+   "4": 144
+  },
+  "mit_vorfahrt": 393,
+  "mit_ampel": 302,
+  "mit_gehwegpfaden": 560,
+  "mit_splinehelper": 578,
+  "vorfahrt_muster": {
+   "64.0/gerade/3": 22,
+   "64.0/gerade/4": 102,
+   "64.0/links/3": 241,
+   "64.0/links/4": 112,
+   "64.0/rechts/3": 184,
+   "64.0/rechts/4": 102,
+   "128/gerade/3": 293,
+   "128/gerade/4": 297,
+   "128/links/3": 420,
+   "128/links/4": 326,
+   "128/rechts/3": 390,
+   "128/rechts/4": 278,
+   "192.0/gerade/3": 557,
+   "192.0/gerade/4": 183,
+   "192.0/links/3": 209,
+   "192.0/links/4": 156,
+   "192.0/rechts/3": 294,
+   "192.0/rechts/4": 212
+  },
+  "radien": {
+   "rechts": {
+    "n": 1466,
+    "median": 5.0,
+    "p10": 5.0,
+    "p90": 11.9
+   },
+   "links": {
+    "n": 1474,
+    "median": 9.0,
+    "p10": 9.0,
+    "p90": 12.9
+   }
+  },
+  "ampel_umlauf": {
+   "n": 94,
+   "median": 78.0,
+   "haeufig": [
+    [
+     78,
+     21
+    ],
+    [
+     82,
+     16
+    ],
+    [
+     79,
+     7
+    ],
+    [
+     110,
+     6
+    ],
+    [
+     36,
+     5
+    ]
+   ]
+  },
+  "ampel_phasen": {
+   "3": 48,
+   "6": 115,
+   "9": 48,
+   "0": 118
+  },
+  "anschluss_abstand": {
+   "50": 0.0,
+   "90": 0.0,
+   "99": 0.049
+  },
+  "strassen_splines": [
+   {
+    "datei": "Splines\\Marcel\\invis_street.sli",
+    "anzahl": 11052,
+    "spuren": 1,
+    "gegen": 0,
+    "gehwege": 0,
+    "halbe_breite": 0.0
+   },
+   {
+    "datei": "Splines\\Marcel\\str_2spur_8m_altonaer1.sli",
+    "anzahl": 1012,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 7.0
+   },
+   {
+    "datei": "Splines\\ADDON_Gladbeck_AERO\\RQ_36.sli",
+    "anzahl": 329,
+    "spuren": 6,
+    "gegen": 3,
+    "gehwege": 0,
+    "halbe_breite": 16.25
+   },
+   {
+    "datei": "Splines\\ADDON_Gladbeck_AERO\\RQ_10,5_2spur_7,5m_Oneway.sli",
+    "anzahl": 591,
+    "spuren": 2,
+    "gegen": 2,
+    "gehwege": 0,
+    "halbe_breite": 4.15
+   },
+   {
+    "datei": "Splines\\ADDON_Gladbeck_AERO\\RQ_X_2spur_Altonaer_8m.sli",
+    "anzahl": 575,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 7.0
+   },
+   {
+    "datei": "Splines\\ADDON_Gladbeck_AERO\\RQ_10,5_2spur_7,5m.sli",
+    "anzahl": 573,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 0,
+    "halbe_breite": 4.15
+   },
+   {
+    "datei": "Splines\\Marcel\\str_2spur_11m_SeeburgerStr1.sli",
+    "anzahl": 453,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 10.5
+   },
+   {
+    "datei": "Splines\\ADDON_Gladbeck_AERO\\RQ_28.sli",
+    "anzahl": 211,
+    "spuren": 4,
+    "gegen": 2,
+    "gehwege": 0,
+    "halbe_breite": 12.5
+   },
+   {
+    "datei": "Splines\\Marcel\\str_4spur_Heerstr2.sli",
+    "anzahl": 124,
+    "spuren": 4,
+    "gegen": 2,
+    "gehwege": 0,
+    "halbe_breite": 9.6
+   },
+   {
+    "datei": "Splines\\ADDON_Gladbeck_Mathias\\RQ_20_2_Spur.sli",
+    "anzahl": 207,
+    "spuren": 2,
+    "gegen": 0,
+    "gehwege": 0,
+    "halbe_breite": 7.6
+   },
+   {
+    "datei": "Splines\\ADDON_Gladbeck_AERO\\RQ_9,5_2spur_6,5m_Sidewalk.sli",
+    "anzahl": 186,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 4.75
+   },
+   {
+    "datei": "Splines\\ADDON_Gladbeck_AERO\\RQ_20_4_spur_15m_Sidewalk.sli",
+    "anzahl": 60,
+    "spuren": 4,
+    "gegen": 2,
+    "gehwege": 2,
+    "halbe_breite": 12.5
+   }
+  ],
+  "fehlend": 0,
+  "dauer_s": 10.0,
+  "beispiel": {
+   "datei": "Sceneryobjects\\ADDON_Gladbeck_Kreuz\\RQ_X8m_2spur_8,0m_Sidewalk_cross.sco",
+   "bild": "build/studie\\Gladbeck.png"
+  }
+ },
+ {
+  "karte": "Grundorf (Tutorial)",
+  "ordner": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\OMSI 2\\maps\\Grundorf",
+  "kacheln": 19,
+  "kachelgroesse": 300.0,
+  "splines": 60,
+  "objekte": 1095,
+  "pfade": {
+   "Gehweg": 307,
+   "Strasse": 260,
+   "Schiene": 10
+  },
+  "kreuzungsobjekte": 10,
+  "kreuzungen_aus_splines": 0,
+  "arme": {
+   "3": 8,
+   "4": 2
+  },
+  "mit_vorfahrt": 8,
+  "mit_ampel": 10,
+  "mit_gehwegpfaden": 10,
+  "mit_splinehelper": 10,
+  "vorfahrt_muster": {
+   "64.0/gerade/4": 4,
+   "64.0/links/3": 6,
+   "64.0/links/4": 4,
+   "64.0/rechts/3": 6,
+   "64.0/rechts/4": 4,
+   "128/gerade/3": 4,
+   "128/links/3": 10,
+   "128/rechts/3": 10,
+   "128/rechts/4": 2,
+   "192.0/gerade/3": 12,
+   "192.0/gerade/4": 4,
+   "192.0/links/4": 4,
+   "192.0/rechts/4": 2
+  },
+  "radien": {
+   "rechts": {
+    "n": 24,
+    "median": 9.0,
+    "p10": 9.0,
+    "p90": 11.9
+   },
+   "links": {
+    "n": 24,
+    "median": 10.0,
+    "p10": 10.0,
+    "p90": 12.9
+   }
+  },
+  "ampel_umlauf": {
+   "n": 20,
+   "median": 46.5,
+   "haeufig": [
+    [
+     69,
+     3
+    ],
+    [
+     61,
+     3
+    ],
+    [
+     46,
+     2
+    ],
+    [
+     38,
+     2
+    ],
+    [
+     51,
+     2
+    ]
+   ]
+  },
+  "ampel_phasen": {
+   "3": 8,
+   "6": 20,
+   "9": 8,
+   "0": 16
+  },
+  "anschluss_abstand": {
+   "50": 0.0,
+   "90": 0.0,
+   "99": 0.005
+  },
+  "strassen_splines": [
+   {
+    "datei": "Splines\\Marcel\\str_2spur_11m_SeeburgerStr1.sli",
+    "anzahl": 20,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 10.5
+   },
+   {
+    "datei": "Splines\\Marcel\\str_2spur_8m_borkumer1.sli",
+    "anzahl": 15,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 7.0
+   },
+   {
+    "datei": "Splines\\Marcel\\str_2spur_8m_sedan1.sli",
+    "anzahl": 5,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 7.0
+   },
+   {
+    "datei": "Splines\\Marcel\\invis_street.sli",
+    "anzahl": 4,
+    "spuren": 1,
+    "gegen": 0,
+    "gehwege": 0,
+    "halbe_breite": 0.0
+   },
+   {
+    "datei": "Splines\\Marcel\\str_2spur_8m_altonaer1.sli",
+    "anzahl": 1,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 7.0
+   }
+  ],
+  "fehlend": 0,
+  "dauer_s": 0.1,
+  "beispiel": {
+   "datei": "Sceneryobjects\\Kreuz_MC\\Kreuz_See_Elsflether.sco",
+   "bild": "build/studie\\Grundorf.png"
+  }
+ },
+ {
+  "karte": "Bremen-Nord Fiktiv So",
+  "ordner": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\OMSI 2\\maps\\HB_2017_Bremen-Nord_FIKTIV",
+  "kacheln": 140,
+  "kachelgroesse": 300.0,
+  "splines": 15560,
+  "objekte": 44943,
+  "pfade": {
+   "Schiene": 204,
+   "Flug": 60,
+   "Strasse": 329
+  },
+  "kreuzungsobjekte": 4,
+  "kreuzungen_aus_splines": 2,
+  "arme": {
+   "3": 1,
+   "4": 1,
+   "5": 2
+  },
+  "mit_vorfahrt": 2,
+  "mit_ampel": 2,
+  "mit_gehwegpfaden": 0,
+  "mit_splinehelper": 0,
+  "vorfahrt_muster": {
+   "64.0/gerade/4": 1,
+   "64.0/gerade/5": 3,
+   "64.0/links/5": 3,
+   "64.0/rechts/5": 1,
+   "64.0/wenden/5": 3,
+   "128/gerade/3": 2,
+   "128/gerade/5": 5,
+   "128/links/3": 1,
+   "128/links/5": 5,
+   "128/rechts/3": 1,
+   "128/rechts/5": 8,
+   "192.0/gerade/4": 3,
+   "192.0/gerade/5": 1,
+   "192.0/links/4": 3,
+   "192.0/rechts/4": 4,
+   "192.0/rechts/5": 4,
+   "192.0/wenden/5": 2
+  },
+  "radien": {
+   "rechts": {
+    "n": 60,
+    "median": 14.5,
+    "p10": 6.0,
+    "p90": 600.0
+   },
+   "links": {
+    "n": 48,
+    "median": 11.9,
+    "p10": 4.0,
+    "p90": 200.0
+   }
+  },
+  "ampel_umlauf": {
+   "n": 13,
+   "median": 49,
+   "haeufig": [
+    [
+     49,
+     4
+    ],
+    [
+     50,
+     2
+    ],
+    [
+     46,
+     2
+    ],
+    [
+     36,
+     2
+    ],
+    [
+     27,
+     1
+    ]
+   ]
+  },
+  "ampel_phasen": {
+   "8": 17,
+   "9": 6,
+   "0": 17,
+   "3": 6,
+   "12": 1
+  },
+  "anschluss_abstand": {
+   "50": 0.0,
+   "90": 0.001,
+   "99": 0.082
+  },
+  "strassen_splines": [
+   {
+    "datei": "Splines\\Marcel\\invis_street.sli",
+    "anzahl": 98,
+    "spuren": 1,
+    "gegen": 0,
+    "gehwege": 0,
+    "halbe_breite": 0.0
+   }
+  ],
+  "fehlend": 315,
+  "dauer_s": 1.1,
+  "beispiel": {
+   "datei": "Sceneryobjects\\HB_76_Objekte\\Kreuzungen\\Kreuzung_Splinesystem\\Ampelobjekt_54.sco",
+   "bild": "build/studie\\HB_2017_Bremen-Nord_FIKTIV.png"
+  }
+ },
+ {
+  "karte": "Bremen-Nord Modern 2026 Mo-Fr",
+  "ordner": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\OMSI 2\\maps\\HB_2026_Bremen-Nord",
+  "kacheln": 178,
+  "kachelgroesse": 300.0,
+  "splines": 16957,
+  "objekte": 55729,
+  "pfade": {
+   "Schiene": 400,
+   "Gehweg": 4132,
+   "Strasse": 6612,
+   "Flug": 38
+  },
+  "kreuzungsobjekte": 62,
+  "kreuzungen_aus_splines": 117,
+  "arme": {
+   "3": 32,
+   "4": 18,
+   "5": 9,
+   "6": 1,
+   "8": 1,
+   "9": 1
+  },
+  "mit_vorfahrt": 60,
+  "mit_ampel": 29,
+  "mit_gehwegpfaden": 37,
+  "mit_splinehelper": 4,
+  "vorfahrt_muster": {
+   "64.0/gerade/3": 11,
+   "64.0/gerade/4": 18,
+   "64.0/gerade/5": 13,
+   "64.0/links/3": 353,
+   "64.0/links/4": 47,
+   "64.0/links/5": 29,
+   "64.0/rechts/3": 100,
+   "64.0/rechts/4": 45,
+   "64.0/rechts/5": 33,
+   "64.0/wenden/3": 3,
+   "64.0/wenden/4": 7,
+   "64.0/wenden/5": 6,
+   "128/gerade/3": 4,
+   "128/gerade/4": 7,
+   "128/gerade/5": 15,
+   "128/links/3": 3,
+   "128/links/4": 4,
+   "128/links/5": 6,
+   "128/rechts/3": 8,
+   "128/rechts/4": 5,
+   "128/rechts/5": 11,
+   "192.0/gerade/3": 66,
+   "192.0/gerade/4": 56,
+   "192.0/gerade/5": 44,
+   "192.0/links/3": 22,
+   "192.0/links/4": 17,
+   "192.0/links/5": 14,
+   "192.0/rechts/3": 28,
+   "192.0/rechts/4": 18,
+   "192.0/rechts/5": 22,
+   "192.0/wenden/5": 2
+  },
+  "radien": {
+   "rechts": {
+    "n": 1197,
+    "median": 12.0,
+    "p10": 7.5,
+    "p90": 250.0
+   },
+   "links": {
+    "n": 1692,
+    "median": 17.0,
+    "p10": 8.6,
+    "p90": 200.0
+   }
+  },
+  "ampel_umlauf": {
+   "n": 219,
+   "median": 52,
+   "haeufig": [
+    [
+     82,
+     10
+    ],
+    [
+     50,
+     8
+    ],
+    [
+     1,
+     8
+    ],
+    [
+     70,
+     8
+    ],
+    [
+     49,
+     8
+    ]
+   ]
+  },
+  "ampel_phasen": {
+   "8": 211,
+   "9": 131,
+   "0": 357,
+   "3": 117,
+   "12": 97,
+   "6": 16,
+   "7": 1
+  },
+  "anschluss_abstand": {
+   "50": 0.0,
+   "90": 0.001,
+   "99": 0.011
+  },
+  "strassen_splines": [
+   {
+    "datei": "Sceneryobjects\\HB_76_crossings_splines\\invis_street.sli",
+    "anzahl": 1389,
+    "spuren": 1,
+    "gegen": 0,
+    "gehwege": 0,
+    "halbe_breite": 0.0
+   },
+   {
+    "datei": "Sceneryobjects\\HB_76_crossings_splines\\Inv.streets_1Spur_2Richtungen.sli",
+    "anzahl": 86,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 0,
+    "halbe_breite": 0.0
+   },
+   {
+    "datei": "Splines\\Marcel\\invis_street.sli",
+    "anzahl": 93,
+    "spuren": 1,
+    "gegen": 0,
+    "gehwege": 0,
+    "halbe_breite": 0.0
+   },
+   {
+    "datei": "Sceneryobjects\\HB_76_crossings_splines\\KA_Autobahn.sli",
+    "anzahl": 17,
+    "spuren": 4,
+    "gegen": 2,
+    "gehwege": 0,
+    "halbe_breite": 8.5
+   },
+   {
+    "datei": "Sceneryobjects\\HB_76_crossings_splines\\KA_Autobahn_Zufahrt_8m.sli",
+    "anzahl": 25,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 0,
+    "halbe_breite": 4.0
+   },
+   {
+    "datei": "Sceneryobjects\\HB_76_crossings_splines\\4m_Straße_Masurenstraße.sli",
+    "anzahl": 8,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 3.8
+   },
+   {
+    "datei": "Sceneryobjects\\HB_76_crossings_splines\\KA_Autobahn_einzelner_Fahrstreifen.sli",
+    "anzahl": 6,
+    "spuren": 2,
+    "gegen": 2,
+    "gehwege": 0,
+    "halbe_breite": 3.75
+   },
+   {
+    "datei": "Sceneryobjects\\HB_76_crossings_splines\\8m_Straße_Gehweg_Conn_Altonaer alt.sli",
+    "anzahl": 5,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 8.0
+   },
+   {
+    "datei": "Sceneryobjects\\HB_76_crossings_splines\\str_4spur_12m.sli",
+    "anzahl": 2,
+    "spuren": 4,
+    "gegen": 2,
+    "gehwege": 0,
+    "halbe_breite": 6.15
+   }
+  ],
+  "fehlend": 0,
+  "dauer_s": 2.6,
+  "beispiel": {
+   "datei": "Sceneryobjects\\HB_76_crossings_splines\\Kreuz_Landratstr_Luessumer2018.sco",
+   "bild": "build/studie\\HB_2026_Bremen-Nord.png"
+  }
+ },
+ {
+  "karte": "Bremen-Nord",
+  "ordner": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\OMSI 2\\maps\\HB_76_Bremen-Nord",
+  "kacheln": 146,
+  "kachelgroesse": 300.0,
+  "splines": 16725,
+  "objekte": 49553,
+  "pfade": {
+   "Gehweg": 3346,
+   "Schiene": 298,
+   "Strasse": 5265,
+   "Flug": 61
+  },
+  "kreuzungsobjekte": 54,
+  "kreuzungen_aus_splines": 115,
+  "arme": {
+   "3": 28,
+   "4": 16,
+   "5": 6,
+   "6": 3,
+   "9": 1
+  },
+  "mit_vorfahrt": 48,
+  "mit_ampel": 21,
+  "mit_gehwegpfaden": 24,
+  "mit_splinehelper": 3,
+  "vorfahrt_muster": {
+   "64.0/gerade/3": 3,
+   "64.0/gerade/4": 11,
+   "64.0/gerade/5": 12,
+   "64.0/links/3": 88,
+   "64.0/links/4": 35,
+   "64.0/links/5": 12,
+   "64.0/rechts/3": 40,
+   "64.0/rechts/4": 25,
+   "64.0/rechts/5": 18,
+   "64.0/wenden/4": 7,
+   "64.0/wenden/5": 4,
+   "128/gerade/3": 2,
+   "128/gerade/4": 4,
+   "128/gerade/5": 14,
+   "128/links/3": 10,
+   "128/links/4": 8,
+   "128/links/5": 8,
+   "128/rechts/3": 11,
+   "128/rechts/4": 6,
+   "128/rechts/5": 9,
+   "192.0/gerade/3": 57,
+   "192.0/gerade/4": 49,
+   "192.0/gerade/5": 32,
+   "192.0/links/3": 277,
+   "192.0/links/4": 33,
+   "192.0/links/5": 16,
+   "192.0/rechts/3": 82,
+   "192.0/rechts/4": 45,
+   "192.0/rechts/5": 27,
+   "192.0/wenden/5": 6
+  },
+  "radien": {
+   "links": {
+    "n": 1687,
+    "median": 18.0,
+    "p10": 8.6,
+    "p90": 200.0
+   },
+   "rechts": {
+    "n": 1191,
+    "median": 13.9,
+    "p10": 7.8,
+    "p90": 300.0
+   }
+  },
+  "ampel_umlauf": {
+   "n": 129,
+   "median": 50,
+   "haeufig": [
+    [
+     50,
+     7
+    ],
+    [
+     58,
+     6
+    ],
+    [
+     49,
+     5
+    ],
+    [
+     27,
+     5
+    ],
+    [
+     70,
+     5
+    ]
+   ]
+  },
+  "ampel_phasen": {
+   "8": 114,
+   "9": 85,
+   "0": 222,
+   "3": 76,
+   "12": 41,
+   "6": 16
+  },
+  "anschluss_abstand": {
+   "50": 0.0,
+   "90": 0.001,
+   "99": 0.011
+  },
+  "strassen_splines": [
+   {
+    "datei": "Sceneryobjects\\HB_76_crossings_splines\\invis_street.sli",
+    "anzahl": 1234,
+    "spuren": 1,
+    "gegen": 0,
+    "gehwege": 0,
+    "halbe_breite": 0.0
+   },
+   {
+    "datei": "Sceneryobjects\\HB_76_crossings_splines\\Inv.streets_1Spur_2Richtungen.sli",
+    "anzahl": 112,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 0,
+    "halbe_breite": 0.0
+   },
+   {
+    "datei": "Sceneryobjects\\HB_76_crossings_splines\\KA_Autobahn.sli",
+    "anzahl": 19,
+    "spuren": 4,
+    "gegen": 2,
+    "gehwege": 0,
+    "halbe_breite": 8.5
+   },
+   {
+    "datei": "Splines\\Marcel\\invis_street.sli",
+    "anzahl": 75,
+    "spuren": 1,
+    "gegen": 0,
+    "gehwege": 0,
+    "halbe_breite": 0.0
+   },
+   {
+    "datei": "Sceneryobjects\\HB_76_crossings_splines\\4m_Straße_Masurenstraße.sli",
+    "anzahl": 8,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 3.8
+   },
+   {
+    "datei": "Sceneryobjects\\HB_76_crossings_splines\\8m_Straße_Gehweg_Conn_Altonaer alt.sli",
+    "anzahl": 7,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 8.0
+   },
+   {
+    "datei": "Sceneryobjects\\HB_76_crossings_splines\\KA_Autobahn_einzelner_Fahrstreifen.sli",
+    "anzahl": 6,
+    "spuren": 2,
+    "gegen": 2,
+    "gehwege": 0,
+    "halbe_breite": 3.75
+   },
+   {
+    "datei": "Sceneryobjects\\HB_76_crossings_splines\\KA_Autobahn_Zufahrt_8m.sli",
+    "anzahl": 5,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 0,
+    "halbe_breite": 4.0
+   },
+   {
+    "datei": "Sceneryobjects\\HB_76_crossings_splines\\str_4spur_12m.sli",
+    "anzahl": 2,
+    "spuren": 4,
+    "gegen": 2,
+    "gehwege": 0,
+    "halbe_breite": 6.15
+   },
+   {
+    "datei": "Sceneryobjects\\HB_76_crossings_splines\\5m_Straße_Löhstraße.sli",
+    "anzahl": 1,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 6.8
+   }
+  ],
+  "fehlend": 0,
+  "dauer_s": 2.1,
+  "beispiel": {
+   "datei": "Sceneryobjects\\HB_76_crossings_splines\\Kreuz_Landratstr_Luessumer2009.sco",
+   "bild": "build/studie\\HB_76_Bremen-Nord.png"
+  }
+ },
+ {
+  "karte": "HafenCity - Hamburg Modern",
+  "ordner": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\OMSI 2\\maps\\HafenCityHamburg",
+  "kacheln": 347,
+  "kachelgroesse": 300.0,
+  "splines": 863,
+  "objekte": 39637,
+  "pfade": {
+   "Strasse": 14919,
+   "Gehweg": 6292,
+   "Schiene": 444
+  },
+  "kreuzungsobjekte": 142,
+  "kreuzungen_aus_splines": 4,
+  "arme": {
+   "3": 49,
+   "4": 61,
+   "5": 16,
+   "6": 12,
+   "7": 4
+  },
+  "mit_vorfahrt": 124,
+  "mit_ampel": 116,
+  "mit_gehwegpfaden": 137,
+  "mit_splinehelper": 2,
+  "vorfahrt_muster": {
+   "64.0/gerade/3": 30,
+   "64.0/gerade/4": 65,
+   "64.0/gerade/5": 36,
+   "64.0/links/3": 41,
+   "64.0/links/4": 83,
+   "64.0/links/5": 71,
+   "64.0/rechts/3": 37,
+   "64.0/rechts/4": 75,
+   "64.0/rechts/5": 78,
+   "64.0/wenden/3": 4,
+   "64.0/wenden/4": 20,
+   "64.0/wenden/5": 6,
+   "128/gerade/3": 90,
+   "128/gerade/4": 173,
+   "128/gerade/5": 76,
+   "128/links/3": 30,
+   "128/links/4": 41,
+   "128/links/5": 22,
+   "128/rechts/3": 47,
+   "128/rechts/4": 97,
+   "128/rechts/5": 62,
+   "128/wenden/3": 5,
+   "128/wenden/4": 5,
+   "128/wenden/5": 6,
+   "192.0/gerade/3": 83,
+   "192.0/gerade/4": 150,
+   "192.0/gerade/5": 140,
+   "192.0/links/3": 27,
+   "192.0/links/4": 55,
+   "192.0/links/5": 55,
+   "192.0/rechts/3": 41,
+   "192.0/rechts/4": 76,
+   "192.0/rechts/5": 74,
+   "192.0/wenden/3": 2,
+   "192.0/wenden/4": 27,
+   "192.0/wenden/5": 15
+  },
+  "radien": {
+   "rechts": {
+    "n": 3107,
+    "median": 130.0,
+    "p10": 8.4,
+    "p90": 2400.0
+   },
+   "links": {
+    "n": 2662,
+    "median": 143.0,
+    "p10": 12.4,
+    "p90": 2000.0
+   }
+  },
+  "ampel_umlauf": {
+   "n": 1088,
+   "median": 73.0,
+   "haeufig": [
+    [
+     100,
+     41
+    ],
+    [
+     90,
+     37
+    ],
+    [
+     74,
+     32
+    ],
+    [
+     80,
+     28
+    ],
+    [
+     76,
+     28
+    ]
+   ]
+  },
+  "ampel_phasen": {
+   "0": 1512,
+   "3": 298,
+   "6": 1283,
+   "10": 270,
+   "4": 169,
+   "12": 182,
+   "11": 230,
+   "1": 86,
+   "7": 77,
+   "9": 43,
+   "2": 38,
+   "8": 21,
+   "5": 7
+  },
+  "anschluss_abstand": {
+   "50": 0.0,
+   "90": 0.001,
+   "99": 0.083
+  },
+  "strassen_splines": [
+   {
+    "datei": "Splines\\Marcel\\invis_street.sli",
+    "anzahl": 343,
+    "spuren": 1,
+    "gegen": 0,
+    "gehwege": 0,
+    "halbe_breite": 0.0
+   },
+   {
+    "datei": "Splines\\HafenCityHamburg\\2_SGW_moenckeberg1.sli",
+    "anzahl": 6,
+    "spuren": 4,
+    "gegen": 2,
+    "gehwege": 2,
+    "halbe_breite": 10.66
+   },
+   {
+    "datei": "Splines\\HafenCityHamburg\\3_invis_bike.sli",
+    "anzahl": 17,
+    "spuren": 1,
+    "gegen": 0,
+    "gehwege": 0,
+    "halbe_breite": 0.0
+   },
+   {
+    "datei": "Splines\\HafenCityHamburg\\SGW_ottowels.sli",
+    "anzahl": 8,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 7.15
+   },
+   {
+    "datei": "Splines\\HafenCityHamburg\\SGW_grossetheaterstr.sli",
+    "anzahl": 5,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 7.15
+   },
+   {
+    "datei": "Splines\\HafenCityHamburg\\2_SGW_holzdamm_1.sli",
+    "anzahl": 4,
+    "spuren": 2,
+    "gegen": 0,
+    "gehwege": 2,
+    "halbe_breite": 7.15
+   },
+   {
+    "datei": "Splines\\HafenCityHamburg\\2_SGW_neuerjungfernstieg_1.sli",
+    "anzahl": 3,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 21.47
+   },
+   {
+    "datei": "Splines\\Marcel\\Hstr_6spur_Wilhelm2.sli",
+    "anzahl": 1,
+    "spuren": 3,
+    "gegen": 0,
+    "gehwege": 1,
+    "halbe_breite": 13.9
+   }
+  ],
+  "fehlend": 0,
+  "dauer_s": 2.4,
+  "beispiel": {
+   "datei": "Sceneryobjects\\HafenCityHamburg\\3_K_borgweg.sco",
+   "bild": "build/studie\\HafenCityHamburg.png"
+  }
+ },
+ {
+  "karte": "Hamburg Tag & Nacht",
+  "ordner": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\OMSI 2\\maps\\Hamburg109",
+  "kacheln": 149,
+  "kachelgroesse": 300.0,
+  "splines": 354,
+  "objekte": 21576,
+  "pfade": {
+   "Strasse": 8325,
+   "Gehweg": 4319,
+   "Schiene": 279
+  },
+  "kreuzungsobjekte": 73,
+  "kreuzungen_aus_splines": 4,
+  "arme": {
+   "3": 21,
+   "4": 35,
+   "5": 6,
+   "6": 5,
+   "7": 6
+  },
+  "mit_vorfahrt": 65,
+  "mit_ampel": 60,
+  "mit_gehwegpfaden": 72,
+  "mit_splinehelper": 2,
+  "vorfahrt_muster": {
+   "64.0/gerade/3": 14,
+   "64.0/gerade/4": 34,
+   "64.0/gerade/5": 42,
+   "64.0/links/3": 28,
+   "64.0/links/4": 51,
+   "64.0/links/5": 39,
+   "64.0/rechts/3": 25,
+   "64.0/rechts/4": 49,
+   "64.0/rechts/5": 50,
+   "64.0/wenden/3": 3,
+   "64.0/wenden/4": 7,
+   "64.0/wenden/5": 9,
+   "128/gerade/3": 31,
+   "128/gerade/4": 71,
+   "128/gerade/5": 46,
+   "128/links/3": 6,
+   "128/links/4": 21,
+   "128/links/5": 12,
+   "128/rechts/3": 16,
+   "128/rechts/4": 44,
+   "128/rechts/5": 31,
+   "128/wenden/3": 4,
+   "128/wenden/4": 5,
+   "128/wenden/5": 4,
+   "192.0/gerade/3": 50,
+   "192.0/gerade/4": 99,
+   "192.0/gerade/5": 81,
+   "192.0/links/3": 15,
+   "192.0/links/4": 38,
+   "192.0/links/5": 43,
+   "192.0/rechts/3": 11,
+   "192.0/rechts/4": 41,
+   "192.0/rechts/5": 35,
+   "192.0/wenden/4": 6,
+   "192.0/wenden/5": 7
+  },
+  "radien": {
+   "rechts": {
+    "n": 1751,
+    "median": 170.0,
+    "p10": 8.8,
+    "p90": 5000.0
+   },
+   "links": {
+    "n": 1736,
+    "median": 137.7,
+    "p10": 11.5,
+    "p90": 2000.0
+   }
+  },
+  "ampel_umlauf": {
+   "n": 541,
+   "median": 75,
+   "haeufig": [
+    [
+     100,
+     37
+    ],
+    [
+     80,
+     22
+    ],
+    [
+     90,
+     20
+    ],
+    [
+     97,
+     15
+    ],
+    [
+     91,
+     15
+    ]
+   ]
+  },
+  "ampel_phasen": {
+   "6": 571,
+   "10": 132,
+   "1": 84,
+   "3": 168,
+   "0": 699,
+   "11": 100,
+   "4": 81,
+   "12": 63,
+   "9": 34,
+   "7": 74,
+   "2": 38,
+   "8": 19,
+   "5": 5
+  },
+  "anschluss_abstand": {
+   "50": 0.0,
+   "90": 0.002,
+   "99": 0.112
+  },
+  "strassen_splines": [
+   {
+    "datei": "Splines\\Marcel\\invis_street.sli",
+    "anzahl": 35,
+    "spuren": 1,
+    "gegen": 0,
+    "gehwege": 0,
+    "halbe_breite": 0.0
+   },
+   {
+    "datei": "Splines\\HamburgLinie109\\SGW_moenckeberg1.sli",
+    "anzahl": 6,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 10.66
+   },
+   {
+    "datei": "Splines\\HamburgLinie109\\SGW_grossetheaterstr.sli",
+    "anzahl": 5,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 7.15
+   },
+   {
+    "datei": "Splines\\HamburgLinie109\\SGW_holzdamm_1.sli",
+    "anzahl": 4,
+    "spuren": 2,
+    "gegen": 0,
+    "gehwege": 2,
+    "halbe_breite": 7.15
+   },
+   {
+    "datei": "Splines\\HamburgLinie109\\SGW_neuerjungfernstieg_1.sli",
+    "anzahl": 3,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 21.47
+   }
+  ],
+  "fehlend": 0,
+  "dauer_s": 1.4,
+  "beispiel": {
+   "datei": "Sceneryobjects\\HamburgLinie109\\K_ualsterdorf.sco",
+   "bild": "build/studie\\Hamburg109.png"
+  }
+ },
+ {
+  "karte": "Hamburg - Innovationslinie 109",
+  "ordner": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\OMSI 2\\maps\\Hamburg109_2",
+  "kacheln": 149,
+  "kachelgroesse": 300.0,
+  "splines": 324,
+  "objekte": 21315,
+  "pfade": {
+   "Strasse": 8303,
+   "Gehweg": 4263,
+   "Schiene": 279
+  },
+  "kreuzungsobjekte": 73,
+  "kreuzungen_aus_splines": 4,
+  "arme": {
+   "3": 22,
+   "4": 38,
+   "5": 4,
+   "6": 5,
+   "7": 4
+  },
+  "mit_vorfahrt": 62,
+  "mit_ampel": 61,
+  "mit_gehwegpfaden": 71,
+  "mit_splinehelper": 2,
+  "vorfahrt_muster": {
+   "64.0/gerade/3": 18,
+   "64.0/gerade/4": 42,
+   "64.0/gerade/5": 28,
+   "64.0/links/3": 17,
+   "64.0/links/4": 53,
+   "64.0/links/5": 34,
+   "64.0/rechts/3": 15,
+   "64.0/rechts/4": 47,
+   "64.0/rechts/5": 34,
+   "64.0/wenden/3": 2,
+   "64.0/wenden/4": 13,
+   "64.0/wenden/5": 3,
+   "128/gerade/3": 43,
+   "128/gerade/4": 96,
+   "128/gerade/5": 47,
+   "128/links/3": 7,
+   "128/links/4": 33,
+   "128/links/5": 10,
+   "128/rechts/3": 13,
+   "128/rechts/4": 58,
+   "128/rechts/5": 28,
+   "128/wenden/3": 4,
+   "128/wenden/4": 3,
+   "128/wenden/5": 4,
+   "192.0/gerade/3": 36,
+   "192.0/gerade/4": 92,
+   "192.0/gerade/5": 67,
+   "192.0/links/3": 18,
+   "192.0/links/4": 46,
+   "192.0/links/5": 30,
+   "192.0/rechts/3": 18,
+   "192.0/rechts/4": 55,
+   "192.0/rechts/5": 30,
+   "192.0/wenden/4": 9,
+   "192.0/wenden/5": 7
+  },
+  "radien": {
+   "rechts": {
+    "n": 1730,
+    "median": 160.0,
+    "p10": 8.7,
+    "p90": 3000.0
+   },
+   "links": {
+    "n": 1648,
+    "median": 140.0,
+    "p10": 11.2,
+    "p90": 2000.0
+   }
+  },
+  "ampel_umlauf": {
+   "n": 589,
+   "median": 76,
+   "haeufig": [
+    [
+     100,
+     42
+    ],
+    [
+     90,
+     19
+    ],
+    [
+     80,
+     19
+    ],
+    [
+     71,
+     17
+    ],
+    [
+     91,
+     16
+    ]
+   ]
+  },
+  "ampel_phasen": {
+   "6": 643,
+   "9": 33,
+   "0": 753,
+   "4": 90,
+   "11": 116,
+   "10": 127,
+   "3": 159,
+   "7": 72,
+   "1": 82,
+   "8": 19,
+   "2": 38,
+   "12": 84,
+   "5": 5
+  },
+  "anschluss_abstand": {
+   "50": 0.0,
+   "90": 0.002,
+   "99": 0.107
+  },
+  "strassen_splines": [
+   {
+    "datei": "Splines\\Marcel\\invis_street.sli",
+    "anzahl": 26,
+    "spuren": 1,
+    "gegen": 0,
+    "gehwege": 0,
+    "halbe_breite": 0.0
+   },
+   {
+    "datei": "Splines\\HamburgLinie109\\2_SGW_moenckeberg1.sli",
+    "anzahl": 6,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 10.66
+   },
+   {
+    "datei": "Splines\\HamburgLinie109\\SGW_grossetheaterstr.sli",
+    "anzahl": 5,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 7.15
+   },
+   {
+    "datei": "Splines\\HamburgLinie109\\2_SGW_holzdamm_1.sli",
+    "anzahl": 4,
+    "spuren": 2,
+    "gegen": 0,
+    "gehwege": 2,
+    "halbe_breite": 7.15
+   },
+   {
+    "datei": "Splines\\HamburgLinie109\\2_SGW_neuerjungfernstieg_1.sli",
+    "anzahl": 3,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 21.47
+   }
+  ],
+  "fehlend": 0,
+  "dauer_s": 1.1,
+  "beispiel": {
+   "datei": "Sceneryobjects\\HamburgLinie109\\2_K_altona.sco",
+   "bild": "build/studie\\Hamburg109_2.png"
+  }
+ },
+ {
+  "karte": "Hamburg Linie 20",
+  "ordner": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\OMSI 2\\maps\\HamburgLi20",
+  "kacheln": 403,
+  "kachelgroesse": 300.0,
+  "splines": 964,
+  "objekte": 52154,
+  "pfade": {
+   "Strasse": 19320,
+   "Gehweg": 8009,
+   "Schiene": 461
+  },
+  "kreuzungsobjekte": 174,
+  "kreuzungen_aus_splines": 4,
+  "arme": {
+   "3": 59,
+   "4": 70,
+   "5": 21,
+   "6": 15,
+   "7": 5,
+   "11": 1,
+   "12": 2,
+   "16": 1
+  },
+  "mit_vorfahrt": 151,
+  "mit_ampel": 144,
+  "mit_gehwegpfaden": 166,
+  "mit_splinehelper": 2,
+  "vorfahrt_muster": {
+   "64.0/gerade/3": 35,
+   "64.0/gerade/4": 82,
+   "64.0/gerade/5": 80,
+   "64.0/links/3": 48,
+   "64.0/links/4": 101,
+   "64.0/links/5": 107,
+   "64.0/rechts/3": 47,
+   "64.0/rechts/4": 93,
+   "64.0/rechts/5": 103,
+   "64.0/wenden/3": 4,
+   "64.0/wenden/4": 20,
+   "64.0/wenden/5": 9,
+   "128/gerade/3": 123,
+   "128/gerade/4": 192,
+   "128/gerade/5": 179,
+   "128/links/3": 41,
+   "128/links/4": 43,
+   "128/links/5": 36,
+   "128/rechts/3": 56,
+   "128/rechts/4": 115,
+   "128/rechts/5": 99,
+   "128/wenden/3": 5,
+   "128/wenden/4": 5,
+   "128/wenden/5": 7,
+   "192.0/gerade/3": 91,
+   "192.0/gerade/4": 183,
+   "192.0/gerade/5": 216,
+   "192.0/links/3": 32,
+   "192.0/links/4": 63,
+   "192.0/links/5": 65,
+   "192.0/rechts/3": 47,
+   "192.0/rechts/4": 87,
+   "192.0/rechts/5": 97,
+   "192.0/wenden/3": 2,
+   "192.0/wenden/4": 28,
+   "192.0/wenden/5": 15
+  },
+  "radien": {
+   "rechts": {
+    "n": 4040,
+    "median": 132.1,
+    "p10": 9.0,
+    "p90": 2000.0
+   },
+   "links": {
+    "n": 3431,
+    "median": 140.0,
+    "p10": 13.0,
+    "p90": 1900.0
+   }
+  },
+  "ampel_umlauf": {
+   "n": 1427,
+   "median": 72,
+   "haeufig": [
+    [
+     74,
+     42
+    ],
+    [
+     90,
+     41
+    ],
+    [
+     1,
+     38
+    ],
+    [
+     100,
+     38
+    ],
+    [
+     80,
+     36
+    ]
+   ]
+  },
+  "ampel_phasen": {
+   "4": 187,
+   "6": 1715,
+   "10": 385,
+   "0": 2002,
+   "12": 237,
+   "3": 399,
+   "11": 249,
+   "9": 49,
+   "1": 86,
+   "7": 82,
+   "8": 22,
+   "2": 38,
+   "5": 8
+  },
+  "anschluss_abstand": {
+   "50": 0.0,
+   "90": 0.001,
+   "99": 0.075
+  },
+  "strassen_splines": [
+   {
+    "datei": "Splines\\Marcel\\invis_street.sli",
+    "anzahl": 417,
+    "spuren": 1,
+    "gegen": 0,
+    "gehwege": 0,
+    "halbe_breite": 0.0
+   },
+   {
+    "datei": "Splines\\HamburgLi20\\2_SGW_moenckeberg1.sli",
+    "anzahl": 6,
+    "spuren": 4,
+    "gegen": 2,
+    "gehwege": 2,
+    "halbe_breite": 10.66
+   },
+   {
+    "datei": "Splines\\HamburgLi20\\3_invis_bike.sli",
+    "anzahl": 23,
+    "spuren": 1,
+    "gegen": 0,
+    "gehwege": 0,
+    "halbe_breite": 0.0
+   },
+   {
+    "datei": "Splines\\HamburgLi20\\SGW_ottowels.sli",
+    "anzahl": 8,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 7.15
+   },
+   {
+    "datei": "Splines\\HamburgLi20\\4_SGW_jahnring.sli",
+    "anzahl": 2,
+    "spuren": 6,
+    "gegen": 3,
+    "gehwege": 2,
+    "halbe_breite": 0.0
+   },
+   {
+    "datei": "Splines\\HamburgLi20\\SGW_grossetheaterstr.sli",
+    "anzahl": 5,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 7.15
+   },
+   {
+    "datei": "Splines\\HamburgLi20\\2_SGW_holzdamm_1.sli",
+    "anzahl": 4,
+    "spuren": 2,
+    "gegen": 0,
+    "gehwege": 2,
+    "halbe_breite": 7.15
+   },
+   {
+    "datei": "Splines\\HamburgLi20\\2_SGW_neuerjungfernstieg_1.sli",
+    "anzahl": 3,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 21.47
+   },
+   {
+    "datei": "Splines\\HamburgLi20\\4_SGW_martini.sli",
+    "anzahl": 2,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 5.3
+   },
+   {
+    "datei": "Splines\\Marcel\\Hstr_6spur_Wilhelm2.sli",
+    "anzahl": 1,
+    "spuren": 3,
+    "gegen": 0,
+    "gehwege": 1,
+    "halbe_breite": 13.9
+   }
+  ],
+  "fehlend": 0,
+  "dauer_s": 2.1,
+  "beispiel": {
+   "datei": "Sceneryobjects\\HamburgLi20\\3_K_borgweg.sco",
+   "bild": "build/studie\\HamburgLi20.png"
+  }
+ },
+ {
+  "karte": "Köln",
+  "ordner": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\OMSI 2\\maps\\Koeln",
+  "kacheln": 119,
+  "kachelgroesse": 371.9,
+  "splines": 4192,
+  "objekte": 15435,
+  "pfade": {
+   "Schiene": 432,
+   "Strasse": 5442,
+   "Gehweg": 2252
+  },
+  "kreuzungsobjekte": 36,
+  "kreuzungen_aus_splines": 2,
+  "arme": {
+   "3": 12,
+   "4": 9,
+   "5": 5,
+   "6": 5,
+   "7": 2,
+   "8": 1,
+   "10": 1,
+   "11": 1
+  },
+  "mit_vorfahrt": 35,
+  "mit_ampel": 16,
+  "mit_gehwegpfaden": 26,
+  "mit_splinehelper": 29,
+  "vorfahrt_muster": {
+   "64.0/gerade/3": 8,
+   "64.0/gerade/4": 8,
+   "64.0/gerade/5": 36,
+   "64.0/links/3": 9,
+   "64.0/links/4": 13,
+   "64.0/links/5": 41,
+   "64.0/rechts/3": 13,
+   "64.0/rechts/4": 15,
+   "64.0/rechts/5": 62,
+   "64.0/wenden/4": 3,
+   "64.0/wenden/5": 20,
+   "128/gerade/3": 6,
+   "128/gerade/4": 26,
+   "128/gerade/5": 37,
+   "128/links/3": 1,
+   "128/links/4": 15,
+   "128/links/5": 18,
+   "128/rechts/3": 7,
+   "128/rechts/4": 18,
+   "128/rechts/5": 37,
+   "128/wenden/5": 3,
+   "192.0/gerade/3": 13,
+   "192.0/gerade/4": 19,
+   "192.0/gerade/5": 36,
+   "192.0/links/3": 7,
+   "192.0/links/4": 12,
+   "192.0/links/5": 25,
+   "192.0/rechts/3": 8,
+   "192.0/rechts/4": 13,
+   "192.0/rechts/5": 33,
+   "192.0/wenden/5": 1
+  },
+  "radien": {
+   "links": {
+    "n": 1063,
+    "median": 100.0,
+    "p10": 10.0,
+    "p90": 2786.1
+   },
+   "rechts": {
+    "n": 1459,
+    "median": 100.0,
+    "p10": 9.0,
+    "p90": 2923.9
+   }
+  },
+  "ampel_umlauf": {
+   "n": 90,
+   "median": 90.0,
+   "haeufig": [
+    [
+     90,
+     45
+    ],
+    [
+     94,
+     5
+    ],
+    [
+     71,
+     5
+    ],
+    [
+     89,
+     5
+    ],
+    [
+     88,
+     4
+    ]
+   ]
+  },
+  "ampel_phasen": {
+   "6": 102,
+   "10": 51,
+   "0": 125,
+   "3": 47
+  },
+  "anschluss_abstand": {
+   "50": 0.0,
+   "90": 0.001,
+   "99": 0.003
+  },
+  "strassen_splines": [
+   {
+    "datei": "Sceneryobjects\\PAD-Labs\\Streets\\Colide_K.sli",
+    "anzahl": 206,
+    "spuren": 1,
+    "gegen": 0,
+    "gehwege": 0,
+    "halbe_breite": 1.25
+   },
+   {
+    "datei": "Sceneryobjects\\PAD-Labs\\Streets\\Engeldorfer_str.sli",
+    "anzahl": 52,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 6.16
+   },
+   {
+    "datei": "Sceneryobjects\\PAD-Labs\\Streets\\Boedigerstrasse.sli",
+    "anzahl": 35,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 0,
+    "halbe_breite": 4.0
+   },
+   {
+    "datei": "Sceneryobjects\\PAD-Labs\\Streets\\2x250cm_Linienlos.sli",
+    "anzahl": 34,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 0,
+    "halbe_breite": 2.75
+   },
+   {
+    "datei": "Sceneryobjects\\PAD-Labs\\Streets\\Rondorfer_Hauptstr.sli",
+    "anzahl": 34,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 6.15
+   },
+   {
+    "datei": "Sceneryobjects\\PAD-Labs\\Streets\\Lindenweg11.sli",
+    "anzahl": 21,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 0,
+    "halbe_breite": 3.4
+   },
+   {
+    "datei": "Sceneryobjects\\PAD-Labs\\Streets\\Engeldorfer_str_parkplatz.sli",
+    "anzahl": 21,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 7.15
+   },
+   {
+    "datei": "Sceneryobjects\\PAD-Labs\\Streets\\Tunnel-51.sli",
+    "anzahl": 13,
+    "spuren": 3,
+    "gegen": 0,
+    "gehwege": 0,
+    "halbe_breite": 5.3
+   },
+   {
+    "datei": "Sceneryobjects\\PAD-Labs\\Streets\\Nebenstr_2x300cm.sli",
+    "anzahl": 16,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 0,
+    "halbe_breite": 3.25
+   },
+   {
+    "datei": "Sceneryobjects\\PAD-Labs\\Streets\\Bruehler_Landst3.sli",
+    "anzahl": 16,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 7.9
+   },
+   {
+    "datei": "Sceneryobjects\\PAD-Labs\\Streets\\Lindenweg10.sli",
+    "anzahl": 11,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 0,
+    "halbe_breite": 3.4
+   },
+   {
+    "datei": "Sceneryobjects\\PAD-Labs\\Streets\\Bruehler_Landst.sli",
+    "anzahl": 11,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 1,
+    "halbe_breite": 8.15
+   }
+  ],
+  "fehlend": 0,
+  "dauer_s": 0.8,
+  "beispiel": {
+   "datei": "Sceneryobjects\\PAD-Labs\\Streets\\Kr_M_B51_In der Hell.sco",
+   "bild": "build/studie\\Koeln.png"
+  }
+ },
+ {
+  "karte": "Neuendorf",
+  "ordner": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\OMSI 2\\maps\\Neuendorf",
+  "kacheln": 57,
+  "kachelgroesse": 300.0,
+  "splines": 769,
+  "objekte": 12557,
+  "pfade": {
+   "Gehweg": 2261,
+   "Strasse": 3009,
+   "Schiene": 53
+  },
+  "kreuzungsobjekte": 106,
+  "kreuzungen_aus_splines": 67,
+  "arme": {
+   "3": 81,
+   "4": 22,
+   "5": 3
+  },
+  "mit_vorfahrt": 91,
+  "mit_ampel": 52,
+  "mit_gehwegpfaden": 106,
+  "mit_splinehelper": 106,
+  "vorfahrt_muster": {
+   "64.0/gerade/3": 2,
+   "64.0/gerade/4": 16,
+   "64.0/gerade/5": 3,
+   "64.0/links/3": 48,
+   "64.0/links/4": 18,
+   "64.0/links/5": 9,
+   "64.0/rechts/3": 42,
+   "64.0/rechts/4": 24,
+   "64.0/rechts/5": 2,
+   "64.0/wenden/3": 1,
+   "64.0/wenden/5": 1,
+   "128/gerade/3": 46,
+   "128/gerade/4": 15,
+   "128/gerade/5": 10,
+   "128/links/3": 56,
+   "128/links/4": 21,
+   "128/links/5": 7,
+   "128/rechts/3": 54,
+   "128/rechts/4": 20,
+   "128/rechts/5": 11,
+   "128/wenden/4": 1,
+   "192.0/gerade/3": 124,
+   "192.0/gerade/4": 68,
+   "192.0/gerade/5": 21,
+   "192.0/links/3": 58,
+   "192.0/links/4": 45,
+   "192.0/links/5": 8,
+   "192.0/rechts/3": 66,
+   "192.0/rechts/4": 52,
+   "192.0/rechts/5": 29,
+   "192.0/wenden/3": 5,
+   "192.0/wenden/4": 3,
+   "192.0/wenden/5": 4
+  },
+  "radien": {
+   "rechts": {
+    "n": 519,
+    "median": 12.6,
+    "p10": 5.0,
+    "p90": 330.0
+   },
+   "links": {
+    "n": 422,
+    "median": 10.2,
+    "p10": 9.0,
+    "p90": 366.7
+   }
+  },
+  "ampel_umlauf": {
+   "n": 70,
+   "median": 55.5,
+   "haeufig": [
+    [
+     35,
+     4
+    ],
+    [
+     41,
+     4
+    ],
+    [
+     61,
+     4
+    ],
+    [
+     83,
+     3
+    ],
+    [
+     72,
+     3
+    ]
+   ]
+  },
+  "ampel_phasen": {
+   "3": 28,
+   "6": 73,
+   "9": 29,
+   "0": 62,
+   "12": 2
+  },
+  "anschluss_abstand": {
+   "50": 0.0,
+   "90": 0.001,
+   "99": 0.007
+  },
+  "strassen_splines": [
+   {
+    "datei": "Splines\\Marcel\\str_2spur_8m_altonaer1.sli",
+    "anzahl": 194,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 7.0
+   },
+   {
+    "datei": "Splines\\Marcel\\str_2spur_11m_SeeburgerStr1.sli",
+    "anzahl": 110,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 10.5
+   },
+   {
+    "datei": "Splines\\Marcel\\Hstr_6spur_Wilhelm3.sli",
+    "anzahl": 70,
+    "spuren": 3,
+    "gegen": 0,
+    "gehwege": 1,
+    "halbe_breite": 13.9
+   },
+   {
+    "datei": "Splines\\Marcel\\str_2spur_8m_sedan1.sli",
+    "anzahl": 33,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 7.0
+   },
+   {
+    "datei": "Splines\\Marcel\\str_2spur_8m_borkumer1.sli",
+    "anzahl": 23,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 7.0
+   },
+   {
+    "datei": "Splines\\Marcel\\invis_street.sli",
+    "anzahl": 41,
+    "spuren": 1,
+    "gegen": 0,
+    "gehwege": 0,
+    "halbe_breite": 0.0
+   },
+   {
+    "datei": "Splines\\Marcel\\str_2spur_6m_gaertnereiring1.sli",
+    "anzahl": 19,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 1,
+    "halbe_breite": 6.5
+   },
+   {
+    "datei": "Splines\\Marcel\\str_2spur_9,3m_hohenzollern1.sli",
+    "anzahl": 15,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 1,
+    "halbe_breite": 10.8
+   },
+   {
+    "datei": "Splines\\Marcel\\str_4spur_12,5m_Heerstr1.sli",
+    "anzahl": 7,
+    "spuren": 4,
+    "gegen": 2,
+    "gehwege": 0,
+    "halbe_breite": 8.0
+   },
+   {
+    "datei": "Splines\\Marcel\\str_2spur_6m_Leubnitzer.sli",
+    "anzahl": 13,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 6.0
+   },
+   {
+    "datei": "Splines\\Marcel\\str_2spur_13m_Omnibushof.sli",
+    "anzahl": 10,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 10.5
+   },
+   {
+    "datei": "Splines\\Marcel\\Hstr_7spur_Wilhelm4.sli",
+    "anzahl": 5,
+    "spuren": 4,
+    "gegen": 0,
+    "gehwege": 1,
+    "halbe_breite": 13.9
+   }
+  ],
+  "fehlend": 0,
+  "dauer_s": 0.4,
+  "beispiel": {
+   "datei": "Sceneryobjects\\Kreuz_MC\\Kreuz_Gatower_Omni_Graetschel.sco",
+   "bild": "build/studie\\Neuendorf.png"
+  }
+ },
+ {
+  "karte": "Rheinhausen",
+  "ordner": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\OMSI 2\\maps\\Rheinhausen",
+  "kacheln": 233,
+  "kachelgroesse": 300.0,
+  "splines": 4966,
+  "objekte": 49587,
+  "pfade": {
+   "Gehweg": 5968,
+   "Strasse": 11456,
+   "Schiene": 466
+  },
+  "kreuzungsobjekte": 234,
+  "kreuzungen_aus_splines": 8,
+  "arme": {
+   "3": 154,
+   "4": 71,
+   "5": 9
+  },
+  "mit_vorfahrt": 175,
+  "mit_ampel": 86,
+  "mit_gehwegpfaden": 211,
+  "mit_splinehelper": 234,
+  "vorfahrt_muster": {
+   "64.0/gerade/3": 7,
+   "64.0/gerade/4": 27,
+   "64.0/gerade/5": 9,
+   "64.0/links/3": 159,
+   "64.0/links/4": 98,
+   "64.0/links/5": 7,
+   "64.0/rechts/3": 138,
+   "64.0/rechts/4": 97,
+   "64.0/rechts/5": 18,
+   "64.0/wenden/3": 3,
+   "64.0/wenden/4": 6,
+   "64.0/wenden/5": 5,
+   "128/gerade/3": 182,
+   "128/gerade/4": 241,
+   "128/gerade/5": 43,
+   "128/links/3": 60,
+   "128/links/4": 156,
+   "128/links/5": 34,
+   "128/rechts/3": 93,
+   "128/rechts/4": 195,
+   "128/rechts/5": 46,
+   "128/wenden/3": 16,
+   "128/wenden/4": 44,
+   "128/wenden/5": 13,
+   "192.0/gerade/3": 257,
+   "192.0/gerade/4": 170,
+   "192.0/gerade/5": 21,
+   "192.0/links/3": 101,
+   "192.0/links/4": 53,
+   "192.0/links/5": 21,
+   "192.0/rechts/3": 113,
+   "192.0/rechts/4": 57,
+   "192.0/rechts/5": 18,
+   "192.0/wenden/3": 6,
+   "192.0/wenden/4": 1,
+   "192.0/wenden/5": 5
+  },
+  "radien": {
+   "links": {
+    "n": 1839,
+    "median": 21.0,
+    "p10": 9.0,
+    "p90": 350.0
+   },
+   "rechts": {
+    "n": 1796,
+    "median": 15.0,
+    "p10": 7.0,
+    "p90": 350.0
+   }
+  },
+  "ampel_umlauf": {
+   "n": 313,
+   "median": 60,
+   "haeufig": [
+    [
+     110,
+     24
+    ],
+    [
+     35,
+     16
+    ],
+    [
+     55,
+     12
+    ],
+    [
+     66,
+     11
+    ],
+    [
+     41,
+     11
+    ]
+   ]
+  },
+  "ampel_phasen": {
+   "3": 136,
+   "6": 327,
+   "9": 142,
+   "0": 316,
+   "12": 10
+  },
+  "anschluss_abstand": {
+   "50": 0.0,
+   "90": 0.001,
+   "99": 0.032
+  },
+  "strassen_splines": [
+   {
+    "datei": "Splines\\ADDON_Rheinhausen\\Marcel\\str_6spur_falkenseer1.sli",
+    "anzahl": 71,
+    "spuren": 6,
+    "gegen": 3,
+    "gehwege": 2,
+    "halbe_breite": 20.0
+   },
+   {
+    "datei": "Splines\\ADDON_Rheinhausen\\Marcel\\str_2spur_8m_altonaer1.sli",
+    "anzahl": 173,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 7.0
+   },
+   {
+    "datei": "Splines\\ADDON_Rheinhausen\\Marcel\\Hstr_6spur_Wilhelm3.sli",
+    "anzahl": 96,
+    "spuren": 3,
+    "gegen": 0,
+    "gehwege": 1,
+    "halbe_breite": 13.9
+   },
+   {
+    "datei": "Splines\\ADDON_Rheinhausen\\Marcel\\str_2spur_11m_SeeburgerStr1.sli",
+    "anzahl": 104,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 10.5
+   },
+   {
+    "datei": "Splines\\ADDON_Rheinhausen\\Zane\\str_2spur_8m_gw_3m.sli",
+    "anzahl": 80,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 7.0
+   },
+   {
+    "datei": "Splines\\ADDON_Rheinhausen\\Zane\\str_4spur_12,5m.sli",
+    "anzahl": 40,
+    "spuren": 4,
+    "gegen": 2,
+    "gehwege": 0,
+    "halbe_breite": 8.0
+   },
+   {
+    "datei": "Splines\\ADDON_Rheinhausen\\Marcel\\str_2spur_6m_Leubnitzer.sli",
+    "anzahl": 57,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 6.0
+   },
+   {
+    "datei": "Splines\\ADDON_Rheinhausen\\Marcel\\str_9spur_kloster1.sli",
+    "anzahl": 12,
+    "spuren": 9,
+    "gegen": 4,
+    "gehwege": 2,
+    "halbe_breite": 22.0
+   },
+   {
+    "datei": "Splines\\ADDON_Rheinhausen\\Marcel\\Hstr_6spur_Wilhelm2.sli",
+    "anzahl": 33,
+    "spuren": 3,
+    "gegen": 0,
+    "gehwege": 1,
+    "halbe_breite": 13.9
+   },
+   {
+    "datei": "Splines\\ADDON_Rheinhausen\\Zane\\str_2spur_8m_gw_3m_cobble.sli",
+    "anzahl": 49,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 7.0
+   },
+   {
+    "datei": "Splines\\ADDON_Rheinhausen\\Marcel\\str_6spur_kloster2.sli",
+    "anzahl": 15,
+    "spuren": 6,
+    "gegen": 3,
+    "gehwege": 2,
+    "halbe_breite": 14.7
+   },
+   {
+    "datei": "Splines\\ADDON_Rheinhausen\\Marcel\\str_4spur_zeppelin1.sli",
+    "anzahl": 19,
+    "spuren": 4,
+    "gegen": 2,
+    "gehwege": 2,
+    "halbe_breite": 12.75
+   }
+  ],
+  "fehlend": 0,
+  "dauer_s": 1.5,
+  "beispiel": {
+   "datei": "Sceneryobjects\\ADDON_Rheinhausen\\Zane_Crossings\\Kreuz_Billinghauser_Rheinstrasse.sco",
+   "bild": "build/studie\\Rheinhausen.png"
+  }
+ },
+ {
+  "karte": "Ruhrgebiet",
+  "ordner": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\OMSI 2\\maps\\Ruhrgebiet",
+  "kacheln": 2156,
+  "kachelgroesse": 300.0,
+  "splines": 128198,
+  "objekte": 322241,
+  "pfade": {
+   "Gehweg": 28346,
+   "Strasse": 47421,
+   "Schiene": 6246
+  },
+  "kreuzungsobjekte": 836,
+  "kreuzungen_aus_splines": 1032,
+  "arme": {
+   "3": 650,
+   "4": 186
+  },
+  "mit_vorfahrt": 551,
+  "mit_ampel": 438,
+  "mit_gehwegpfaden": 818,
+  "mit_splinehelper": 836,
+  "vorfahrt_muster": {
+   "64.0/gerade/3": 32,
+   "64.0/gerade/4": 110,
+   "64.0/links/3": 276,
+   "64.0/links/4": 123,
+   "64.0/rechts/3": 218,
+   "64.0/rechts/4": 112,
+   "128/gerade/3": 456,
+   "128/gerade/4": 421,
+   "128/links/3": 677,
+   "128/links/4": 469,
+   "128/rechts/3": 644,
+   "128/rechts/4": 407,
+   "192.0/gerade/3": 814,
+   "192.0/gerade/4": 220,
+   "192.0/links/3": 350,
+   "192.0/links/4": 189,
+   "192.0/rechts/3": 439,
+   "192.0/rechts/4": 261
+  },
+  "radien": {
+   "rechts": {
+    "n": 2099,
+    "median": 5.9,
+    "p10": 5.0,
+    "p90": 11.9
+   },
+   "links": {
+    "n": 2106,
+    "median": 9.1,
+    "p10": 9.0,
+    "p90": 12.9
+   }
+  },
+  "ampel_umlauf": {
+   "n": 140,
+   "median": 78.0,
+   "haeufig": [
+    [
+     78,
+     24
+    ],
+    [
+     82,
+     24
+    ],
+    [
+     103,
+     10
+    ],
+    [
+     36,
+     8
+    ],
+    [
+     28,
+     8
+    ]
+   ]
+  },
+  "ampel_phasen": {
+   "3": 71,
+   "6": 171,
+   "9": 69,
+   "0": 175
+  },
+  "anschluss_abstand": {
+   "50": 0.0,
+   "90": 0.0,
+   "99": 0.047
+  },
+  "strassen_splines": [
+   {
+    "datei": "Splines\\Marcel\\invis_street.sli",
+    "anzahl": 13850,
+    "spuren": 1,
+    "gegen": 0,
+    "gehwege": 0,
+    "halbe_breite": 0.0
+   },
+   {
+    "datei": "Splines\\ADDON_RUHR_AERO\\RQ_36.sli",
+    "anzahl": 358,
+    "spuren": 6,
+    "gegen": 3,
+    "gehwege": 0,
+    "halbe_breite": 16.25
+   },
+   {
+    "datei": "Splines\\Marcel\\str_2spur_8m_altonaer1.sli",
+    "anzahl": 915,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 7.0
+   },
+   {
+    "datei": "Splines\\ADDON_RUHR_AERO\\RQ_10,5_2spur_7,5m_Oneway.sli",
+    "anzahl": 851,
+    "spuren": 2,
+    "gegen": 2,
+    "gehwege": 0,
+    "halbe_breite": 4.15
+   },
+   {
+    "datei": "Splines\\ADDON_Ruhr\\8m_Gladbeck.sli",
+    "anzahl": 793,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 7.0
+   },
+   {
+    "datei": "Splines\\ADDON_RUHR_AERO\\RQ_10,5_2spur_7,5m.sli",
+    "anzahl": 784,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 0,
+    "halbe_breite": 4.15
+   },
+   {
+    "datei": "Splines\\ADDON_RUHR_AERO\\RQ_X_2spur_Altonaer_8m.sli",
+    "anzahl": 534,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 7.0
+   },
+   {
+    "datei": "Splines\\ADDON_RUHR_AERO\\RQ_28.sli",
+    "anzahl": 259,
+    "spuren": 4,
+    "gegen": 2,
+    "gehwege": 0,
+    "halbe_breite": 12.5
+   },
+   {
+    "datei": "Splines\\Marcel\\str_2spur_11m_SeeburgerStr1.sli",
+    "anzahl": 432,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 10.5
+   },
+   {
+    "datei": "Splines\\Marcel\\str_4spur_Heerstr2.sli",
+    "anzahl": 142,
+    "spuren": 4,
+    "gegen": 2,
+    "gehwege": 0,
+    "halbe_breite": 9.6
+   },
+   {
+    "datei": "Splines\\ADDON_Ruhr\\11m_Bottroper.sli",
+    "anzahl": 240,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 10.5
+   },
+   {
+    "datei": "Splines\\ADDON_RUHR_Mathias\\RQ_20_2_Spur.sli",
+    "anzahl": 208,
+    "spuren": 2,
+    "gegen": 0,
+    "gehwege": 0,
+    "halbe_breite": 7.6
+   }
+  ],
+  "fehlend": 0,
+  "dauer_s": 8.8,
+  "beispiel": {
+   "datei": "Sceneryobjects\\ADDON_Ruhr_Kreuz2\\RQ_X8m_2spur_8,0m_Sidewalk_cross.sco",
+   "bild": "build/studie\\Ruhrgebiet.png"
+  }
+ },
+ {
+  "karte": "X10 Berlin",
+  "ordner": "C:\\Program Files (x86)\\Steam\\steamapps\\common\\OMSI 2\\maps\\X10 Berlin",
+  "kacheln": 356,
+  "kachelgroesse": 300.0,
+  "splines": 3174,
+  "objekte": 80801,
+  "pfade": {
+   "Gehweg": 9651,
+   "Strasse": 16533,
+   "Schiene": 378
+  },
+  "kreuzungsobjekte": 430,
+  "kreuzungen_aus_splines": 5,
+  "arme": {
+   "3": 290,
+   "4": 108,
+   "5": 23,
+   "6": 6,
+   "7": 1,
+   "8": 1,
+   "9": 1
+  },
+  "mit_vorfahrt": 248,
+  "mit_ampel": 128,
+  "mit_gehwegpfaden": 430,
+  "mit_splinehelper": 430,
+  "vorfahrt_muster": {
+   "64.0/gerade/3": 23,
+   "64.0/gerade/4": 88,
+   "64.0/gerade/5": 73,
+   "64.0/links/3": 129,
+   "64.0/links/4": 171,
+   "64.0/links/5": 129,
+   "64.0/rechts/3": 125,
+   "64.0/rechts/4": 106,
+   "64.0/rechts/5": 107,
+   "64.0/wenden/3": 8,
+   "64.0/wenden/4": 15,
+   "64.0/wenden/5": 48,
+   "128/gerade/3": 374,
+   "128/gerade/4": 250,
+   "128/gerade/5": 59,
+   "128/links/3": 404,
+   "128/links/4": 223,
+   "128/links/5": 43,
+   "128/rechts/3": 355,
+   "128/rechts/4": 286,
+   "128/rechts/5": 57,
+   "128/wenden/3": 2,
+   "128/wenden/4": 2,
+   "128/wenden/5": 4,
+   "192.0/gerade/3": 294,
+   "192.0/gerade/4": 211,
+   "192.0/gerade/5": 135,
+   "192.0/links/3": 57,
+   "192.0/links/4": 77,
+   "192.0/links/5": 95,
+   "192.0/rechts/3": 125,
+   "192.0/rechts/4": 81,
+   "192.0/rechts/5": 138,
+   "192.0/wenden/3": 22,
+   "192.0/wenden/4": 6,
+   "192.0/wenden/5": 17
+  },
+  "radien": {
+   "rechts": {
+    "n": 2986,
+    "median": 11.5,
+    "p10": 6.2,
+    "p90": 82.9
+   },
+   "links": {
+    "n": 2784,
+    "median": 12.9,
+    "p10": 7.9,
+    "p90": 92.7
+   }
+  },
+  "ampel_umlauf": {
+   "n": 899,
+   "median": 60,
+   "haeufig": [
+    [
+     1,
+     71
+    ],
+    [
+     203,
+     22
+    ],
+    [
+     58,
+     20
+    ],
+    [
+     284,
+     20
+    ],
+    [
+     57,
+     18
+    ]
+   ]
+  },
+  "ampel_phasen": {
+   "0": 1777,
+   "3": 507,
+   "6": 1408,
+   "9": 1863,
+   "12": 1427,
+   "10": 8,
+   "11": 8,
+   "2": 8,
+   "1": 10
+  },
+  "anschluss_abstand": {
+   "50": 0.0,
+   "90": 0.002,
+   "99": 0.018
+  },
+  "strassen_splines": [
+   {
+    "datei": "Splines\\X10\\str_2spur_8m_altonaer1.sli",
+    "anzahl": 334,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 7.0
+   },
+   {
+    "datei": "Splines\\X10\\X5.5_2spurC_Beethoven.sli",
+    "anzahl": 221,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 4.75
+   },
+   {
+    "datei": "Splines\\X10\\str_2spur_6m_Leubnitzer.sli",
+    "anzahl": 122,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 6.0
+   },
+   {
+    "datei": "Splines\\X10\\str_2spur_11m_SeeburgerStr1.sli",
+    "anzahl": 94,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 10.5
+   },
+   {
+    "datei": "Splines\\X10\\str_2spur_8m_sedan1.sli",
+    "anzahl": 94,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 7.0
+   },
+   {
+    "datei": "Splines\\X10\\Hstr_7spur_Wilhelm4.sli",
+    "anzahl": 45,
+    "spuren": 4,
+    "gegen": 0,
+    "gehwege": 1,
+    "halbe_breite": 13.9
+   },
+   {
+    "datei": "Splines\\X10\\X6.5_SSErsatz1.sli",
+    "anzahl": 83,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 4.75
+   },
+   {
+    "datei": "Splines\\X10\\Hstr_6spur_Wilhelm3.sli",
+    "anzahl": 51,
+    "spuren": 3,
+    "gegen": 0,
+    "gehwege": 1,
+    "halbe_breite": 13.9
+   },
+   {
+    "datei": "Splines\\X10\\Hstr_6spur_Wilhelm2.sli",
+    "anzahl": 48,
+    "spuren": 3,
+    "gegen": 0,
+    "gehwege": 1,
+    "halbe_breite": 13.9
+   },
+   {
+    "datei": "Splines\\X10\\X6.5_2spurA_Mahlower.sli",
+    "anzahl": 66,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 8.25
+   },
+   {
+    "datei": "Splines\\X10\\X9.5_3spurA_Kuelz.sli",
+    "anzahl": 28,
+    "spuren": 3,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 11.25
+   },
+   {
+    "datei": "Splines\\X10\\X6.5_2spurB_Kuelz.sli",
+    "anzahl": 41,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 8.25
+   }
+  ],
+  "fehlend": 0,
+  "dauer_s": 2.4,
+  "beispiel": {
+   "datei": "Sceneryobjects\\X10 Kreuzungen\\KuJoach2.sco",
+   "bild": "build/studie\\X10_Berlin.png"
+  }
+ },
+ {
+  "karte": "Ahlheim 4",
+  "ordner": "C:\\Users\\ewanh\\Documents\\OpenOmsi\\openOMSI-0.1.1541-windows-x64\\maps\\Ahlheim 4",
+  "kacheln": 730,
+  "kachelgroesse": 300.0,
+  "splines": 60679,
+  "objekte": 278123,
+  "pfade": {
+   "Gehweg": 21739,
+   "Strasse": 34984,
+   "Schiene": 787
+  },
+  "kreuzungsobjekte": 665,
+  "kreuzungen_aus_splines": 214,
+  "arme": {
+   "3": 443,
+   "4": 167,
+   "5": 39,
+   "6": 10,
+   "7": 2,
+   "8": 1,
+   "9": 1,
+   "11": 1,
+   "14": 1
+  },
+  "mit_vorfahrt": 556,
+  "mit_ampel": 264,
+  "mit_gehwegpfaden": 405,
+  "mit_splinehelper": 601,
+  "vorfahrt_muster": {
+   "64.0/gerade/3": 45,
+   "64.0/gerade/4": 186,
+   "64.0/gerade/5": 136,
+   "64.0/links/3": 401,
+   "64.0/links/4": 306,
+   "64.0/links/5": 258,
+   "64.0/rechts/3": 275,
+   "64.0/rechts/4": 224,
+   "64.0/rechts/5": 166,
+   "64.0/wenden/3": 21,
+   "64.0/wenden/4": 25,
+   "64.0/wenden/5": 44,
+   "128/gerade/3": 314,
+   "128/gerade/4": 187,
+   "128/gerade/5": 109,
+   "128/links/3": 350,
+   "128/links/4": 183,
+   "128/links/5": 48,
+   "128/rechts/3": 319,
+   "128/rechts/4": 179,
+   "128/rechts/5": 89,
+   "128/wenden/3": 11,
+   "128/wenden/4": 7,
+   "128/wenden/5": 14,
+   "192.0/gerade/3": 704,
+   "192.0/gerade/4": 463,
+   "192.0/gerade/5": 309,
+   "192.0/links/3": 107,
+   "192.0/links/4": 143,
+   "192.0/links/5": 202,
+   "192.0/rechts/3": 321,
+   "192.0/rechts/4": 303,
+   "192.0/rechts/5": 211,
+   "192.0/wenden/3": 19,
+   "192.0/wenden/4": 63,
+   "192.0/wenden/5": 50
+  },
+  "radien": {
+   "rechts": {
+    "n": 4028,
+    "median": 11.4,
+    "p10": 5.0,
+    "p90": 180.0
+   },
+   "links": {
+    "n": 4237,
+    "median": 14.2,
+    "p10": 7.3,
+    "p90": 156.3
+   }
+  },
+  "ampel_umlauf": {
+   "n": 1835,
+   "median": 48,
+   "haeufig": [
+    [
+     1,
+     66
+    ],
+    [
+     29,
+     53
+    ],
+    [
+     65,
+     48
+    ],
+    [
+     30,
+     48
+    ],
+    [
+     48,
+     47
+    ]
+   ]
+  },
+  "ampel_phasen": {
+   "9": 1247,
+   "12": 756,
+   "3": 686,
+   "6": 1918,
+   "0": 2547,
+   "5": 2,
+   "7": 4,
+   "8": 2
+  },
+  "anschluss_abstand": {
+   "50": 0.0,
+   "90": 0.002,
+   "99": 0.052
+  },
+  "strassen_splines": [
+   {
+    "datei": "Splines\\Marcel\\invis_street.sli",
+    "anzahl": 3398,
+    "spuren": 1,
+    "gegen": 0,
+    "gehwege": 0,
+    "halbe_breite": 0.0
+   },
+   {
+    "datei": "Splines\\Marcel\\str_2spur_8m_altonaer1.sli",
+    "anzahl": 945,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 7.0
+   },
+   {
+    "datei": "Splines\\Marcel\\str_2spur_6m_Leubnitzer.sli",
+    "anzahl": 369,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 6.0
+   },
+   {
+    "datei": "Splines\\ADDON_SimpleStreets\\RQ_X_2spur_Altonaer_8m.sli",
+    "anzahl": 276,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 7.0
+   },
+   {
+    "datei": "Splines\\Marcel\\str_6spur_falkenseer1.sli",
+    "anzahl": 86,
+    "spuren": 6,
+    "gegen": 3,
+    "gehwege": 2,
+    "halbe_breite": 20.0
+   },
+   {
+    "datei": "Splines\\ADDON_SimpleStreets\\RQ_10,5_2spur_7,5m.sli",
+    "anzahl": 182,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 0,
+    "halbe_breite": 4.15
+   },
+   {
+    "datei": "Splines\\Ahlheim4_Splines\\RQ_28_Bridge_Half.sli",
+    "anzahl": 174,
+    "spuren": 2,
+    "gegen": 2,
+    "gehwege": 0,
+    "halbe_breite": 12.5
+   },
+   {
+    "datei": "Splines\\Marcel\\str_2spur_11m_SeeburgerStr1.sli",
+    "anzahl": 166,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 10.5
+   },
+   {
+    "datei": "Splines\\ADDON_SimpleStreets\\RQ_28_Half.sli",
+    "anzahl": 162,
+    "spuren": 2,
+    "gegen": 0,
+    "gehwege": 0,
+    "halbe_breite": 12.5
+   },
+   {
+    "datei": "Splines\\Marcel\\str_4spur_zeppelin1.sli",
+    "anzahl": 77,
+    "spuren": 4,
+    "gegen": 2,
+    "gehwege": 2,
+    "halbe_breite": 12.75
+   },
+   {
+    "datei": "Splines\\Yufa\\str_2spur_8m_altland1.sli",
+    "anzahl": 149,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 0,
+    "halbe_breite": 4.0
+   },
+   {
+    "datei": "Splines\\ADDON_SimpleStreets\\RQ_10,5_2spur_7,5m_Bankett.sli",
+    "anzahl": 141,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 7.45
+   }
+  ],
+  "fehlend": 2,
+  "dauer_s": 6.5,
+  "beispiel": {
+   "datei": "Sceneryobjects\\Ahlheim4_Objekte2\\EVAG4101\\Kreuzungen\\Listau_S.sco",
+   "bild": "build/studie\\Ahlheim_4.png"
+  }
+ },
+ {
+  "karte": "Ahlheim 5",
+  "ordner": "C:\\Users\\ewanh\\Documents\\OpenOmsi\\openOMSI-0.1.1541-windows-x64\\maps\\Ahlheim 5",
+  "kacheln": 776,
+  "kachelgroesse": 300.0,
+  "splines": 70228,
+  "objekte": 356176,
+  "pfade": {
+   "Gehweg": 24483,
+   "Strasse": 36992,
+   "Schiene": 1137
+  },
+  "kreuzungsobjekte": 708,
+  "kreuzungen_aus_splines": 220,
+  "arme": {
+   "3": 470,
+   "4": 180,
+   "5": 40,
+   "6": 12,
+   "7": 2,
+   "9": 1,
+   "11": 1,
+   "12": 1,
+   "14": 1
+  },
+  "mit_vorfahrt": 588,
+  "mit_ampel": 269,
+  "mit_gehwegpfaden": 407,
+  "mit_splinehelper": 627,
+  "vorfahrt_muster": {
+   "64.0/gerade/3": 56,
+   "64.0/gerade/4": 183,
+   "64.0/gerade/5": 129,
+   "64.0/links/3": 414,
+   "64.0/links/4": 314,
+   "64.0/links/5": 267,
+   "64.0/rechts/3": 291,
+   "64.0/rechts/4": 232,
+   "64.0/rechts/5": 172,
+   "64.0/wenden/3": 24,
+   "64.0/wenden/4": 22,
+   "64.0/wenden/5": 52,
+   "128/gerade/3": 355,
+   "128/gerade/4": 215,
+   "128/gerade/5": 115,
+   "128/links/3": 371,
+   "128/links/4": 205,
+   "128/links/5": 48,
+   "128/rechts/3": 350,
+   "128/rechts/4": 206,
+   "128/rechts/5": 70,
+   "128/wenden/3": 11,
+   "128/wenden/4": 2,
+   "128/wenden/5": 8,
+   "192.0/gerade/3": 739,
+   "192.0/gerade/4": 470,
+   "192.0/gerade/5": 304,
+   "192.0/links/3": 128,
+   "192.0/links/4": 141,
+   "192.0/links/5": 212,
+   "192.0/rechts/3": 353,
+   "192.0/rechts/4": 316,
+   "192.0/rechts/5": 203,
+   "192.0/wenden/3": 22,
+   "192.0/wenden/4": 56,
+   "192.0/wenden/5": 72
+  },
+  "radien": {
+   "links": {
+    "n": 4339,
+    "median": 14.2,
+    "p10": 7.4,
+    "p90": 149.8
+   },
+   "rechts": {
+    "n": 4220,
+    "median": 12.0,
+    "p10": 5.0,
+    "p90": 160.0
+   }
+  },
+  "ampel_umlauf": {
+   "n": 2071,
+   "median": 48,
+   "haeufig": [
+    [
+     1,
+     80
+    ],
+    [
+     29,
+     57
+    ],
+    [
+     65,
+     56
+    ],
+    [
+     30,
+     56
+    ],
+    [
+     41,
+     51
+    ]
+   ]
+  },
+  "ampel_phasen": {
+   "9": 1418,
+   "12": 860,
+   "3": 769,
+   "6": 2137,
+   "0": 2877,
+   "5": 2,
+   "7": 4,
+   "1": 1,
+   "2": 1,
+   "8": 2
+  },
+  "anschluss_abstand": {
+   "50": 0.0,
+   "90": 0.002,
+   "99": 0.051
+  },
+  "strassen_splines": [
+   {
+    "datei": "Splines\\Marcel\\invis_street.sli",
+    "anzahl": 3495,
+    "spuren": 1,
+    "gegen": 0,
+    "gehwege": 0,
+    "halbe_breite": 0.0
+   },
+   {
+    "datei": "Splines\\Ahlheim4_Splines\\str_2spur_8m_altonaer1_AL.sli",
+    "anzahl": 645,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 7.0
+   },
+   {
+    "datei": "Splines\\Ahlheim4_Splines\\str_2spur_6m_Leubnitzer_AL.sli",
+    "anzahl": 257,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 6.0
+   },
+   {
+    "datei": "Splines\\Ahlheim4_Splines\\RQ_X_2spur_Altonaer_8m_AL.sli",
+    "anzahl": 232,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 7.0
+   },
+   {
+    "datei": "Splines\\Ahlheim4_Splines\\RQ_28_Bridge_Half.sli",
+    "anzahl": 174,
+    "spuren": 2,
+    "gegen": 2,
+    "gehwege": 0,
+    "halbe_breite": 12.5
+   },
+   {
+    "datei": "Splines\\ADDON_SimpleStreets\\RQ_28_Half.sli",
+    "anzahl": 161,
+    "spuren": 2,
+    "gegen": 0,
+    "gehwege": 0,
+    "halbe_breite": 12.5
+   },
+   {
+    "datei": "Splines\\ADDON_SimpleStreets\\RQ_10,5_2spur_7,5m.sli",
+    "anzahl": 150,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 0,
+    "halbe_breite": 4.15
+   },
+   {
+    "datei": "Splines\\Ahlheim4_Splines\\str_4spur_zeppelin1_AL.sli",
+    "anzahl": 70,
+    "spuren": 4,
+    "gegen": 2,
+    "gehwege": 2,
+    "halbe_breite": 12.75
+   },
+   {
+    "datei": "Splines\\Ahlheim4_Splines\\str_6spur_falkenseer1_AL.sli",
+    "anzahl": 46,
+    "spuren": 6,
+    "gegen": 3,
+    "gehwege": 2,
+    "halbe_breite": 20.0
+   },
+   {
+    "datei": "Splines\\ADDON_SimpleStreets\\RQ_10,5_2spur_7,5m_Bankett.sli",
+    "anzahl": 136,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 7.45
+   },
+   {
+    "datei": "Splines\\Ahlheim4_Splines\\str_2spur_11m_SeeburgerStr1_AL.sli",
+    "anzahl": 135,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 10.5
+   },
+   {
+    "datei": "Splines\\Ahlheim4_Splines\\RQ_9,5_2spur_6,5m_Sidewalk_AL.sli",
+    "anzahl": 114,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 4.75
+   }
+  ],
+  "fehlend": 1,
+  "dauer_s": 7.8,
+  "beispiel": {
+   "datei": "Sceneryobjects\\Ahlheim4_Objekte\\Kreuzungen\\Luehrer_Kreuzung_V5.sco",
+   "bild": "build/studie\\Ahlheim_5.png"
+  }
+ },
+ {
+  "karte": "Mainzer Linien 68 und 69",
+  "ordner": "C:\\Users\\ewanh\\Documents\\OpenOmsi\\openOMSI-0.1.1541-windows-x64\\maps\\Mainz",
+  "kacheln": 188,
+  "kachelgroesse": 300.0,
+  "splines": 9713,
+  "objekte": 28284,
+  "pfade": {
+   "Gehweg": 2744,
+   "Strasse": 4762,
+   "Schiene": 110
+  },
+  "kreuzungsobjekte": 22,
+  "kreuzungen_aus_splines": 73,
+  "arme": {
+   "3": 14,
+   "4": 8
+  },
+  "mit_vorfahrt": 6,
+  "mit_ampel": 8,
+  "mit_gehwegpfaden": 17,
+  "mit_splinehelper": 17,
+  "vorfahrt_muster": {
+   "64.0/gerade/3": 2,
+   "64.0/gerade/4": 19,
+   "64.0/links/3": 2,
+   "64.0/links/4": 15,
+   "64.0/rechts/3": 2,
+   "64.0/rechts/4": 30,
+   "64.0/wenden/4": 9,
+   "128/gerade/3": 42,
+   "128/gerade/4": 17,
+   "128/links/3": 26,
+   "128/links/4": 18,
+   "128/rechts/3": 24,
+   "128/rechts/4": 23,
+   "128/wenden/3": 3,
+   "192.0/wenden/4": 1
+  },
+  "radien": {
+   "rechts": {
+    "n": 312,
+    "median": 20.0,
+    "p10": 7.5,
+    "p90": 200.0
+   },
+   "links": {
+    "n": 244,
+    "median": 20.0,
+    "p10": 9.0,
+    "p90": 300.0
+   }
+  },
+  "ampel_umlauf": {
+   "n": 29,
+   "median": 65,
+   "haeufig": [
+    [
+     70,
+     6
+    ],
+    [
+     60,
+     6
+    ],
+    [
+     78,
+     3
+    ],
+    [
+     45,
+     2
+    ],
+    [
+     65,
+     2
+    ]
+   ]
+  },
+  "ampel_phasen": {
+   "3": 23,
+   "6": 14,
+   "10": 4,
+   "0": 46,
+   "7": 16,
+   "11": 4,
+   "9": 19,
+   "2": 2,
+   "4": 3
+  },
+  "anschluss_abstand": {
+   "50": 0.0,
+   "90": 0.0,
+   "99": 0.157
+  },
+  "strassen_splines": [
+   {
+    "datei": "Splines\\Marcel\\invis_street.sli",
+    "anzahl": 1214,
+    "spuren": 1,
+    "gegen": 0,
+    "gehwege": 0,
+    "halbe_breite": 0.0
+   },
+   {
+    "datei": "Splines\\ADDON_SimpleStreets\\RQ_10,5_2spur_7,5m_Oneway.sli",
+    "anzahl": 153,
+    "spuren": 2,
+    "gegen": 2,
+    "gehwege": 0,
+    "halbe_breite": 4.15
+   },
+   {
+    "datei": "Splines\\ADDON_SimpleStreets\\RQ_X_2spur_Altonaer_8m.sli",
+    "anzahl": 145,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 7.0
+   },
+   {
+    "datei": "Splines\\Marcel\\str_2spur_8m_altonaer1.sli",
+    "anzahl": 125,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 2,
+    "halbe_breite": 7.0
+   },
+   {
+    "datei": "Splines\\Mainz\\str_2spur_altonaer_oGehweg.sli",
+    "anzahl": 83,
+    "spuren": 2,
+    "gegen": 1,
+    "gehwege": 0,
+    "halbe_breite": 4.0
+   },
+   {
+    "datei": "Splines\\Mainz\\Abfahrt.sli",
+    "anzahl": 147,
+    "spuren": 1,
+    "gegen": 0,
+    "gehwege": 0,
+    "halbe_breite": 10.5
+   },
+   {
+    "datei": "Splines\\ADDON_SimpleStreets\\RQ_10,5_1spur.sli",
+    "anzahl": 138,
+    "spuren": 1,
+    "gegen": 1,
+    "gehwege": 0,
+    "halbe_breite": 4.55
+   },
+   {
+    "datei": "Splines\\Mainz\\str_3spur_Kaiserstr_oMitte.sli",
+    "anzahl": 29,
+    "spuren": 3,
+    "gegen": 0,
+    "gehwege": 0,
+    "halbe_breite": 30.0
+   },
+   {
+    "datei": "Splines\\Mainz\\str_2spur_OneWay_Saarstr.sli",
+    "anzahl": 42,
+    "spuren": 2,
+    "gegen": 0,
+    "gehwege": 0,
+    "halbe_breite": 12.75
+   },
+   {
+    "datei": "Splines\\Mainz\\str_2spur_4m_Europakreisel.sli",
+    "anzahl": 35,
+    "spuren": 2,
+    "gegen": 0,
+    "gehwege": 0,
+    "halbe_breite": 4.0
+   },
+   {
+    "datei": "Splines\\Mainz\\str_4spur_Saarstr.sli",
+    "anzahl": 16,
+    "spuren": 4,
+    "gegen": 2,
+    "gehwege": 0,
+    "halbe_breite": 12.75
+   },
+   {
+    "datei": "Splines\\Mainz\\str_2spur_3m_Oneway.sli",
+    "anzahl": 64,
+    "spuren": 1,
+    "gegen": 0,
+    "gehwege": 0,
+    "halbe_breite": 4.0
+   }
+  ],
+  "fehlend": 11,
+  "dauer_s": 0.9,
+  "beispiel": {
+   "datei": "Sceneryobjects\\Mainz\\XBleiche.sco",
+   "bild": "build/studie\\Mainz.png"
+  }
+ }
+]
