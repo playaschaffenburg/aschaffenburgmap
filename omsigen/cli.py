@@ -31,9 +31,11 @@ def main(argv=None):
     a = ap.parse_args(argv)
 
     print('1/6 Orte suchen ...')
-    pts = [osm.geocode(q, a.stadt, a.cache) for q in [a.von] + a.ueber + [a.nach]]
-    for q, p in zip([a.von] + a.ueber + [a.nach], pts):
-        print(f'    {q}: {p[0]:.6f}, {p[1]:.6f}')
+    places = [osm.find_place(q, a.stadt, a.cache) for q in [a.von] + a.ueber + [a.nach]]
+    pts = [(p['lat'], p['lon']) for p in places]
+    for q, p in zip([a.von] + a.ueber + [a.nach], places):
+        info = f'  ({p["name"]}, {p["art"]})' if p['name'] else ''
+        print(f'    {q}: {p["lat"]:.6f}, {p["lon"]:.6f}{info}')
 
     print('2/6 OSM-Daten laden ...')
     lat = [p[0] for p in pts]; lon = [p[1] for p in pts]
@@ -45,8 +47,10 @@ def main(argv=None):
 
     proj = Projection(sum(lat) / len(lat), sum(lon) / len(lon))
     print('3/6 Strecke berechnen ...')
-    line, length = route(data['ways'], proj, pts)
-    print(f'    Streckenlaenge {length:.0f} m')
+    rinfo = {}
+    line, length = route(data['ways'], proj, pts, rinfo)
+    print(f'    Streckenlaenge {length:.0f} m (Abstand zur Strasse: '
+          + ', '.join(f'{d:.0f} m' for d in rinfo['andocken']) + ')')
 
     print('4/6 Strassennetz und Kreuzungen bauen ...')
     ways, cuts = corridor(data['ways'], proj, line, a.breite)

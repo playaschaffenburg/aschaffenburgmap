@@ -1,5 +1,5 @@
 """Projektion, Routing auf dem OSM-Strassennetz und Auswahl eines Korridors um die Strecke."""
-import heapq, math
+import collections, heapq, math
 import numpy as np
 
 
@@ -80,13 +80,57 @@ def dijkstra(G, s, t):
     return path[::-1], dist[t]
 
 
-def route(ways, proj, points):
-    """points: Liste (lat, lon) Start, Zwischenziele, Ziel -> (Polylinie in m, Laenge)"""
+def components(G):
+    """Zusammenhaengende Teilnetze (ohne Beachtung der Einbahnrichtung): Knoten -> Nummer"""
+    adj = {k: set() for k in G}
+    for k, v in G.items():
+        for n, _ in v:
+            adj[k].add(n); adj.setdefault(n, set()).add(k)
+    comp = {}
+    for k in adj:
+        if k in comp:
+            continue
+        comp[k] = k
+        stack = [k]
+        while stack:
+            for w in adj[stack.pop()]:
+                if w not in comp:
+                    comp[w] = k; stack.append(w)
+    return comp
+
+
+def main_component(G, pos, pts_m, max_d=400):
+    """Teilnetz, an das alle Punkte andocken: kleinste Summe der Abstaende (z. B. liegt der Hbf naeher am Nordring,
+    der aber ohne Bruecken/Unterfuehrungen vom Stadtnetz abgeschnitten ist). -> Menge der Knoten oder None"""
+    comp = components(G)
+    best = collections.defaultdict(lambda: [1e18] * len(pts_m))
+    for k, q in pos.items():
+        b = best[comp[k]]
+        for i, p in enumerate(pts_m):
+            b[i] = min(b[i], math.dist(p, q))
+    ok = {c: sum(b) for c, b in best.items() if max(b) <= max_d}
+    if not ok:
+        return None
+    c = min(ok, key=ok.get)
+    return {k for k in pos if comp[k] == c}
+
+
+def route(ways, proj, points, info=None):
+    """points: Liste (lat, lon) Start, Zwischenziele, Ziel -> (Polylinie in m, Laenge).
+    info (dict, optional) bekommt 'andocken': Abstand jedes Punkts zur benutzten Strasse in m."""
     G, pos = build_graph(ways, proj)
-    line, total = [], 0.0
+    nodes = main_component(G, pos, [proj.to_m(*p) for p in points])
+    if nodes is None:
+        raise ValueError('Start/Ziel liegt mehr als 400 m von der naechsten Strasse entfernt '
+                         '(oder Punkte liegen in nicht verbundenen Teilnetzen)')
+    pos_c = {k: q for k, q in pos.items() if k in nodes}
+    line, total, snap = [], 0.0, []
     for a, b in zip(points, points[1:]):
-        sa, da = nearest_node(pos, proj.to_m(*a), G)
-        sb, db = nearest_node(pos, proj.to_m(*b), G, need_out=False)
+        sa, da = nearest_node(pos_c, proj.to_m(*a), G)
+        if sa is None:   # nur Knoten ohne Ausfahrt in der Naehe (Einbahnende)
+            sa, da = nearest_node(pos_c, proj.to_m(*a), G, need_out=False)
+        sb, db = nearest_node(pos_c, proj.to_m(*b), G, need_out=False)
+        snap += [da, db] if not snap else [db]
         if da > 400 or db > 400:
             raise ValueError('Start/Ziel liegt mehr als 400 m von der naechsten Strasse entfernt')
         path, L = dijkstra(G, sa, sb)
@@ -101,6 +145,8 @@ def route(ways, proj, points):
         pts = [pos[k] for k in path]
         line += pts if not line else pts[1:]
         total += L
+    if info is not None:
+        info['andocken'] = snap
     return line, total
 
 

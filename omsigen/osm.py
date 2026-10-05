@@ -13,25 +13,90 @@ def _requests():
     return requests
 
 
-def geocode(query, city=None, cache_dir=None):
-    """'49.98,9.14' oder Ortsname -> (lat, lon). Mit Stadt als Zusatz, z. B. ('Hauptbahnhof', 'Aschaffenburg')."""
+# Abkuerzungen, unter denen Orte in OSM oft heissen (Bahnhof "Aschaffenburg Hbf" statt "Hauptbahnhof")
+ABKUERZUNGEN = [('hauptbahnhof', 'hbf'), ('bahnhof', 'bf'), ('strasse', 'str'), ('straße', 'str')]
+
+# Rang der OSM-Kategorie: Haltestellen und Bahnhoefe zuerst (es geht um Busstrecken), Parkhaeuser u. a. zuletzt
+RANG_KATEGORIE = {
+    ('railway', 'station'): 0, ('amenity', 'bus_station'): 0, ('public_transport', 'station'): 0,
+    ('highway', 'bus_stop'): 1, ('public_transport', 'platform'): 1, ('public_transport', 'stop_position'): 1,
+    ('railway', 'halt'): 1, ('railway', 'stop'): 1,
+    ('amenity', 'parking'): 3, ('amenity', 'parking_entrance'): 3, ('railway', 'signal_box'): 3,
+    ('railway', 'junction'): 3, ('railway', 'switch'): 3, ('railway', 'signal'): 3,
+}
+
+
+def _norm(s):
+    return re.sub(r'[^a-z0-9äöüß]+', ' ', (s or '').lower()).strip()
+
+
+def _varianten(query):
+    """'Hauptbahnhof' -> ['hauptbahnhof', 'hbf'] (normalisiert, Original zuerst)"""
+    out = [_norm(query)]
+    for lang, kurz in ABKUERZUNGEN:
+        for v in list(out):
+            if re.search(rf'\b{lang}\b', v):
+                out.append(re.sub(rf'\b{lang}\b', kurz, v))
+            elif re.search(rf'\b{kurz}\b', v):
+                out.append(re.sub(rf'\b{kurz}\b', lang, v))
+    return list(dict.fromkeys(out))
+
+
+def rank_candidates(cands, query, city=None):
+    """Nominatim-Treffer sortieren: 1. Name passt genau (Stadtname im Treffer darf dabeistehen),
+    2. Name enthaelt den Suchbegriff, 3. Kategorie (Haltestelle/Bahnhof vor Parkhaus), 4. Reihenfolge der Suche."""
+    vs = _varianten(query)
+    c = _norm(city)
+
+    def key(item):
+        i, r = item
+        name = _norm(r.get('name') or r.get('display_name', '').split(',')[0])
+        ohne_stadt = re.sub(rf'\b{re.escape(c)}\b', ' ', name).strip() if c else name
+        ohne_stadt = re.sub(r'\s+', ' ', ohne_stadt)
+        if name in vs or ohne_stadt in vs:
+            m = 0
+        elif any(re.search(rf'\b{re.escape(v)}\b', name) for v in vs):
+            m = 1
+        else:
+            m = 2
+        return (m, RANG_KATEGORIE.get((r.get('class'), r.get('type')), 2), i)
+    return [r for i, r in sorted(enumerate(cands), key=key)]
+
+
+def find_place(query, city=None, cache_dir=None):
+    """'49.98,9.14' oder Ortsname -> dict(lat, lon, name, art). Mit Stadt als Zusatz, z. B. ('Hauptbahnhof', 'Aschaffenburg').
+    Fragt Nominatim auch mit Abkuerzungen (Hauptbahnhof/Hbf) und waehlt den am besten passenden Treffer."""
     m = re.fullmatch(r'\s*(-?\d+(?:\.\d+)?)\s*,\s*(-?\d+(?:\.\d+)?)\s*', query)
     if m:
-        return float(m[1]), float(m[2])
+        return dict(lat=float(m[1]), lon=float(m[2]), name=None, art='Koordinaten')
     q = f'{query}, {city}' if city else query
-    cached = _cache_get(cache_dir, 'geo', q)
+    cached = _cache_get(cache_dir, 'geo2', q)
     if cached:
-        return tuple(cached)
-    r = _requests().get(NOMINATIM, params=dict(q=q, format='json', limit=1, countrycodes='de'),
-                        headers={'User-Agent': UA}, timeout=30)
-    r.raise_for_status()
-    res = r.json()
-    if not res:
+        return cached
+    cands, seen = [], set()
+    for v in _varianten(query):
+        r = _requests().get(NOMINATIM, params=dict(q=f'{v}, {city}' if city else v, format='json', limit=10,
+                                                   countrycodes='de'),
+                            headers={'User-Agent': UA}, timeout=30)
+        r.raise_for_status()
+        for x in r.json():
+            if (x.get('osm_type'), x.get('osm_id')) not in seen:
+                seen.add((x.get('osm_type'), x.get('osm_id'))); cands.append(x)
+        time.sleep(1)  # Nominatim-Nutzungsregeln: max. 1 Anfrage/s
+    if not cands:
         raise ValueError(f'Ort nicht gefunden: {q}')
-    ll = (float(res[0]['lat']), float(res[0]['lon']))
-    _cache_put(cache_dir, 'geo', q, list(ll))
-    time.sleep(1)  # Nominatim-Nutzungsregeln: max. 1 Anfrage/s
-    return ll
+    best = rank_candidates(cands, query, city)[0]
+    res = dict(lat=float(best['lat']), lon=float(best['lon']),
+               name=best.get('name') or best.get('display_name', '').split(',')[0],
+               art=f"{best.get('class')}/{best.get('type')}")
+    _cache_put(cache_dir, 'geo2', q, res)
+    return res
+
+
+def geocode(query, city=None, cache_dir=None):
+    """'49.98,9.14' oder Ortsname -> (lat, lon)"""
+    p = find_place(query, city, cache_dir)
+    return p['lat'], p['lon']
 
 
 def fetch(bbox, cache_dir=None):
@@ -55,7 +120,12 @@ out tags geom;"""
             continue
         r.raise_for_status()
         break
-    data = normalize(r.json(), bbox)
+    else:
+        raise RuntimeError(f'Overpass-Server ueberlastet (HTTP {r.status_code}), bitte spaeter erneut versuchen')
+    js = r.json()
+    if 'runtime error' in js.get('remark', ''):   # Abbruch auf dem Server -> Daten unvollstaendig
+        raise RuntimeError(f'Overpass-Abfrage abgebrochen: {js["remark"]}')
+    data = normalize(js, bbox)
     _cache_put(cache_dir, 'osm', b, data)
     return data
 
