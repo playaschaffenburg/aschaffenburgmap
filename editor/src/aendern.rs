@@ -341,6 +341,43 @@ fn kodieren(text: &str, utf16: bool) -> Vec<u8> {
 mod tests {
     use super::*;
 
+    /// streamen, bis die Kacheln um die Mitte geladen sind und nichts mehr kommt
+    pub fn streamen(v: &mut Viewer) {
+        let mitte = DVec3::new(150.0, 150.0, 0.0);
+        let t0 = std::time::Instant::now();
+        let mut ruhig = 0;
+        while t0.elapsed().as_secs() < 60 && ruhig < 60 {
+            if v.stream(mitte, 400.0, std::time::Duration::from_millis(50)) || v.first_area_progress().is_some() {
+                ruhig = 0;
+            } else {
+                ruhig += 1;
+            }
+            std::thread::sleep(std::time::Duration::from_millis(10));
+        }
+    }
+
+    /// wie im Fenster (Hintergrund-Streaming): die geaenderte Kachel muss aus der Sitzungskopie kommen
+    #[test]
+    #[ignore]
+    fn aendern_mit_streaming() {
+        let root = std::path::Path::new(crate::bearbeiten::tests::OMSI);
+        let (mut v, _) = Viewer::open(&openomsi_game::viewer::instance(), None, root, &root.join("maps/Grundorf/global.cfg")).unwrap();
+        streamen(&mut v);
+        let mut a = Aendern::neu(&v);
+        a.aktualisieren(&v);
+        let id = a.kacheln.values().flatten()
+            .find(|s| v.spline_end_free(s.id, true).is_some())
+            .map(|s| s.id).expect("keine Strasse");
+        a.auswahl = vec![id];
+        a.loeschen(&mut v).unwrap();
+        streamen(&mut v);
+        assert!(v.spline_end_free(id, true).is_none(), "geloeschter Spline {id} ist nach dem Neuladen noch da");
+        a.rueckgaengig(&mut v).unwrap();
+        streamen(&mut v);
+        assert!(v.spline_end_free(id, true).is_some(), "Spline {id} nach Rueckgaengig nicht wieder da");
+        let _ = std::fs::remove_dir_all(&a.sitzung);
+    }
+
     #[test]
     #[ignore]
     fn vorhandene_strasse_aendern() {
