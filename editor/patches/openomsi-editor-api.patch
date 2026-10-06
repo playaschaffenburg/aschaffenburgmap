@@ -1,7 +1,7 @@
 From 6a28afa52f391b1e21dd812a7f86f94221f673a7 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 16:01:32 +0200
-Subject: [PATCH 1/5] editor-api: oeffentliche Viewer-Schnittstelle, OpenXR zur
+Subject: [PATCH 1/6] editor-api: oeffentliche Viewer-Schnittstelle, OpenXR zur
  Laufzeit laden
 
 ---
@@ -210,7 +210,7 @@ index 0000000..f57565c
 From cc51e3c693d2333dc4ee49c47f6e37c20ab516e8 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 16:22:56 +0200
-Subject: [PATCH 2/5] editor-api: Hintergrund-Streaming und Kartenwechsel mit
+Subject: [PATCH 2/6] editor-api: Hintergrund-Streaming und Kartenwechsel mit
  demselben Renderer
 
 ---
@@ -316,7 +316,7 @@ index f57565c..ebd8833 100644
 From 596e460251b086f739871a8134343aea3f22e5e0 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 16:35:56 +0200
-Subject: [PATCH 3/5] editor-api: Objekte bearbeiten und Kacheln schreiben
+Subject: [PATCH 3/6] editor-api: Objekte bearbeiten und Kacheln schreiben
  ueber den Viewer
 
 ---
@@ -391,7 +391,7 @@ index ebd8833..e926a15 100644
 From 0cb9086cbb9faad1472cd454cb3fd12000216701 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 16:54:59 +0200
-Subject: [PATCH 4/5] editor-api: freie Objekte setzen, naechste freie ID,
+Subject: [PATCH 4/6] editor-api: freie Objekte setzen, naechste freie ID,
  Kacheldatei
 
 ---
@@ -448,7 +448,7 @@ index e926a15..61f58bb 100644
 From 237ec37d6957dab1787c4d67d58d7803945fd3f5 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 17:10:18 +0200
-Subject: [PATCH 5/5] editor-api: Objektausmasse und Vorschaubilder
+Subject: [PATCH 5/6] editor-api: Objektausmasse und Vorschaubilder
 
 ---
  crates/omsi-app/src/viewer.rs | 34 ++++++++++++++++++++++++++++++++++
@@ -495,6 +495,116 @@ index 61f58bb..e92c3f2 100644
 +        let img = self.render_image(size, size, &cam).ok();
 +        self.remove_object(tg);
 +        img
++    }
+ }
+-- 
+2.55.0.windows.5
+
+
+From 9988917031be8d360dab043f72364f777791de76 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 6 Oct 2026 17:24:46 +0200
+Subject: [PATCH 6/6] editor-api: Splines frei zeichnen (Live-Vorschau), Spuren
+ einer .sli
+
+---
+ crates/omsi-app/src/scene.rs  | 57 +++++++++++++++++++++++++++++++++++
+ crates/omsi-app/src/viewer.rs | 18 +++++++++++
+ 2 files changed, 75 insertions(+)
+
+diff --git a/crates/omsi-app/src/scene.rs b/crates/omsi-app/src/scene.rs
+index cd4f353..af5fc34 100644
+--- a/crates/omsi-app/src/scene.rs
++++ b/crates/omsi-app/src/scene.rs
+@@ -8132,6 +8132,63 @@ impl World {
+         Some(tg)
+     }
+ 
++    /// editor-api: draw one spline segment of type `rel` (a `.sli`) along `curve`, outside any
++    /// tile, with the materials a tile's splines get - the map editor's live preview of a
++    /// road being built. Taken away again with `remove_helper_object`.
++    pub fn add_helper_spline(&self, renderer: &Renderer, scene: &mut Scene, rel: &str, curve: &omsi_geometry::SplineCurve) -> Option<TileGpu> {
++        let st = self.spline_type(rel)?;
++        let curve = curve.with_sli(&st.def);
++        let origin = curve.start;
++        let mesh = build_spline_mesh(&st.def, &curve, false, origin);
++        if mesh.is_empty() {
++            return None;
++        }
++        let mut guard = self.gpu.lock();
++        let gpu = &mut *guard;
++        self.ensure_ground(renderer, scene, gpu);
++        let ground_mat = gpu.ground.as_ref()?.ground_mat;
++        let skey = Arc::as_ptr(&st) as usize;
++        if !gpu.splines.contains_key(&skey) {
++            let dirs = texture_dirs(&self.root, &st.dir);
++            let images: HashMap<PathBuf, Arc<TextureData>> = HashMap::new();
++            let mut sg = SplineGpu { _st: st.clone(), materials: Vec::new(), textures: Vec::new(), users: 0, terrain: Vec::new() };
++            for t in &st.def.textures {
++                let (tex, has_alpha) = match gpu.texture(renderer, scene, &t.file, &dirs, &images) {
++                    Some((id, path)) => {
++                        let a = gpu.has_alpha(&path);
++                        sg.textures.push(path);
++                        (Some(id), a)
++                    }
++                    None => (None, false),
++                };
++                let alpha = match (t.alpha, has_alpha) {
++                    (1, _) => AlphaMode::Test,
++                    (mode, true) if mode >= 2 => AlphaMode::Blend,
++                    _ => AlphaMode::Opaque,
++                };
++                let m = renderer.add_material_extra(scene, tex, alpha, [1.0; 4], false, None, None, None, None, [0.0; 3],
++                    MaterialExtra { no_z_write: alpha == AlphaMode::Blend, ..MaterialExtra::default() });
++                let m = gpu.material(renderer, scene, m);
++                sg.materials.push(m);
++            }
++            gpu.splines.insert(skey, sg);
++        }
++        let sg = gpu.splines.get_mut(&skey)?;
++        sg.users += 1;
++        let mats = if sg.materials.is_empty() { vec![ground_mat] } else { sg.materials.clone() };
++        let mut tg = TileGpu::default();
++        tg.spline_types.push(skey);
++        let id = gpu.add_mesh(renderer, scene, &mesh);
++        tg.meshes.push(id);
++        let si = renderer.add_surface_instance(scene, id, origin, Mat4::IDENTITY, mats);
++        if let Some(inst) = scene.instances.get_mut(si) {
++            inst.render_phase = RenderPhase::Spline;
++        }
++        let inst = gpu.instance(renderer, scene, si);
++        tg.instances.push(inst);
++        Some(tg)
++    }
++
+     /// Take away an object `add_helper_object` put down.
+     pub fn remove_helper_object(&self, renderer: &Renderer, scene: &mut Scene, tg: TileGpu) {
+         self.gpu.lock().release_tile(renderer, scene, tg);
+diff --git a/crates/omsi-app/src/viewer.rs b/crates/omsi-app/src/viewer.rs
+index e92c3f2..d50c032 100644
+--- a/crates/omsi-app/src/viewer.rs
++++ b/crates/omsi-app/src/viewer.rs
+@@ -289,4 +289,22 @@ impl Viewer {
+         self.remove_object(tg);
+         img
+     }
++
++    // ------------------------------------------------------------ splines (road preview)
++
++    /// Draw one spline segment of type `rel` (.sli, relative to the OMSI folder) along
++    /// `curve`, outside any tile. Taken away with `remove_object`.
++    pub fn add_spline(&mut self, rel: &str, curve: &omsi_geometry::SplineCurve) -> Option<TileGpu> {
++        self.world.add_helper_spline(&self.renderer, &mut self.scene, rel, curve)
++    }
++
++    /// The lanes of spline type `rel`: (kind 0 road / 1 footway / 2 rail, x across (right
++    /// positive), height, width, direction 0 along / 1 against / 2 both), and the outer
++    /// half widths (left, right) of its drawn profile.
++    pub fn spline_lanes(&self, rel: &str) -> Option<(Vec<(u8, f32, f32, f32, u8)>, (f32, f32))> {
++        let st = self.world.spline_type(rel)?;
++        let lanes = st.def.paths.iter().map(|p| (p.kind as u8, p.start[0], p.start[1], p.width, p.direction as u8)).collect();
++        let (lo, hi) = st.def.profiles.iter().flat_map(|p| p.points.iter().map(|q| q.x)).fold((0.0f32, 0.0f32), |(a, b), x| (a.min(x), b.max(x)));
++        Some((lanes, (-lo, hi)))
 +    }
  }
 -- 

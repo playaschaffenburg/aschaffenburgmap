@@ -3529,6 +3529,7 @@ dependencies = [
  "log",
  "omsi-app",
  "omsi-cfg",
+ "omsi-geometry",
  "omsi-map",
  "omsi-render",
  "pollster",

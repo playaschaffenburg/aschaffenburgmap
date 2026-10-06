@@ -13,6 +13,7 @@
 mod bearbeiten;
 mod kamera;
 mod katalog;
+mod netz;
 mod speichern;
 mod vorschau;
 
