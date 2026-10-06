@@ -1,0 +1,40 @@
+[package]
+name = "omsi-editor"
+version = "0.1.0"
+edition = "2021"
+description = "Moderner Karteneditor fuer OMSI 2 auf Basis von openOMSI"
+license = "MIT"
+
+# openOMSI (MIT, https://github.com/openOMSI-Project/openOMSI) als Bibliothek, Zweig `editor-api`
+# des lokalen Klons (patches/openomsi-editor-api.patch). Pfad anpassen, falls der Klon woanders liegt.
+[dependencies]
+openomsi_game = { package = "omsi-app", path = "../../OpenOmsi/source/crates/omsi-app" }
+omsi-render = { path = "../../OpenOmsi/source/crates/omsi-render" }
+omsi-map = { path = "../../OpenOmsi/source/crates/omsi-map" }
+omsi-cfg = { path = "../../OpenOmsi/source/crates/omsi-cfg" }
+wgpu = { version = "29", default-features = false, features = ["std", "parking_lot", "metal", "vulkan", "dx12", "gles", "wgsl", "noop"] }
+winit = "0.30"
+glam = "0.30"
+pollster = "0.4"
+anyhow = "1"
+log = "0.4"
+env_logger = "0.11"
+egui = "0.35"
+egui-wgpu = { version = "0.35", default-features = false }
+egui-winit = { version = "0.35", default-features = false, features = ["clipboard", "links"] }
+
+[profile.release]
+opt-level = 3
+debug = 1
+codegen-units = 16
+lto = false
+
+# wie in openOMSI: ohne Optimierung waeren Karte laden und Zeichnen viel zu langsam
+[profile.dev]
+opt-level = 1
+
+[profile.dev.package."*"]
+opt-level = 3
+
+[patch.crates-io]
+gpu-allocator = { git = "https://github.com/openOMSI-Project/gpu-allocator", rev = "6ad8a7eeb9c3e1dcd65656f718c593a0a1a3915d" }

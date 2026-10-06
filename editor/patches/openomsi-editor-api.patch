@@ -1,0 +1,208 @@
+From 6a28afa52f391b1e21dd812a7f86f94221f673a7 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 6 Oct 2026 16:01:32 +0200
+Subject: [PATCH] editor-api: oeffentliche Viewer-Schnittstelle, OpenXR zur
+ Laufzeit laden
+
+---
+ crates/omsi-app/Cargo.toml    |   2 +-
+ crates/omsi-app/src/lib.rs    |   2 +
+ crates/omsi-app/src/openxr.rs |   2 +-
+ crates/omsi-app/src/viewer.rs | 146 ++++++++++++++++++++++++++++++++++
+ 4 files changed, 150 insertions(+), 2 deletions(-)
+ create mode 100644 crates/omsi-app/src/viewer.rs
+
+diff --git a/crates/omsi-app/Cargo.toml b/crates/omsi-app/Cargo.toml
+index 8fa36fd..e94941f 100644
+--- a/crates/omsi-app/Cargo.toml
++++ b/crates/omsi-app/Cargo.toml
+@@ -77,7 +77,7 @@ libc.workspace = true
+ # Windows: the game controllers through DirectInput, as OMSI reads them (see `dinput`)
+ [target.'cfg(windows)'.dependencies]
+ windows = { workspace = true, features = ["Win32_Devices_HumanInterfaceDevice", "Win32_Foundation", "Win32_Graphics_Direct3D12", "Win32_Graphics_Dxgi_Common", "Win32_Security", "Win32_Storage_FileSystem", "Win32_System_IO", "Win32_System_LibraryLoader", "Win32_System_Memory", "Win32_System_SystemInformation", "Win32_System_Threading", "Win32_UI_WindowsAndMessaging"] }
+-openxr = { version = "0.22", default-features = false, features = ["static"] }
++openxr = { version = "0.22", default-features = false, features = ["loaded"] }   # editor-api: zur Laufzeit laden (kein CMake noetig)
+ wgpu-hal = { workspace = true, features = ["dx12"] }
+ 
+ # macOS: the axes of wheels and pedals straight from their HID elements (see `mac_hid`)
+diff --git a/crates/omsi-app/src/lib.rs b/crates/omsi-app/src/lib.rs
+index 6d5034d..133bed2 100644
+--- a/crates/omsi-app/src/lib.rs
++++ b/crates/omsi-app/src/lib.rs
+@@ -107,6 +107,8 @@ mod weather_setup;
+ mod weather_cycle;
+ mod weather_model;
+ mod world_load;
++// editor-api: public interface for embedding the map view (see viewer.rs)
++pub mod viewer;
+ 
+ // the interface's translations (locales/app.yml; the English text is the key)
+ rust_i18n::i18n!("locales");
+diff --git a/crates/omsi-app/src/openxr.rs b/crates/omsi-app/src/openxr.rs
+index 54cc387..37005ee 100644
+--- a/crates/omsi-app/src/openxr.rs
++++ b/crates/omsi-app/src/openxr.rs
+@@ -152,7 +152,7 @@ impl Vr {
+         configured_scale: f32,
+         desktop_mirror: bool,
+     ) -> Result<Self> {
+-        let entry = xr::Entry::linked(&()).context("load OpenXR")?;
++        let entry = unsafe { xr::Entry::load(&()) }.context("load OpenXR")?;
+         if !entry.enumerate_extensions()?.khr_d3d12_enable {
+             bail!("the active OpenXR runtime does not support D3D12");
+         }
+diff --git a/crates/omsi-app/src/viewer.rs b/crates/omsi-app/src/viewer.rs
+new file mode 100644
+index 0000000..f57565c
+--- /dev/null
++++ b/crates/omsi-app/src/viewer.rs
+@@ -0,0 +1,146 @@
++//! editor-api: a small public interface for embedding the map view in another program (the
++//! omsi-editor of the aschaffenburgmap project). Everything here uses the game's own
++//! loading and drawing - the picture is the game's - but without vehicles, traffic,
++//! timetable or sound: a map, its tiles around a point, a camera and a fixed time of day.
++//!
++//! This file and the line `pub mod viewer;` in lib.rs are the whole change on the
++//! `editor-api` branch (plus loading OpenXR at run time instead of linking it).
++
++use super::*;
++use hashbrown::HashSet;
++
++pub use crate::scene::World;
++pub use omsi_render::{Camera, Lighting, RenderOptions, Renderer, Scene, SurfaceState};
++
++/// The graphics instance the game uses (the native API of the system).
++pub fn instance() -> wgpu::Instance {
++    crate::startup::graphics_instance()
++}
++
++/// A loaded map with its renderer and scene.
++pub struct Viewer {
++    pub renderer: Renderer,
++    pub scene: Scene,
++    pub world: World,
++    pub root: PathBuf,
++    /// Hours since midnight of the fixed daylight (12 = noon).
++    pub hour: f64,
++    loaded: HashSet<(i32, i32)>,
++}
++
++impl Viewer {
++    /// Open `global_cfg` (path to a map's global.cfg) of the OMSI installation `root`.
++    /// `surface` picks an adapter and format that can show it (None: offscreen, sRGB RGBA).
++    pub fn open(
++        instance: &wgpu::Instance,
++        surface: Option<&wgpu::Surface<'_>>,
++        root: &Path,
++        global_cfg: &Path,
++    ) -> Result<(Viewer, Camera)> {
++        let settings = settings::Settings::load();
++        let format = if surface.is_none() { Some(wgpu::TextureFormat::Rgba8UnormSrgb) } else { None };
++        let mut renderer = pollster::block_on(Renderer::new_with(instance, surface, format, settings.render_options()))?;
++        crate::lights::load_smoke_texture(&mut renderer, root);
++        crate::lights::set_corona_root(root);
++        let scene = renderer.new_scene();
++        omsi_texture::set_season_folder(None);
++        let clock = Self::clock_at(12.0);
++        let world = World::open(root, global_cfg, clock.date_code())?;
++        let camera = crate::camera_util::default_camera(&world);
++        Ok((
++            Viewer { renderer, scene, world, root: root.to_path_buf(), hour: 12.0, loaded: HashSet::new() },
++            camera,
++        ))
++    }
++
++    fn clock_at(hour: f64) -> omsi_sim::SimClock {
++        omsi_sim::SimClock { year: 2026, day_of_year: 172, time: hour * 3600.0, timegap: 0.0, paused: true, run_time: 0.0 }
++    }
++
++    /// Tile of a world point (x east, y north).
++    pub fn tile_of(p: DVec3) -> (i32, i32) {
++        ((p.x / omsi_map::tile_size()).floor() as i32, (p.y / omsi_map::tile_size()).floor() as i32)
++    }
++
++    /// The map's tiles (x, y).
++    pub fn map_tiles(&self) -> Vec<(i32, i32)> {
++        self.world.global.tiles.iter().map(|t| (t.x, t.y)).collect()
++    }
++
++    /// Load the tiles within `radius` tiles of `center` that are not loaded yet; tiles
++    /// further than `radius + 2` are unloaded. Returns how many were loaded.
++    pub fn tiles_around(&mut self, center: DVec3, radius: i32) -> Result<usize> {
++        let (cx, cy) = Self::tile_of(center);
++        let want: Vec<_> = self
++            .world
++            .select_tiles(Some((cx, cy)), Some(radius))
++            .into_iter()
++            .filter(|t| !self.loaded.contains(&(t.0, t.1)))
++            .collect();
++        let far: Vec<(i32, i32)> = self
++            .loaded
++            .iter()
++            .copied()
++            .filter(|&(x, y)| (x - cx).abs() > radius + 2 || (y - cy).abs() > radius + 2)
++            .collect();
++        for k in &far {
++            self.world.unload_tile(&self.renderer, &mut self.scene, *k, None);
++            self.loaded.remove(k);
++        }
++        if !far.is_empty() {
++            self.world.trim_object_types();
++            self.world.refresh_tile_lists();
++        }
++        if want.is_empty() {
++            return Ok(0);
++        }
++        self.world.build_scene(&self.renderer, &mut self.scene, &want)?;
++        for t in &want {
++            self.loaded.insert((t.0, t.1));
++        }
++        Ok(want.len())
++    }
++
++    /// Unload everything (before the map's files change, e.g. after the editor saved).
++    pub fn unload_all(&mut self) {
++        for k in self.loaded.drain().collect::<Vec<_>>() {
++            self.world.unload_tile(&self.renderer, &mut self.scene, k, None);
++        }
++        self.world.trim_object_types();
++        self.world.refresh_tile_lists();
++    }
++
++    pub fn loaded_tiles(&self) -> usize {
++        self.loaded.len()
++    }
++
++    /// The renderer's lighting for the fixed time of day.
++    pub fn lighting(&self) -> Lighting {
++        let d = omsi_sim::Daylight::compute(&Self::clock_at(self.hour), None);
++        crate::lights::lighting_from(&d, 4000.0)
++    }
++
++    /// Draw a frame into `target` (a texture view of the renderer's format).
++    pub fn render(&mut self, target: &wgpu::TextureView, width: u32, height: u32, camera: &Camera) {
++        self.renderer.prepare(&mut self.scene);
++        let lighting = self.lighting();
++        self.renderer.render(&mut self.scene, target, width, height, camera, &lighting);
++    }
++
++    /// A frame as RGBA pixels (offscreen).
++    pub fn render_image(&mut self, width: u32, height: u32, camera: &Camera) -> Result<Vec<u8>> {
++        self.renderer.prepare(&mut self.scene);
++        let lighting = self.lighting();
++        self.renderer.render_to_image(&mut self.scene, width, height, camera, &lighting)
++    }
++
++    /// Height of what stands at (x, y): roads, objects to stand on, else the ground.
++    pub fn ground_height(&self, x: f64, y: f64) -> Option<f64> {
++        self.world.ground_height(x, y)
++    }
++
++    /// Height of the ground alone at (x, y).
++    pub fn terrain_height(&self, x: f64, y: f64) -> Option<f64> {
++        self.world.ground_terrain(x, y)
++    }
++}
+-- 
+2.55.0.windows.5
+
