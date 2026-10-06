@@ -57,6 +57,9 @@ pub struct Paket {
     pub neue_splines: usize,
     /// Zwischenordner (wird nach dem Anlegen der Karte geloescht)
     pub staging: PathBuf,
+    /// Kreuzungsobjekte der Sitzung: (Ordner, Name unter Sceneryobjects/Aschaffenburg_KI) - kommen in den Ordner
+    /// der neuen Karte
+    pub kreuzungen: Option<(PathBuf, String)>,
 }
 
 /// ein Eintrag fuer eine Kachel: neues Objekt oder neuer Spline (in Zeilen, ohne Zeilenende)
@@ -66,7 +69,8 @@ enum Eintrag {
 }
 
 /// Teil 1 komplett: Aenderungen der Kartenobjekte (openOMSI) und neue Objekte in die Kacheln schreiben
-pub fn vorbereiten(v: &Viewer, b: &Bearbeiten, netz: &crate::netz::Netz, kopien: &[PathBuf], alt: &str) -> Result<Paket> {
+pub fn vorbereiten(v: &Viewer, b: &Bearbeiten, netz: &crate::netz::Netz, kopien: &[PathBuf], kreuzungen: Option<(PathBuf, String)>,
+                   alt: &str) -> Result<Paket> {
     let (staging, mut dateien) = kacheln_schreiben(v, &b.ed, alt)?;
     let ordner = staging.join("maps").join(alt);
     std::fs::create_dir_all(&ordner)?;
@@ -145,13 +149,15 @@ pub fn vorbereiten(v: &Viewer, b: &Bearbeiten, netz: &crate::netz::Netz, kopien:
             dateien.push(ziel);
         }
     }
-    Ok(Paket { dateien, naechste_id: (id > start).then_some(id), neue_objekte, neue_splines, staging })
+    // nur, wenn es Kreuzungen gibt
+    let kreuzungen = kreuzungen.filter(|(d, _)| std::fs::read_dir(d).map(|r| r.flatten().any(|e| e.path().extension().is_some_and(|x| x == "sco"))).unwrap_or(false));
+    Ok(Paket { dateien, naechste_id: (id > start).then_some(id), neue_objekte, neue_splines, staging, kreuzungen })
 }
 
 /// alles in einem Schritt (Tests)
 #[cfg(test)]
 pub fn alles_speichern(v: &Viewer, b: &Bearbeiten, netz: &crate::netz::Netz, alt: &str, neu: &str, root: &Path) -> Result<PathBuf> {
-    let p = vorbereiten(v, b, netz, &[], alt)?;
+    let p = vorbereiten(v, b, netz, &[], None, alt)?;
     karte_anlegen(root, alt, neu, &p)
 }
 
@@ -189,10 +195,27 @@ pub fn karte_anlegen(root: &Path, alt: &str, neu: &str, paket: &Paket) -> Result
     if ziel.exists() {
         bail!("{} gibt es schon - anderen Namen waehlen (vorhandene Karten werden nie ueberschrieben)", ziel.display());
     }
+    let objekte = root.join("Sceneryobjects").join("Aschaffenburg_KI").join(neu);
+    if paket.kreuzungen.is_some() && objekte.exists() {
+        bail!("{} gibt es schon - anderen Namen waehlen", objekte.display());
+    }
     ordner_kopieren(&quelle, &ziel).with_context(|| format!("{} nach {} kopieren", quelle.display(), ziel.display()))?;
     for d in dateien {
         let name = d.file_name().context("Datei ohne Namen")?;
         std::fs::copy(d, ziel.join(name)).with_context(|| format!("{} schreiben", ziel.join(name).display()))?;
+    }
+    // Kreuzungsobjekte in den Ordner der neuen Karte, die Kacheln verweisen dann dorthin
+    if let Some((ordner, tag)) = &paket.kreuzungen {
+        ordner_kopieren(ordner, &objekte).with_context(|| format!("Kreuzungsobjekte nach {} kopieren", objekte.display()))?;
+        let alt_rel = format!("Aschaffenburg_KI\\{tag}\\");
+        let neu_rel = format!("Aschaffenburg_KI\\{neu}\\");
+        for d in dateien {
+            let datei = ziel.join(d.file_name().context("Datei ohne Namen")?);
+            let (text, utf16) = dekodieren(&std::fs::read(&datei)?);
+            if text.contains(&alt_rel) {
+                std::fs::write(&datei, kodieren(&text.replace(&alt_rel, &neu_rel), utf16))?;
+            }
+        }
     }
     let mut werte = vec![("[name]", neu.to_string())];
     if let Some(id) = paket.naechste_id {

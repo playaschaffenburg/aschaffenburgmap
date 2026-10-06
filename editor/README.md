@@ -62,6 +62,18 @@ beim Start der vorhandene übernommen (abschaltbar), am Ziel erscheint eine Warn
 Gespeichert wird jede Straße als Kette von `[spline_h]`-Einträgen (glatter Höhenverlauf, Enden exakt auf den Knoten
 in gleicher Richtung – so verbindet OMSI die Spuren).
 
+**Kreuzungen (Abzweig mitten aus einer vorhandenen Straße)** wie in Transport Fever 2: im Werkzeug „Straße bauen“
+zeigt eine orange Markierung, wo eine Kreuzung entstünde (Mitte, aufgeschnittenes Stück, neuer Arm). Start oder Ziel
+mitten auf einer vorhandenen Straße: beim Bauen wird die Straße dort aufgeschnitten (auch über mehrere verknüpfte
+Splines; das Stück hinter der Kreuzung bekommt eine neue ID, die Nachbarn werden umgehängt), die Enden laufen eben
+auf Kreuzungshöhe ein, dazwischen kommt ein Kreuzungsobjekt wie in den Standardkarten – Platte mit Bordsteinecken
+und Gehwegen, Abbiegespuren für alle Richtungen, Vorfahrt (vorhandene Straße Hauptstraße, neue wartet) –, erzeugt
+von omsigen (`python -m omsigen.editorkreuzung`, dieselben Funktionen wie für die generierten Karten). Die neue
+Straße beginnt bzw. endet an ihrem dritten Arm (mindestens 35° zur Straße). Ein Strg+Z nimmt Straße und Kreuzung
+zurück. Zu nah am Ende einer Straße oder an einer anderen Kreuzung gibt es eine Meldung. Python: `python` aus dem
+Pfad (oder `OMSIGEN_PYTHON`), omsigen aus diesem Repository (oder `OMSIGEN_DIR`). Die Objekte liegen während der
+Sitzung im Sitzungsordner und kommen beim Speichern nach `Sceneryobjects\Aschaffenburg_KI\<neue Karte>\`.
+
 **Vorhandene Straßen ändern (Werkzeug „Ändern“, Taste U)** wie das Upgrade-Werkzeug in Transport Fever 2: die Straße
 unter der Maus wird umrissen, Klick wählt den Spline (Umschalt+Klick: ganze verknüpfte Kette, Strg+Klick: dazu/weg).
 Rechts: Daten des Splines, **Richtung umkehren** (`mirror`), **Löschen** (Entf) und **Upgrade** auf einen anderen
@@ -84,6 +96,7 @@ Tests: `cargo test --release` (ohne OMSI), `cargo test --release -- --include-ig
 2. **Bearbeiten** (Objekte fertig): auswählen, ziehen, drehen, heben, löschen, kopieren, aus dem Katalog
    platzieren, Rückgängig, Speichern als neue Karte. Splines verschieben kommt mit dem Netz-Kern (Schritt 3) – das kann auch openOMSI selbst noch nicht
 3. **Straßen** (in Arbeit): Netz-Kern (Knoten, Kanten aus Geraden/Bögen, glatte Höhe), Werkzeug Gerade/Kurve mit
-   Live-Vorschau und Einrasten, Speichern als Splines, Anschluss an freie Enden vorhandener Straßen (fertig); Knoten ziehen,
-   Kreuzungsobjekte über omsigen (offen)
+   Live-Vorschau und Einrasten, Speichern als Splines, Anschluss an freie Enden vorhandener Straßen, Ändern/Upgrade,
+   Kreuzungen beim Abzweig aus vorhandenen Straßen (fertig); Kreuzungen zwischen eigenen Straßen, Kreuzen (4 Arme),
+   Vorfahrt/Ampel per Klick, Knoten ziehen (offen)
 4. omsigen-Funktionen: OSM-Import, Kreuzungsgenerator, DGM-Gelände, Luftbild

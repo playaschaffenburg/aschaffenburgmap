@@ -47,7 +47,7 @@ struct Schritt {
 pub struct Aendern {
     /// Sitzungsordner (vor der Installation gelesen)
     pub sitzung: PathBuf,
-    kacheln: HashMap<(i32, i32), Vec<KartenSpline>>,
+    pub(crate) kacheln: HashMap<(i32, i32), Vec<KartenSpline>>,
     stand: Vec<(i32, i32)>,
     pub unter_maus: Option<i64>,
     pub auswahl: Vec<i64>,
@@ -55,6 +55,9 @@ pub struct Aendern {
     redo: Vec<Vec<Schritt>>,
     pub aenderungen: usize,
     breiten: HashMap<String, (f32, f32)>,
+    /// Ordnername der Kreuzungsobjekte dieser Sitzung unter Sceneryobjects/Aschaffenburg_KI (beim Speichern wird
+    /// daraus der Name der neuen Karte)
+    pub tag: String,
 }
 
 impl Aendern {
@@ -66,7 +69,7 @@ impl Aendern {
         let _ = std::fs::create_dir_all(&sitzung);
         v.session_overlay(&sitzung);
         Aendern { sitzung, kacheln: HashMap::new(), stand: vec![], unter_maus: None, auswahl: vec![], undo: vec![], redo: vec![],
-                  aenderungen: 0, breiten: HashMap::new() }
+                  aenderungen: 0, breiten: HashMap::new(), tag: format!("Editor_{}_{nr}", std::process::id()) }
     }
 
     /// Splines der geladenen Kacheln (neu lesen, wenn sich die geladenen Kacheln geaendert haben)
@@ -141,7 +144,7 @@ impl Aendern {
     }
 
     /// Wohin die Sitzungskopie einer Kacheldatei kommt (gleicher Pfad unter dem Sitzungsordner)
-    fn kopie(&self, v: &Viewer, datei: &Path) -> PathBuf {
+    pub(crate) fn kopie(&self, v: &Viewer, datei: &Path) -> PathBuf {
         if datei.starts_with(&self.sitzung) {
             return datei.to_path_buf();
         }
@@ -157,30 +160,37 @@ impl Aendern {
                 je_kachel.entry(s.kachel).or_default().push(*id);
             }
         }
-        let mut schritte = Vec::new();
+        let kacheln: Vec<(i32, i32)> = je_kachel.keys().copied().collect();
+        self.kacheln_aendern(v, &kacheln, |k, zeilen| {
+            let ids = &je_kachel[&k];
+            // von hinten, damit Indizes gueltig bleiben
+            let mut stellen: Vec<usize> = ids.iter().filter_map(|id| eintrag_finden(zeilen, *id)).collect();
+            stellen.sort_unstable();
+            stellen.reverse();
+            Ok(stellen.into_iter().filter(|&i| f(zeilen, i)).count())
+        })
+    }
+
+    /// Kacheln `kacheln` als Zeilen bearbeiten (f: Kachel, Zeilen -> Anzahl Aenderungen), als Sitzungskopien
+    /// speichern, neu laden; ein Schritt fuer Rueckgaengig
+    pub(crate) fn kacheln_aendern(&mut self, v: &mut Viewer, kacheln: &[(i32, i32)],
+                                  mut f: impl FnMut((i32, i32), &mut Vec<String>) -> Result<usize>) -> Result<usize> {
+        // erst alle Kacheln bearbeiten, dann schreiben: ein Fehler laesst nichts halb geaendert zurueck
+        let mut fertig = Vec::new();
         let mut n = 0;
-        for (k, ids) in je_kachel {
-            let quelle = v.tile_file(k.0, k.1).context("Kachel nicht in der Karte")?;
+        for &k in kacheln {
+            let quelle = v.tile_file(k.0, k.1).with_context(|| format!("Kachel {} {} gibt es in der Karte nicht", k.0, k.1))?;
             let ziel = self.kopie(v, &quelle);
             let bytes = std::fs::read(&quelle)?;
             let vorher = ziel.exists().then(|| bytes.clone());
             let (text, utf16) = dekodieren(&bytes);
             let eol = if text.contains("\r\n") { "\r\n" } else { "\n" };
             let mut zeilen: Vec<String> = text.split(eol).map(|s| s.to_string()).collect();
-            // von hinten, damit Indizes gueltig bleiben
-            let mut stellen: Vec<usize> = (0..zeilen.len())
-                .filter(|&i| {
-                    let w = zeilen[i].trim().to_ascii_lowercase();
-                    (w == "[spline]" || w == "[spline_h]") && zeilen.get(i + 3).and_then(|z| z.trim().parse::<i64>().ok()).is_some_and(|x| ids.contains(&x))
-                })
-                .collect();
-            stellen.reverse();
-            for i in stellen {
-                if f(&mut zeilen, i) {
-                    n += 1;
-                }
-            }
-            let neu = kodieren(&zeilen.join(eol), utf16);
+            n += f(k, &mut zeilen)?;
+            fertig.push((k, ziel, vorher, kodieren(&zeilen.join(eol), utf16)));
+        }
+        let mut schritte = Vec::new();
+        for (k, ziel, vorher, neu) in fertig {
             std::fs::create_dir_all(ziel.parent().unwrap())?;
             std::fs::write(&ziel, &neu)?;
             schritte.push(Schritt { kachel: k, datei: ziel, vorher, nachher: Some(neu) });
@@ -320,6 +330,39 @@ fn lesen(v: &Viewer, (tx, ty): (i32, i32)) -> Vec<KartenSpline> {
     }).collect()
 }
 
+impl Drop for Aendern {
+    /// Sitzung zu Ende (Kartenwechsel, Programmende): Ordner abmelden und loeschen
+    fn drop(&mut self) {
+        omsi_cfg::remove_content_root(&self.sitzung);
+        let _ = std::fs::remove_dir_all(&self.sitzung);
+        omsi_cfg::content_changed();
+    }
+}
+
+/// Zeile des Schluesselworts ([spline]/[spline_h]) des Spline-Eintrags `id`
+pub(crate) fn eintrag_finden(zeilen: &[String], id: i64) -> Option<usize> {
+    (0..zeilen.len()).find(|&i| {
+        let w = zeilen[i].trim().to_ascii_lowercase();
+        (w == "[spline]" || w == "[spline_h]") && zeilen.get(i + 3).and_then(|z| z.trim().parse::<i64>().ok()) == Some(id)
+    })
+}
+
+/// erste Zeile nach dem Spline-Eintrag ab `i` (mit einer `mirror`-Zeile)
+pub(crate) fn eintrag_ende(zeilen: &[String], i: usize) -> usize {
+    let mut j = i + 1;
+    while j < zeilen.len() {
+        let w = zeilen[j].trim();
+        if w.is_empty() || w.starts_with('[') || w.starts_with("Object Nr.") {
+            break;
+        }
+        j += 1;
+        if w.eq_ignore_ascii_case("mirror") {
+            break;
+        }
+    }
+    j
+}
+
 fn dekodieren(bytes: &[u8]) -> (String, bool) {
     if bytes.starts_with(&[0xFF, 0xFE]) {
         let u: Vec<u16> = bytes[2..].chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
@@ -341,28 +384,30 @@ fn kodieren(text: &str, utf16: bool) -> Vec<u8> {
 mod tests {
     use super::*;
 
-    /// streamen, bis die Kacheln um die Mitte geladen sind und nichts mehr kommt
-    pub fn streamen(v: &mut Viewer) {
+    /// streamen, bis mindestens `kacheln` Kacheln um die Mitte geladen sind und nichts mehr kommt -> geladene Kacheln
+    pub fn streamen(v: &mut Viewer, kacheln: usize) -> usize {
         let mitte = DVec3::new(150.0, 150.0, 0.0);
         let t0 = std::time::Instant::now();
         let mut ruhig = 0;
         while t0.elapsed().as_secs() < 60 && ruhig < 60 {
-            if v.stream(mitte, 400.0, std::time::Duration::from_millis(50)) || v.first_area_progress().is_some() {
+            if v.stream(mitte, 400.0, std::time::Duration::from_millis(50)) || v.first_area_progress().is_some() || v.loaded_tiles() < kacheln {
                 ruhig = 0;
             } else {
                 ruhig += 1;
             }
             std::thread::sleep(std::time::Duration::from_millis(10));
         }
+        v.loaded_tiles()
     }
 
     /// wie im Fenster (Hintergrund-Streaming): die geaenderte Kachel muss aus der Sitzungskopie kommen
     #[test]
     #[ignore]
     fn aendern_mit_streaming() {
+        let _sperre = crate::bearbeiten::tests::sperre();
         let root = std::path::Path::new(crate::bearbeiten::tests::OMSI);
         let (mut v, _) = Viewer::open(&openomsi_game::viewer::instance(), None, root, &root.join("maps/Grundorf/global.cfg")).unwrap();
-        streamen(&mut v);
+        let n = streamen(&mut v, 1);
         let mut a = Aendern::neu(&v);
         a.aktualisieren(&v);
         let id = a.kacheln.values().flatten()
@@ -370,17 +415,18 @@ mod tests {
             .map(|s| s.id).expect("keine Strasse");
         a.auswahl = vec![id];
         a.loeschen(&mut v).unwrap();
-        streamen(&mut v);
+        streamen(&mut v, n);
         assert!(v.spline_end_free(id, true).is_none(), "geloeschter Spline {id} ist nach dem Neuladen noch da");
         a.rueckgaengig(&mut v).unwrap();
-        streamen(&mut v);
+        streamen(&mut v, n);
         assert!(v.spline_end_free(id, true).is_some(), "Spline {id} nach Rueckgaengig nicht wieder da");
-        let _ = std::fs::remove_dir_all(&a.sitzung);
+        drop(a);
     }
 
     #[test]
     #[ignore]
     fn vorhandene_strasse_aendern() {
+        let _sperre = crate::bearbeiten::tests::sperre();
         let mut v = crate::bearbeiten::tests::grundorf();
         let mut a = Aendern::neu(&v);
         a.aktualisieren(&v);
@@ -419,6 +465,6 @@ mod tests {
         a.aktualisieren(&v);
         assert_eq!(a.spline(id).unwrap().sli, s.sli);
         assert_eq!(a.kopien("Grundorf").len(), 0, "Sitzungskopie nach vollstaendigem Rueckgaengig");
-        let _ = std::fs::remove_dir_all(&a.sitzung);
+        drop(a);
     }
 }

@@ -3533,6 +3533,7 @@ dependencies = [
  "omsi-map",
  "omsi-render",
  "pollster",
+ "serde_json",
  "wgpu",
  "winit",
 ]

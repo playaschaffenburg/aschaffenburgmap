@@ -88,6 +88,100 @@ def ebene(t):
     return None
 
 
+def spurenden(pos, h, spl, which, sdb):
+    """Spurenden eines Strassenendes: Liste dict(p, h, kind 'in'/'out', gap, right). pos/h: Punkt und Splinerichtung
+    am Ende; which 's' = der Spline beginnt dort, 'e' = er endet dort"""
+    db = sdb[spl]
+    out = []
+    for x, d in db['lanes']:
+        rv = rvec(h)
+        p = (pos[0] + x * rv[0], pos[1] + x * rv[1])
+        if which == 'e':
+            kind, hl = ('in', h) if d == 0 else ('out', (h + 180) % 360)
+        else:
+            kind, hl = ('out', h) if d == 0 else ('in', (h + 180) % 360)
+        out.append(dict(p=p, h=hl, kind=kind, gap=max(0.5, db['cw'] - abs(x))))
+    for l in out:     # Rechts-Rang relativ zur Fahrtrichtung
+        rv = rvec(l['h'])
+        l['right'] = (l['p'][0] - pos[0]) * rv[0] + (l['p'][1] - pos[1]) * rv[1]
+    return out
+
+
+def kreuzungsspuren(arms, k=None):
+    """arms: je Arm die Spurenden (spurenden) -> (conn_chains, fehlgeschlagen, Zaehler der Bewegungen): jede
+    ankommende Spur zu den passenden abgehenden Spuren der anderen Arme, dazu Nachlauf fuer uebrige Spuren"""
+    conn_chains, conn_fail, n_moves = [], 0, collections.Counter()
+    SPUR = KI + 'AB_kreuzung_spur.sli'
+    done = set()
+    for ia, A in enumerate(arms):
+        lin = sorted([l for l in A if l['kind'] == 'in'], key=lambda l: -l['right'])
+        if not lin:
+            continue
+        for ib, B in enumerate(arms):
+            if ia == ib:
+                continue
+            lout = sorted([l for l in B if l['kind'] == 'out'], key=lambda l: -l['right'])
+            if not lout:
+                continue
+            dlt = norm180(lout[0]['h'] - lin[0]['h'])
+            if abs(dlt) > 150:
+                continue
+            pairs = []
+            if abs(dlt) < 35 or len(arms) == 2:
+                mv = 'gerade'
+                pairs = {(i, min(i, len(lout) - 1)) for i in range(len(lin))} | \
+                        {(min(j, len(lin) - 1), j) for j in range(len(lout))}
+            elif dlt > 0:
+                mv = 'rechts'; pairs = {(0, 0)}
+            else:
+                mv = 'links'; pairs = {(len(lin) - 1, len(lout) - 1)}
+            for i, j in sorted(pairs):
+                a, b = lin[i], lout[j]
+                kk = (key(a['p']), key(b['p']))
+                if kk in done or math.dist(a['p'], b['p']) < 0.05:
+                    continue
+                done.add(kk)
+                spl = SPUR
+                if mv == 'rechts' and len(arms) >= 3:
+                    g = (a['gap'] + b['gap']) / 2
+                    g = min(KREUZ_GAPS, key=lambda x: abs(x - g))
+                    spl = KI + f'AB_kreuzung_ecke_{str(g).replace(".", "_")}.sli'
+                els = connect(a['p'], a['h'], b['p'], b['h'], spl)
+                if not els:
+                    conn_fail += 1
+                    continue
+                n_moves[mv] += 1
+                conn_chains.append(dict(els=els, name='Kreuzung', hw='junction', node=k, mv=mv,
+                                        arms=(ia, ib)))
+    # Nachlauf: jede ankommende Spur braucht ein Ziel, jede abgehende Spur einen Zulauf
+    allin = [l for A in arms for l in A if l['kind'] == 'in']
+    allout = [l for A in arms for l in A if l['kind'] == 'out']
+    used_in = {a for a, b in done}; used_out = {b for a, b in done}
+
+    def best_pair(cands):
+        cands = [(abs(norm180(b['h'] - a['h'])), math.dist(a['p'], b['p']), id(a), a, b) for a, b in cands
+                 if abs(norm180(b['h'] - a['h'])) <= 150 and math.dist(a['p'], b['p']) > 1.0]
+        return min(cands)[3:] if cands else None
+    for a in allin:
+        if key(a['p']) not in used_in:
+            pr = best_pair([(a, b) for b in allout if not any(b in A and a in A for A in arms)])
+            if pr:
+                els = connect(pr[0]['p'], pr[0]['h'], pr[1]['p'], pr[1]['h'], SPUR)
+                if els:
+                    conn_chains.append(dict(els=els, name='Kreuzung', hw='junction', node=k, mv='nachlauf'))
+                    n_moves['nachlauf'] += 1
+                    used_out.add(key(pr[1]['p']))
+    for b in allout:
+        if key(b['p']) not in used_out:
+            pr = best_pair([(a, b) for a in allin if not any(b in A and a in A for A in arms)])
+            if pr:
+                els = connect(pr[0]['p'], pr[0]['h'], pr[1]['p'], pr[1]['h'], SPUR)
+                if els:
+                    conn_chains.append(dict(els=els, name='Kreuzung', hw='junction', node=k, mv='nachlauf'))
+                    n_moves['nachlauf'] += 1
+    return conn_chains, conn_fail, n_moves
+
+
 def build(ways_in, sdb, signs=()):
     """ways_in: Liste dict(tags, P=[(x,z),...]) in Metern; signs: Vorfahrt-Schilder/Ampeln dict(kind, p, direction). -> dict(road_chains, conn_chains, junctions, stats)
     Kette = dict(els=[[x, z, h, L, R, spline], ...], name, hw)"""
@@ -500,25 +594,12 @@ def build(ways_in, sdb, signs=()):
 
     # ============================================================ Kreuzungsbauer
     def lane_ends(ch, which):
-        """Spurenden eines Strassenendes: Liste (pos, richtung, 'in'/'out', querlage, abstand_bordstein)"""
+        """Spurenden eines Strassenendes (siehe spurenden)"""
         if which == 's':
             el = ch['els'][0]; pos, h, spl = (el[0], el[1]), el[2], el[5]
         else:
             el = ch['els'][-1]; (pos, h), spl = end_of(el), el[5]
-        db = sdb[spl]
-        out = []
-        for x, d in db['lanes']:
-            rv = rvec(h)
-            p = (pos[0] + x * rv[0], pos[1] + x * rv[1])
-            if which == 'e':
-                kind, hl = ('in', h) if d == 0 else ('out', (h + 180) % 360)
-            else:
-                kind, hl = ('out', h) if d == 0 else ('in', (h + 180) % 360)
-            out.append(dict(p=p, h=hl, kind=kind, gap=max(0.5, db['cw'] - abs(x))))
-        for l in out:     # Rechts-Rang relativ zur Fahrtrichtung
-            rv = rvec(l['h'])
-            l['right'] = (l['p'][0] - pos[0]) * rv[0] + (l['p'][1] - pos[1]) * rv[1]
-        return out
+        return spurenden(pos, h, spl, which, sdb)
 
 
     def arm_info(ch, which):
@@ -543,75 +624,9 @@ def build(ways_in, sdb, signs=()):
             arms_at[ch['node_e']].append(lane_ends(ch, 'e')); arm_meta[ch['node_e']].append(arm_info(ch, 'e'))
 
     conn_chains, conn_fail, n_moves = [], 0, collections.Counter()
-    SPUR = KI + 'AB_kreuzung_spur.sli'
     for k, arms in arms_at.items():
-        done = set()
-        for ia, A in enumerate(arms):
-            lin = sorted([l for l in A if l['kind'] == 'in'], key=lambda l: -l['right'])
-            if not lin:
-                continue
-            for ib, B in enumerate(arms):
-                if ia == ib:
-                    continue
-                lout = sorted([l for l in B if l['kind'] == 'out'], key=lambda l: -l['right'])
-                if not lout:
-                    continue
-                dlt = norm180(lout[0]['h'] - lin[0]['h'])
-                if abs(dlt) > 150:
-                    continue
-                pairs = []
-                if abs(dlt) < 35 or len(arms) == 2:
-                    mv = 'gerade'
-                    pairs = {(i, min(i, len(lout) - 1)) for i in range(len(lin))} | \
-                            {(min(j, len(lin) - 1), j) for j in range(len(lout))}
-                elif dlt > 0:
-                    mv = 'rechts'; pairs = {(0, 0)}
-                else:
-                    mv = 'links'; pairs = {(len(lin) - 1, len(lout) - 1)}
-                for i, j in sorted(pairs):
-                    a, b = lin[i], lout[j]
-                    kk = (key(a['p']), key(b['p']))
-                    if kk in done or math.dist(a['p'], b['p']) < 0.05:
-                        continue
-                    done.add(kk)
-                    spl = SPUR
-                    if mv == 'rechts' and len(arms) >= 3:
-                        g = (a['gap'] + b['gap']) / 2
-                        g = min(KREUZ_GAPS, key=lambda x: abs(x - g))
-                        spl = KI + f'AB_kreuzung_ecke_{str(g).replace(".", "_")}.sli'
-                    els = connect(a['p'], a['h'], b['p'], b['h'], spl)
-                    if not els:
-                        conn_fail += 1
-                        continue
-                    n_moves[mv] += 1
-                    conn_chains.append(dict(els=els, name='Kreuzung', hw='junction', node=k, mv=mv,
-                                            arms=(ia, ib)))
-        # Nachlauf: jede ankommende Spur braucht ein Ziel, jede abgehende Spur einen Zulauf
-        allin = [l for A in arms for l in A if l['kind'] == 'in']
-        allout = [l for A in arms for l in A if l['kind'] == 'out']
-        used_in = {a for a, b in done}; used_out = {b for a, b in done}
-
-        def best_pair(cands):
-            cands = [(abs(norm180(b['h'] - a['h'])), math.dist(a['p'], b['p']), id(a), a, b) for a, b in cands
-                     if abs(norm180(b['h'] - a['h'])) <= 150 and math.dist(a['p'], b['p']) > 1.0]
-            return min(cands)[3:] if cands else None
-        for a in allin:
-            if key(a['p']) not in used_in:
-                pr = best_pair([(a, b) for b in allout if not any(b in A and a in A for A in arms)])
-                if pr:
-                    els = connect(pr[0]['p'], pr[0]['h'], pr[1]['p'], pr[1]['h'], SPUR)
-                    if els:
-                        conn_chains.append(dict(els=els, name='Kreuzung', hw='junction', node=k, mv='nachlauf'))
-                        n_moves['nachlauf'] += 1
-                        used_out.add(key(pr[1]['p']))
-        for b in allout:
-            if key(b['p']) not in used_out:
-                pr = best_pair([(a, b) for a in allin if not any(b in A and a in A for A in arms)])
-                if pr:
-                    els = connect(pr[0]['p'], pr[0]['h'], pr[1]['p'], pr[1]['h'], SPUR)
-                    if els:
-                        conn_chains.append(dict(els=els, name='Kreuzung', hw='junction', node=k, mv='nachlauf'))
-                        n_moves['nachlauf'] += 1
+        cc, cf, nm = kreuzungsspuren(arms, k)
+        conn_chains += cc; conn_fail += cf; n_moves.update(nm)
 
 
     # ============================================================ Wendeschleifen

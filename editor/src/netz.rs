@@ -428,6 +428,7 @@ mod bild_tests {
     #[test]
     #[ignore]
     fn strasse_im_bild() {
+        let _sperre = crate::bearbeiten::tests::sperre();
         let mut v = crate::bearbeiten::tests::grundorf();
         let sli = "Splines\\Marcel\\str_2spur_10m_Grunewaldstr.sli";
         let a = DVec2::new(140.0, 120.0);

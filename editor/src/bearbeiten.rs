@@ -424,6 +424,13 @@ pub mod tests {
 
     pub const OMSI: &str = r"C:\Program Files (x86)\Steam\steamapps\common\OMSI 2";
 
+    /// Tests mit Karte nacheinander: Sitzungsordner (Aendern) sind in openOMSI global eingetragen und zeigen
+    /// sonst einem anderen Test geaenderte Kacheln
+    pub fn sperre() -> std::sync::MutexGuard<'static, ()> {
+        static S: std::sync::Mutex<()> = std::sync::Mutex::new(());
+        S.lock().unwrap_or_else(|e| e.into_inner())
+    }
+
     pub fn grundorf() -> Viewer {
         let root = Path::new(OMSI);
         let instance = openomsi_game::viewer::instance();
@@ -450,6 +457,7 @@ pub mod tests {
     #[test]
     #[ignore]
     fn bearbeiten_kopieren_platzieren_speichern() {
+        let _sperre = crate::bearbeiten::tests::sperre();
         let root = Path::new(OMSI);
         let mut v = grundorf();
         let mut b = Bearbeiten::neu(Werkzeug::Objekte);

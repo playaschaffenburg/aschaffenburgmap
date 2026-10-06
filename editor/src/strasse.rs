@@ -4,9 +4,12 @@
 //! zieht die Vorschau als echte OMSI-Strasse, Klick setzt den naechsten Knoten, Rechtsklick/Esc beendet den Zug.
 //! Gerade: geradeaus (am Strassenende in dessen Richtung). Kurve: Bogen, der tangential anschliesst; trifft der
 //! Bogen ein freies Strassenende, wird er tangential eingefaedelt (Bogenpaar). Bild auf/ab: Hoehe des naechsten
-//! Punkts ueber dem Gelaende.
+//! Punkts ueber dem Gelaende. Start oder Ziel mitten auf einer vorhandenen Strasse: dort entsteht beim Bauen eine
+//! Kreuzung (kreuzung.rs), die neue Strasse beginnt bzw. endet an ihrem dritten Arm.
 
+use crate::aendern::Aendern;
 use crate::anschluss::{spuren_passen, Anschluesse, Anschluss};
+use crate::kreuzung::{self, Abzweig};
 use crate::netz::{self, bogen_durch, norm180, richtung, verbinden, Netz};
 use glam::{DVec2, DVec3};
 use openomsi_game::viewer::{TileGpu, Viewer};
@@ -118,6 +121,8 @@ pub fn querschnitte(root: &Path) -> Vec<Querschnitt> {
 enum Ziel {
     Knoten(u32, DVec3),
     Anschluss(Anschluss),
+    /// mitten auf einer vorhandenen Strasse: dort entsteht eine Kreuzung
+    Abzweig(Abzweig),
     Frei(DVec3),
 }
 
@@ -127,6 +132,8 @@ struct Start {
     knoten: Option<u32>,
     /// freies Ende einer vorhandenen Strasse (der Knoten entsteht erst mit der ersten Kante)
     anschluss: Option<Anschluss>,
+    /// Stelle mitten auf einer vorhandenen Strasse (die Kreuzung entsteht erst mit der ersten Kante)
+    abzweig: Option<Abzweig>,
     pos: DVec3,
     /// Richtung, in der es weitergehen muss (freies Strassenende, letzte Kante des Zugs)
     richtung: Option<f64>,
@@ -144,11 +151,24 @@ pub struct Plan {
     pub ziel: Option<u32>,
     /// Ziel ist das freie Ende einer vorhandenen Strasse
     pub ziel_anschluss: Option<Anschluss>,
+    /// Ziel ist eine Stelle mitten auf einer vorhandenen Strasse (Kreuzung)
+    pub ziel_abzweig: Option<Abzweig>,
+    /// geplante Kreuzungen (Start, Ziel): Mitte, Richtung der Strasse, Schnitt je Seite, Ende des neuen Arms
+    pub kreuzungen: Vec<KreuzungsVorschau>,
     /// z. B. Spuren passen nicht zur vorhandenen Strasse
     pub warnung: Option<String>,
     pub laenge: f64,
     pub min_radius: f64,
     pub steigung: f64,
+}
+
+/// eine geplante Kreuzung fuer die Markierung im Bild
+#[derive(Clone, Debug)]
+pub struct KreuzungsVorschau {
+    pub mitte: DVec3,
+    pub strasse: f64,
+    pub schnitt: f64,
+    pub arm: DVec3,
 }
 
 pub struct Strassenbau {
@@ -160,9 +180,12 @@ pub struct Strassenbau {
     pub plan: Option<Plan>,
     vorschau: Vec<TileGpu>,
     gezeichnet: HashMap<u32, Vec<TileGpu>>,
-    undo: Vec<Netz>,
-    redo: Vec<Netz>,
+    /// Netz vorher und wie viele Schritte des Aendern-Werkzeugs (Kreuzungen) dazugehoeren
+    undo: Vec<(Netz, usize)>,
+    redo: Vec<(Netz, usize)>,
     pub aenderungen: usize,
+    /// Stelle mitten auf einer Strasse unter der Maus (vor dem Start: Markierung "hier zweigt es ab")
+    pub zeiger: Option<KreuzungsVorschau>,
     /// beim Anschluss an eine vorhandene Strasse deren Querschnitt uebernehmen, wenn der gewaehlte nicht passt
     pub uebernehmen: bool,
     spuren_cache: HashMap<String, Vec<(f32, u8)>>,
@@ -172,7 +195,7 @@ impl Default for Strassenbau {
     fn default() -> Self {
         Strassenbau { netz: Netz::default(), sli: None, modus: Modus::Kurve, hoehe: 0.0, start: None, plan: None,
                       vorschau: vec![], gezeichnet: HashMap::new(), undo: vec![], redo: vec![], aenderungen: 0,
-                      uebernehmen: true, spuren_cache: HashMap::new() }
+                      uebernehmen: true, spuren_cache: HashMap::new(), zeiger: None }
     }
 }
 
@@ -186,15 +209,32 @@ impl Strassenbau {
         self.start.is_some()
     }
 
-    /// Punkt fuer Start/Ziel: eigener Knoten, sonst freies Ende einer vorhandenen Strasse, sonst der Bodenpunkt
-    fn punkt(&self, boden: DVec3, fang: f64, ans: &Anschluesse) -> Ziel {
+    /// Punkt fuer Start/Ziel: eigener Knoten, sonst freies Ende einer vorhandenen Strasse, sonst eine Stelle mitten
+    /// auf einer vorhandenen Strasse (Kreuzung), sonst der Bodenpunkt
+    fn punkt(&self, v: &Viewer, boden: DVec3, fang: f64, ans: &Anschluesse, ae: Option<&mut Aendern>) -> Ziel {
         if let Some(k) = self.netz.knoten_bei(boden.truncate(), fang) {
             return Ziel::Knoten(k, self.netz.knoten(k).unwrap().pos);
         }
         if let Some(i) = ans.bei(boden.truncate(), fang) {
             return Ziel::Anschluss(ans.liste[i].clone());
         }
+        if let Some(ab) = ae.and_then(|a| a.abzweig_bei(v, boden.truncate())) {
+            return Ziel::Abzweig(ab);
+        }
         Ziel::Frei(boden + DVec3::Z * self.hoehe)
+    }
+
+    /// halbe Breite eines Querschnitts (aussen, groessere Seite)
+    fn halb(&self, v: &Viewer, sli: &str) -> f64 {
+        v.spline_lanes(sli).map(|(_, (l, r))| l.max(r) as f64).unwrap_or(5.0)
+    }
+
+    /// geplante Kreuzung an `ab` fuer einen Arm Richtung `wunsch`: (Arm-Ende, Arm-Richtung von der Kreuzung weg)
+    fn arm_plan(&self, v: &Viewer, ab: &Abzweig, wunsch: f64, sli: &str) -> (DVec3, f64, KreuzungsVorschau) {
+        let h = kreuzung::arm_richtung(ab.richtung, wunsch);
+        let (d, d_arm) = kreuzung::masse(ab.richtung, h, ab.halb, self.halb(v, sli));
+        let arm = (ab.pos.truncate() + netz::dir(h) * d_arm).extend(ab.pos.z);
+        (arm, h, KreuzungsVorschau { mitte: ab.pos, strasse: ab.richtung, schnitt: d, arm })
     }
 
     /// Fahrspuren (Querlage, Richtung) einer .sli, zwischengespeichert
@@ -216,13 +256,13 @@ impl Strassenbau {
     }
 
     /// Klick: Start setzen bzw. geplante Kante bauen
-    pub fn klick(&mut self, v: &mut Viewer, boden: DVec3, fang: f64, ans: &Anschluesse) -> Option<String> {
+    pub fn klick(&mut self, v: &mut Viewer, boden: DVec3, fang: f64, ans: &Anschluesse, mut ae: Option<&mut Aendern>) -> Option<String> {
         self.sli.as_ref()?;
         match self.start.clone() {
             None => {
                 let mut meldung = "Start gesetzt - Klick setzt den naechsten Punkt, Rechtsklick/Esc beendet".to_string();
-                self.start = Some(match self.punkt(boden, fang, ans) {
-                    Ziel::Knoten(k, pos) => Start { knoten: Some(k), anschluss: None, pos, richtung: self.netz.weiter_richtung(k) },
+                self.start = Some(match self.punkt(v, boden, fang, ans, ae) {
+                    Ziel::Knoten(k, pos) => Start { knoten: Some(k), anschluss: None, abzweig: None, pos, richtung: self.netz.weiter_richtung(k) },
                     Ziel::Anschluss(a) => {
                         // Querschnitt der vorhandenen Strasse uebernehmen, wenn der gewaehlte nicht passt
                         let sli = self.sli.clone().unwrap();
@@ -232,10 +272,15 @@ impl Strassenbau {
                         } else {
                             meldung = "an vorhandene Strasse angeschlossen".into();
                         }
-                        Start { knoten: None, anschluss: Some(a.clone()), pos: a.pos, richtung: Some(a.richtung) }
+                        Start { knoten: None, anschluss: Some(a.clone()), abzweig: None, pos: a.pos, richtung: Some(a.richtung) }
                     }
-                    Ziel::Frei(pos) => Start { knoten: None, anschluss: None, pos, richtung: None },
+                    Ziel::Abzweig(ab) => {
+                        meldung = "Abzweig: hier entsteht eine Kreuzung - Klick setzt das Ende des ersten Stuecks".into();
+                        Start { knoten: None, anschluss: None, pos: ab.pos, richtung: None, abzweig: Some(ab) }
+                    }
+                    Ziel::Frei(pos) => Start { knoten: None, anschluss: None, abzweig: None, pos, richtung: None },
                 });
+                self.zeiger = None;
                 Some(meldung)
             }
             Some(s) => {
@@ -244,24 +289,52 @@ impl Strassenbau {
                 if p.laenge < 1.0 {
                     return None;
                 }
-                self.merken();
-                let a = match (s.knoten, &s.anschluss) {
-                    (Some(k), _) => k,
-                    (None, Some(x)) => self.netz.anschluss_neu(x.pos, x.richtung, x.steigung),
-                    (None, None) => self.netz.knoten_neu(s.pos),
+                // Kreuzungen zuerst (sie koennen scheitern, z. B. zu nah am Strassenende): die Strasse beginnt bzw.
+                // endet an ihrem neuen Arm, eben auf Kreuzungshoehe
+                let mut kreuzungen = 0;
+                let mut arm_a = None;
+                let mut arm_b = None;
+                let mut kreuzung_texte = Vec::new();
+                for (ab, h, weg) in [(s.abzweig.as_ref(), p.ha, true), (p.ziel_abzweig.as_ref(), (p.hb + 180.0).rem_euclid(360.0), false)] {
+                    let Some(ab) = ab else { continue };
+                    let Some(ae) = ae.as_deref_mut() else { return Some("Kreuzung: Aendern-Werkzeug nicht bereit".into()) };
+                    match ae.kreuzung_bauen(v, ab, h, &sli, weg) {
+                        Ok((arm, obj)) => {
+                            kreuzungen += 1;
+                            kreuzung_texte.push(format!("{} Abbiegespuren", obj.spuren));
+                            if weg { arm_a = Some(arm) } else { arm_b = Some(arm) }
+                        }
+                        Err(e) => {
+                            for _ in 0..kreuzungen {
+                                let _ = ae.rueckgaengig(v);
+                            }
+                            return Some(format!("Kreuzung nicht moeglich: {e:#}"));
+                        }
+                    }
+                }
+                self.undo.push((self.netz.clone(), kreuzungen));
+                self.redo.clear();
+                self.aenderungen += 1;
+                let a = match (s.knoten, &s.anschluss, &arm_a) {
+                    (_, _, Some(x)) => self.netz.anschluss_neu(x.pos, x.richtung, 0.0),
+                    (Some(k), _, _) => k,
+                    (None, Some(x), _) => self.netz.anschluss_neu(x.pos, x.richtung, x.steigung),
+                    (None, None, _) => self.netz.knoten_neu(s.pos),
                 };
-                let b = match (&p.ziel, &p.ziel_anschluss) {
-                    (Some(k), _) => *k,
-                    (None, Some(x)) => self.netz.anschluss_neu(x.pos, x.richtung, x.steigung),
-                    (None, None) => self.netz.knoten_neu(p.b),
+                let b = match (&p.ziel, &p.ziel_anschluss, &arm_b) {
+                    (_, _, Some(x)) => self.netz.anschluss_neu(x.pos, x.richtung, 0.0),
+                    (Some(k), _, _) => *k,
+                    (None, Some(x), _) => self.netz.anschluss_neu(x.pos, x.richtung, x.steigung),
+                    (None, None, _) => self.netz.knoten_neu(p.b),
                 };
                 self.netz.kante_neu(a, b, &sli, p.ha, p.hb);
                 self.zeichnen_alle(v);
                 // weiter vom neuen Ende; endete der Zug auf einem vorhandenen Knoten oder einer Strasse, ist er fertig
-                let fertig = p.ziel.is_some() || p.ziel_anschluss.is_some();
-                self.start = if fertig { None } else { Some(Start { knoten: Some(b), anschluss: None, pos: p.b, richtung: Some(p.hb) }) };
+                let fertig = p.ziel.is_some() || p.ziel_anschluss.is_some() || p.ziel_abzweig.is_some();
+                self.start = if fertig { None } else { Some(Start { knoten: Some(b), anschluss: None, abzweig: None, pos: p.b, richtung: Some(p.hb) }) };
                 self.vorschau_weg(v);
-                Some(format!("Strasse gebaut: {:.1} m{}{}", p.laenge, if fertig { ", angeschlossen" } else { "" },
+                Some(format!("Strasse gebaut: {:.1} m{}{}{}", p.laenge, if fertig { ", angeschlossen" } else { "" },
+                             if kreuzungen > 0 { format!(", Kreuzung ({})", kreuzung_texte.join(", ")) } else { String::new() },
                              p.warnung.as_ref().map(|w| format!(" - {w}")).unwrap_or_default()))
             }
         }
@@ -275,19 +348,30 @@ impl Strassenbau {
     }
 
     /// Vorschau zur Maus berechnen und zeichnen
-    pub fn maus(&mut self, v: &mut Viewer, boden: DVec3, fang: f64, ans: &Anschluesse) {
-        let (Some(s), Some(sli)) = (self.start.clone(), self.sli.clone()) else {
+    pub fn maus(&mut self, v: &mut Viewer, boden: DVec3, fang: f64, ans: &Anschluesse, ae: Option<&mut Aendern>) {
+        let Some(sli) = self.sli.clone() else {
             self.vorschau_weg(v);
             return;
         };
-        let ziel = self.punkt(boden, fang, ans);
-        let (ziel_knoten, ziel_anschluss, mut b) = match &ziel {
-            Ziel::Knoten(k, p) => (Some(*k), None, *p),
-            Ziel::Anschluss(a) => (None, Some(a.clone()), a.pos),
-            Ziel::Frei(p) => (None, None, *p),
+        let ziel = self.punkt(v, boden, fang, ans, ae);
+        let Some(mut s) = self.start.clone() else {
+            // noch kein Start: zeigen, wo eine Kreuzung entstuende
+            self.zeiger = match &ziel {
+                Ziel::Abzweig(ab) => Some(self.arm_plan(v, ab, ab.richtung + 90.0, &sli).2),
+                _ => None,
+            };
+            self.vorschau_weg(v);
+            return;
         };
-        let gleich = match (&ziel_anschluss, &s.anschluss) {
-            (Some(x), Some(y)) => x.spline_id == y.spline_id && x.am_ende == y.am_ende,
+        let (ziel_knoten, ziel_anschluss, ziel_abzweig, mut b) = match &ziel {
+            Ziel::Knoten(k, p) => (Some(*k), None, None, *p),
+            Ziel::Anschluss(a) => (None, Some(a.clone()), None, a.pos),
+            Ziel::Abzweig(ab) => (None, None, Some(ab.clone()), ab.pos),
+            Ziel::Frei(p) => (None, None, None, *p),
+        };
+        let gleich = match (&ziel_anschluss, &s.anschluss, &ziel_abzweig, &s.abzweig) {
+            (Some(x), Some(y), _, _) => x.spline_id == y.spline_id && x.am_ende == y.am_ende,
+            (_, _, Some(x), Some(y)) => x.spline_id == y.spline_id && (x.s - y.s).abs() < 40.0,
             _ => ziel_knoten.is_some() && ziel_knoten == s.knoten,
         };
         if gleich {
@@ -295,12 +379,28 @@ impl Strassenbau {
             self.plan = None;
             return;
         }
+        // Kreuzungen: der Start liegt am Ende des neuen Arms, der zum Ziel zeigt; ein Ziel mitten auf einer Strasse
+        // bekommt einen Arm, der zum Start zeigt
+        let mut kreuzungen = Vec::new();
+        if let Some(ab) = s.abzweig.clone() {
+            let (arm, h, k) = self.arm_plan(v, &ab, richtung(ab.pos.truncate(), b.truncate()), &sli);
+            s.pos = arm;
+            s.richtung = Some(h);
+            kreuzungen.push(k);
+        }
+        let mut ankunft_abzweig = None;
+        if let Some(ab) = ziel_abzweig.as_ref() {
+            let (arm, h, k) = self.arm_plan(v, ab, richtung(ab.pos.truncate(), s.pos.truncate()), &sli);
+            b = arm;
+            ankunft_abzweig = Some((h + 180.0).rem_euclid(360.0));
+            kreuzungen.push(k);
+        }
         let a = s.pos;
         // Ankunftsrichtung, wenn das Ziel ein freies Ende ist (eigenes oder einer vorhandenen Strasse)
         let ankunft = match (&ziel_anschluss, ziel_knoten) {
             (Some(x), _) => Some((x.richtung + 180.0).rem_euclid(360.0)),
             (None, Some(k)) => self.netz.weiter_richtung(k).map(|h| (h + 180.0).rem_euclid(360.0)),
-            _ => None,
+            _ => ankunft_abzweig,
         };
         let (ha, hb, stuecke) = match (self.modus, s.richtung, ankunft) {
             (_, Some(t), Some(hz)) => (t, hz, verbinden(a.truncate(), t, b.truncate(), hz)),
@@ -337,16 +437,18 @@ impl Strassenbau {
         };
         // Steigung an den Enden: an vorhandenen Strassen deren Steigung, an eigenen Knoten die der Kante dort
         let sehne = (b.z - a.z) / laenge.max(1.0);
-        let ga = match (&s.anschluss, s.knoten) {
-            (Some(x), _) => x.steigung,
-            (None, Some(k)) => self.steigung_aus(k, ha),
+        let ga = match (&s.anschluss, s.knoten, &s.abzweig) {
+            (_, _, Some(_)) => 0.0,
+            (Some(x), _, _) => x.steigung,
+            (None, Some(k), _) => self.steigung_aus(k, ha),
             _ => sehne,
         };
-        let gb = match &ziel_anschluss {
-            Some(x) => -x.steigung,
-            None => sehne,
+        let gb = match (&ziel_anschluss, &ziel_abzweig) {
+            (_, Some(_)) => 0.0,
+            (Some(x), _) => -x.steigung,
+            _ => sehne,
         };
-        self.plan = Some(Plan { a, b, ha, hb, ziel: ziel_knoten, ziel_anschluss, laenge, min_radius, steigung, warnung });
+        self.plan = Some(Plan { a, b, ha, hb, ziel: ziel_knoten, ziel_anschluss, ziel_abzweig, kreuzungen, laenge, min_radius, steigung, warnung });
         self.vorschau_weg(v);
         let el = netz::mit_hoehe(&stuecke, a.z, ga, b.z, gb);
         let mut cum = 0.0;
@@ -400,23 +502,34 @@ impl Strassenbau {
     }
 
     fn merken(&mut self) {
-        self.undo.push(self.netz.clone());
+        self.undo.push((self.netz.clone(), 0));
         self.redo.clear();
         self.aenderungen += 1;
     }
 
-    pub fn rueckgaengig(&mut self, v: &mut Viewer) -> bool {
-        let Some(n) = self.undo.pop() else { return false };
-        self.redo.push(std::mem::replace(&mut self.netz, n));
+    /// letzten Schritt zuruecknehmen (mit seinen Kreuzungen, die im Aendern-Werkzeug liegen)
+    pub fn rueckgaengig(&mut self, v: &mut Viewer, mut ae: Option<&mut Aendern>) -> bool {
+        let Some((n, k)) = self.undo.pop() else { return false };
+        for _ in 0..k {
+            if let Some(a) = ae.as_deref_mut() {
+                let _ = a.rueckgaengig(v);
+            }
+        }
+        self.redo.push((std::mem::replace(&mut self.netz, n), k));
         self.beenden(v);
         self.zeichnen_alle(v);
         self.aenderungen += 1;
         true
     }
 
-    pub fn wiederholen(&mut self, v: &mut Viewer) -> bool {
-        let Some(n) = self.redo.pop() else { return false };
-        self.undo.push(std::mem::replace(&mut self.netz, n));
+    pub fn wiederholen(&mut self, v: &mut Viewer, mut ae: Option<&mut Aendern>) -> bool {
+        let Some((n, k)) = self.redo.pop() else { return false };
+        for _ in 0..k {
+            if let Some(a) = ae.as_deref_mut() {
+                let _ = a.wiederholen(v);
+            }
+        }
+        self.undo.push((std::mem::replace(&mut self.netz, n), k));
         self.beenden(v);
         self.zeichnen_alle(v);
         self.aenderungen += 1;
@@ -478,6 +591,7 @@ mod tests {
     #[test]
     #[ignore]
     fn strasse_bauen_speichern_und_laden() {
+        let _sperre = crate::bearbeiten::tests::sperre();
         use crate::bearbeiten::{tests::grundorf, Bearbeiten, Werkzeug};
         let root = Path::new(crate::bearbeiten::tests::OMSI);
         let mut v = grundorf();
@@ -485,23 +599,23 @@ mod tests {
         let boden = |v: &Viewer, x: f64, y: f64| DVec3::new(x, y, v.terrain_height(x, y).unwrap_or(0.0));
         // Gerade nach Norden, dann tangential eine Rechtskurve, 3 m hoeher
         let a = boden(&v, 120.0, 100.0);
-        s.klick(&mut v, a, 3.0, &Anschluesse::default()).unwrap();
+        s.klick(&mut v, a, 3.0, &Anschluesse::default(), None).unwrap();
         let b = boden(&v, 120.0, 180.0);
-        s.maus(&mut v, b, 3.0, &Anschluesse::default());
-        s.klick(&mut v, b, 3.0, &Anschluesse::default()).unwrap();
+        s.maus(&mut v, b, 3.0, &Anschluesse::default(), None);
+        s.klick(&mut v, b, 3.0, &Anschluesse::default(), None).unwrap();
         s.modus = Modus::Kurve;
         s.hoehe = 3.0;
         let c = boden(&v, 190.0, 240.0);
-        s.maus(&mut v, c, 3.0, &Anschluesse::default());
+        s.maus(&mut v, c, 3.0, &Anschluesse::default(), None);
         let plan = s.plan.clone().unwrap();
         assert!(plan.min_radius > MIN_RADIUS, "Radius {}", plan.min_radius);
-        s.klick(&mut v, c, 3.0, &Anschluesse::default()).unwrap();
+        s.klick(&mut v, c, 3.0, &Anschluesse::default(), None).unwrap();
         s.beenden(&mut v);
         assert_eq!((s.netz.knoten.len(), s.netz.kanten.len()), (3, 2));
         // Rueckgaengig/Wiederholen
-        assert!(s.rueckgaengig(&mut v));
+        assert!(s.rueckgaengig(&mut v, None));
         assert_eq!(s.netz.kanten.len(), 1);
-        assert!(s.wiederholen(&mut v));
+        assert!(s.wiederholen(&mut v, None));
         assert_eq!(s.netz.kanten.len(), 2);
         // speichern in einen Test-OMSI-Ordner
         let test_root = std::env::temp_dir().join(format!("omsi-editor-strasse-{}", std::process::id()));
@@ -557,6 +671,7 @@ mod tests {
     #[test]
     #[ignore]
     fn an_vorhandene_strasse_anschliessen() {
+        let _sperre = crate::bearbeiten::tests::sperre();
         use crate::bearbeiten::{tests::grundorf, Bearbeiten, Werkzeug};
         let root = Path::new(crate::bearbeiten::tests::OMSI);
         let mut v = grundorf();
@@ -568,16 +683,16 @@ mod tests {
         println!("freies Ende: Spline {} {} bei {:?}, weiter Richtung {:.1}, Querschnitt {}", a.spline_id,
                  if a.am_ende { "Ende" } else { "Anfang" }, a.pos, a.richtung, a.sli);
         let mut s = Strassenbau::neu(Some("Splines\\Marcel\\str_2spur_10m_Grunewaldstr.sli".into()), Modus::Kurve);
-        let m = s.klick(&mut v, a.pos + DVec3::new(0.5, 0.5, 0.0), 3.0, &ans).unwrap();
+        let m = s.klick(&mut v, a.pos + DVec3::new(0.5, 0.5, 0.0), 3.0, &ans, None).unwrap();
         println!("{m}");
         // 60 m geradeaus weiter, dann etwas zur Seite
         let d = netz::dir(a.richtung);
         let r = netz::rechts(a.richtung);
         let z = a.pos.truncate() + d * 60.0 + r * 15.0;
         let ziel = DVec3::new(z.x, z.y, v.terrain_height(z.x, z.y).unwrap_or(a.pos.z));
-        s.maus(&mut v, ziel, 3.0, &ans);
+        s.maus(&mut v, ziel, 3.0, &ans, None);
         assert!(s.plan.as_ref().unwrap().warnung.is_none());
-        s.klick(&mut v, ziel, 3.0, &ans).unwrap();
+        s.klick(&mut v, ziel, 3.0, &ans, None).unwrap();
         s.beenden(&mut v);
         // die erste Kante verlaesst das Ende genau in dessen Richtung und auf dessen Hoehe
         let e = &s.netz.kanten[0];

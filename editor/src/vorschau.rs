@@ -103,6 +103,7 @@ mod tests {
     #[test]
     #[ignore]
     fn vorschaubilder_rendern() {
+        let _sperre = crate::bearbeiten::tests::sperre();
         // mit echter Installation: ein paar Bilder nach %TEMP%\omsi-editor-vorschau-test
         let mut v = crate::bearbeiten::tests::grundorf();
         let aus = std::env::temp_dir().join("omsi-editor-vorschau-test");

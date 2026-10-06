@@ -15,6 +15,7 @@ mod anschluss;
 mod bearbeiten;
 mod kamera;
 mod katalog;
+mod kreuzung;
 mod netz;
 mod speichern;
 mod strasse;
@@ -86,6 +87,8 @@ struct App {
     meldung: String,
     zu_laden: Option<usize>,
     filter: String,
+    /// Testlauf: Strasse, an der spaeter eine Kreuzung gebaut wird
+    testlauf_abzweig: Option<i64>,
     /// --testlauf: nach so vielen Sekunden beenden und Bildrate ausgeben
     beenden_nach: Option<f32>,
     gestartet: Instant,
@@ -176,6 +179,7 @@ impl App {
             zu_laden: None,
             filter: String::new(),
             beenden_nach: None,
+            testlauf_abzweig: None,
             gestartet: Instant::now(),
             bilder: 0,
             laengstes: 0.0,
@@ -312,7 +316,8 @@ impl App {
             if self.bearb.werkzeug == Werkzeug::Strasse {
                 self.anschluesse.aktualisieren(v);
             }
-            if self.bearb.werkzeug == Werkzeug::Aendern {
+            // die Splines der Karte braucht auch das Strassenwerkzeug (Abzweige mitten aus vorhandenen Strassen)
+            if matches!(self.bearb.werkzeug, Werkzeug::Aendern | Werkzeug::Strasse) {
                 if let Some(a) = self.aendern.as_mut() {
                     a.aktualisieren(v);
                 }
@@ -775,6 +780,22 @@ impl App {
                         maler.circle_stroke(egui::pos2(x, y), 6.0, egui::Stroke::new(2.0, f));
                     }
                 }
+                // geplante Kreuzungen: Mitte, aufgeschnittenes Stueck der Strasse, neuer Arm
+                let mut kreuzungen: Vec<strasse::KreuzungsVorschau> = self.strasse.zeiger.iter().cloned().collect();
+                if self.strasse.baut() {
+                    kreuzungen.extend(self.strasse.plan.iter().flat_map(|p| p.kreuzungen.iter().cloned()));
+                }
+                for k in kreuzungen {
+                    let c = egui::Color32::from_rgb(255, 170, 40);
+                    let d = crate::netz::dir(k.strasse) * k.schnitt;
+                    let p = |q: glam::DVec2| bearbeiten::projizieren(&self.kam, q.extend(k.mitte.z + 0.2), bw, bh).map(|(x, y, _)| egui::pos2(x, y));
+                    if let (Some(a), Some(b), Some(m), Some(e)) = (p(k.mitte.truncate() - d), p(k.mitte.truncate() + d), p(k.mitte.truncate()), p(k.arm.truncate())) {
+                        maler.line_segment([a, b], egui::Stroke::new(4.0, c));
+                        maler.line_segment([m, e], egui::Stroke::new(2.0, c));
+                        maler.circle_stroke(m, 6.0, egui::Stroke::new(2.5, c));
+                        maler.circle_filled(e, 4.0, c);
+                    }
+                }
                 if let (Some(plan), Some(m)) = (self.strasse.plan.as_ref(), self.maus) {
                     let warn = plan.min_radius < strasse::MIN_RADIUS || plan.steigung.abs() > strasse::MAX_STEIGUNG;
                     let mut t = format!("{:.1} m", plan.laenge);
@@ -784,6 +805,9 @@ impl App {
                     t += &format!("   {:+.1} %", plan.steigung);
                     if plan.ziel.is_some() || plan.ziel_anschluss.is_some() {
                         t += "   Anschluss";
+                    }
+                    if !plan.kreuzungen.is_empty() {
+                        t += "   Kreuzung";
                     }
                     if let Some(w) = plan.warnung.as_ref() {
                         t += &format!("\n{w}");
@@ -994,15 +1018,17 @@ impl App {
             }
             UiAktion::Rueckgaengig if self.bearb.werkzeug == Werkzeug::Strasse => {
                 if let Some(v) = self.viewer.as_mut() {
-                    if self.strasse.rueckgaengig(v) {
+                    if self.strasse.rueckgaengig(v, self.aendern.as_mut()) {
                         self.meldung = "rueckgaengig".into();
+                        self.anschluesse.vergessen();
                     }
                 }
             }
             UiAktion::Wiederholen if self.bearb.werkzeug == Werkzeug::Strasse => {
                 if let Some(v) = self.viewer.as_mut() {
-                    if self.strasse.wiederholen(v) {
+                    if self.strasse.wiederholen(v, self.aendern.as_mut()) {
                         self.meldung = "wiederholt".into();
+                        self.anschluesse.vergessen();
                     }
                 }
             }
@@ -1030,7 +1056,8 @@ impl App {
                 self.speichern_name = None;
                 let (Some(v), Some(alt)) = (self.viewer.as_ref(), self.karte.clone()) else { return };
                 let kopien = self.aendern.as_ref().map(|a| a.kopien(&alt)).unwrap_or_default();
-                match speichern::vorbereiten(v, &self.bearb, &self.strasse.netz, &kopien, &alt) {
+                let kreuzungen = self.aendern.as_ref().map(|a| a.kreuzungs_ordner());
+                match speichern::vorbereiten(v, &self.bearb, &self.strasse.netz, &kopien, kreuzungen, &alt) {
                     Ok(paket) => {
                         let root = self.root.clone();
                         self.meldung = format!("speichere {neu} ({} geaenderte Dateien, {} neue Objekte, {} neue Splines) ...", paket.dateien.len(), paket.neue_objekte, paket.neue_splines);
@@ -1044,10 +1071,8 @@ impl App {
 
     /// Sitzungsordner der vorigen Karte abmelden und loeschen (temporaer, enthaelt nur Kopien)
     fn sitzung_schliessen(&mut self) {
-        if let Some(a) = self.aendern.take() {
-            omsi_cfg::remove_content_root(&a.sitzung);
-            let _ = std::fs::remove_dir_all(&a.sitzung);
-        }
+        // Aendern meldet seinen Sitzungsordner beim Verwerfen ab und loescht ihn
+        self.aendern = None;
         self.aendern_warnung = None;
     }
 
@@ -1350,8 +1375,8 @@ impl ApplicationHandler for App {
                             for (i, p) in punkte.iter().enumerate() {
                                 let g = DVec3::new(p.x, p.y, v.terrain_height(p.x, p.y).unwrap_or(p.z));
                                 self.strasse.modus = if i < 2 { strasse::Modus::Gerade } else { strasse::Modus::Kurve };
-                                self.strasse.maus(v, g, 3.0, &self.anschluesse);
-                                meldungen.push(self.strasse.klick(v, g, 3.0, &self.anschluesse).unwrap_or_default());
+                                self.strasse.maus(v, g, 3.0, &self.anschluesse, self.aendern.as_mut());
+                                meldungen.push(self.strasse.klick(v, g, 3.0, &self.anschluesse, self.aendern.as_mut()).unwrap_or_default());
                             }
                             self.strasse.beenden(v);
                         }
@@ -1376,6 +1401,7 @@ impl ApplicationHandler for App {
                             self.ausfuehren(UiAktion::SplineSpiegeln);
                             self.ausfuehren(UiAktion::Rueckgaengig);
                             println!("Testlauf Aendern: Spline {:?} | {} | {}", gefunden, m1, self.meldung);
+                            self.testlauf_abzweig = gefunden;
                         } else {
                             println!("Testlauf Aendern: keine Strasse am Blickpunkt");
                         }
@@ -1384,6 +1410,31 @@ impl ApplicationHandler for App {
                                  kopie, self.katalog.as_ref().map(|k| k.eintraege.len()).unwrap_or(0), platziert);
                         println!("Testlauf Bearbeiten: {} Objekte, Objekt {:?} gewaehlt, Aenderungen {}, Meldung: {}",
                                  self.viewer.as_ref().map(|v| v.objects().len()).unwrap_or(0), gefunden, self.bearb.aenderungen, self.meldung);
+                    } else if s > t * 0.36 && self.testlauf_abzweig.is_some() {
+                        let id = self.testlauf_abzweig.take().unwrap();
+                        // Abzweig mitten aus dieser Strasse (Kreuzung), dann rueckgaengig
+                        self.ausfuehren(UiAktion::Werkzeug(Werkzeug::Strasse));
+                        let mut m = Vec::new();
+                        if let (Some(v), Some(a)) = (self.viewer.as_mut(), self.aendern.as_mut()) {
+                            a.aktualisieren(v);
+                            // die laengste Strasse in der Naehe (sonst die vom Aendern-Test)
+                            let z = self.kam.ziel.truncate();
+                            let lang = a.kacheln.values().flatten()
+                                .filter(|s| (s.kurve.start.truncate() - z).length() < 400.0 && v.spline_end_free(s.id, true).is_some())
+                                .max_by(|x, y| x.kurve.length.total_cmp(&y.kurve.length)).map(|s| s.id).unwrap_or(id);
+                            let mitte = a.spline(lang).map(|s| s.kurve.point_at(s.kurve.length / 2.0).truncate());
+                            if let Some(ab) = mitte.and_then(|p| a.abzweig_bei(v, p)) {
+                                m.push(self.strasse.klick(v, ab.pos, 2.0, &self.anschluesse, Some(&mut *a)).unwrap_or_default());
+                                let q = ab.pos.truncate() + crate::netz::rechts(ab.richtung) * 40.0;
+                                let g = q.extend(v.terrain_height(q.x, q.y).unwrap_or(ab.pos.z));
+                                self.strasse.maus(v, g, 2.0, &self.anschluesse, Some(&mut *a));
+                                m.push(self.strasse.klick(v, g, 2.0, &self.anschluesse, Some(&mut *a)).unwrap_or_default());
+                                self.strasse.beenden(v);
+                            }
+                        }
+                        self.anschluesse.vergessen();
+                        self.ausfuehren(UiAktion::Rueckgaengig);
+                        println!("Testlauf Kreuzung: {} | nach Rueckgaengig: {}", m.join(" | "), self.meldung);
                     } else if s > t * 0.4 {
                         // Kamera bewegen wie ein Nutzer: drehen, fahren, zoomen
                         self.kam.drehen(0.4, 0.0);
@@ -1448,7 +1499,7 @@ impl ApplicationHandler for App {
                     if self.bearb.werkzeug == Werkzeug::Strasse {
                         let fang = 12.0 * self.kam.m_pro_px(bh);
                         if let (Some(g), Some(v)) = (self.boden_unter_maus, self.viewer.as_mut()) {
-                            self.strasse.maus(v, g, fang.max(2.0), &self.anschluesse);
+                            self.strasse.maus(v, g, fang.max(2.0), &self.anschluesse, self.aendern.as_mut());
                         }
                     }
                     if self.bearb.werkzeug == Werkzeug::Objekte {
@@ -1496,12 +1547,17 @@ impl ApplicationHandler for App {
                         let (_, bh) = self.bildgroesse();
                         let fang = (12.0 * self.kam.m_pro_px(bh)).max(2.0);
                         if let (Some(g), Some(v)) = (self.boden_unter_maus, self.viewer.as_mut()) {
-                            match self.strasse.klick(v, g, fang, &self.anschluesse) {
+                            let vorher = self.aendern.as_ref().map(|a| a.aenderungen);
+                            match self.strasse.klick(v, g, fang, &self.anschluesse, self.aendern.as_mut()) {
                                 Some(m) => self.meldung = m,
                                 None if self.strasse.sli.is_none() => self.meldung = "erst einen Querschnitt waehlen".into(),
                                 None => {}
                             }
-                            self.strasse.maus(v, g, fang, &self.anschluesse);
+                            // eine Kreuzung hat Kacheln neu geladen: Strassenenden neu bestimmen
+                            if self.aendern.as_ref().map(|a| a.aenderungen) != vorher {
+                                self.anschluesse.vergessen();
+                            }
+                            self.strasse.maus(v, g, fang, &self.anschluesse, self.aendern.as_mut());
                         }
                     }
                     if button == MouseButton::Left && self.bearb.werkzeug == Werkzeug::Platzieren {

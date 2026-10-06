@@ -133,6 +133,7 @@ mod tests {
     #[test]
     #[ignore]
     fn freie_enden_in_grundorf() {
+        let _sperre = crate::bearbeiten::tests::sperre();
         let v = crate::bearbeiten::tests::grundorf();
         let mut a = Anschluesse::default();
         assert!(a.aktualisieren(&v));
