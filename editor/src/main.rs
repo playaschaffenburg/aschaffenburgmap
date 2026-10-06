@@ -115,6 +115,10 @@ struct App {
     querschnitte: Option<Vec<strasse::Querschnitt>>,
     qs_job: Option<std::thread::JoinHandle<Vec<strasse::Querschnitt>>>,
     qs_suche: String,
+    qs_herkunft: Option<String>,
+    qs_ordner: Option<String>,
+    qs_spuren: Option<&'static str>,
+    qs_gehweg: Option<bool>,
     /// Rechtsklick ohne Ziehen erkennen (Zug beenden)
     rechts_start: Option<(f32, f32)>,
 }
@@ -184,6 +188,10 @@ impl App {
             querschnitte: None,
             qs_job: None,
             qs_suche: String::new(),
+            qs_herkunft: None,
+            qs_ordner: None,
+            qs_spuren: None,
+            qs_gehweg: None,
             rechts_start: None,
         }
     }
@@ -586,7 +594,7 @@ impl App {
                 });
             }
             if self.bearb.werkzeug == Werkzeug::Strasse {
-                egui::Panel::right("strasse").default_size(340.0).show(ctx, |ui| {
+                egui::Panel::right("strasse").default_size(360.0).show(ctx, |ui| {
                     ui.heading("Strasse bauen");
                     ui.horizontal(|ui| {
                         for (m, t) in [(strasse::Modus::Gerade, "Gerade (G)"), (strasse::Modus::Kurve, "Kurve (K)")] {
@@ -617,21 +625,102 @@ impl App {
                         ui.label("Splines werden eingelesen ...");
                         return;
                     };
-                    ui.add(egui::TextEdit::singleline(&mut self.qs_suche).hint_text("suchen (Name, Ordner)").desired_width(f32::INFINITY));
+                    ui.add(egui::TextEdit::singleline(&mut self.qs_suche).hint_text("suchen (Name, Ordner, Herkunft)").desired_width(f32::INFINITY));
+                    let mut herkuenfte: Vec<(String, usize)> = Vec::new();
+                    for q in qs.iter() {
+                        match herkuenfte.iter_mut().find(|(h, _)| *h == q.herkunft) {
+                            Some(e) => e.1 += 1,
+                            None => herkuenfte.push((q.herkunft.clone(), 1)),
+                        }
+                    }
+                    herkuenfte.sort_by_key(|(h, _)| (h != katalog::STANDARD, h == "ohne Karte", h.to_lowercase()));
+                    let mut ordner: Vec<String> = qs.iter().map(|q| q.ordner.clone()).collect();
+                    ordner.sort_by_key(|o| o.to_lowercase());
+                    ordner.dedup();
+                    egui::Grid::new("qs_filter").num_columns(2).show(ui, |ui| {
+                        ui.label("Herkunft");
+                        egui::ComboBox::from_id_salt("qs_herkunft").width(200.0).selected_text(self.qs_herkunft.clone().unwrap_or("alle".into())).show_ui(ui, |ui| {
+                            ui.selectable_value(&mut self.qs_herkunft, None, format!("alle ({})", qs.len()));
+                            for (h, n) in &herkuenfte {
+                                ui.selectable_value(&mut self.qs_herkunft, Some(h.clone()), format!("{h} ({n})"));
+                            }
+                        });
+                        ui.end_row();
+                        ui.label("Spuren");
+                        egui::ComboBox::from_id_salt("qs_spuren").width(200.0).selected_text(self.qs_spuren.map(|s| s.to_string()).unwrap_or("alle".into())).show_ui(ui, |ui| {
+                            ui.selectable_value(&mut self.qs_spuren, None, "alle");
+                            for k in strasse::SPURKLASSEN {
+                                ui.selectable_value(&mut self.qs_spuren, Some(k), k);
+                            }
+                        });
+                        ui.end_row();
+                        ui.label("Gehweg");
+                        egui::ComboBox::from_id_salt("qs_gehweg").width(200.0).selected_text(match self.qs_gehweg { None => "egal", Some(true) => "mit Gehweg", Some(false) => "ohne Gehweg" }).show_ui(ui, |ui| {
+                            ui.selectable_value(&mut self.qs_gehweg, None, "egal");
+                            ui.selectable_value(&mut self.qs_gehweg, Some(true), "mit Gehweg");
+                            ui.selectable_value(&mut self.qs_gehweg, Some(false), "ohne Gehweg");
+                        });
+                        ui.end_row();
+                        ui.label("Ordner");
+                        egui::ComboBox::from_id_salt("qs_ordner").width(200.0).selected_text(self.qs_ordner.clone().unwrap_or("alle".into())).show_ui(ui, |ui| {
+                            ui.selectable_value(&mut self.qs_ordner, None, "alle");
+                            for o in &ordner {
+                                ui.selectable_value(&mut self.qs_ordner, Some(o.clone()), o);
+                            }
+                        });
+                        ui.end_row();
+                    });
                     let such = self.qs_suche.to_lowercase();
                     let treffer: Vec<&strasse::Querschnitt> = qs.iter()
-                        .filter(|q| such.split_whitespace().all(|w| q.name.to_lowercase().contains(w) || q.ordner.to_lowercase().contains(w)))
+                        .filter(|q| self.qs_herkunft.as_ref().map(|h| &q.herkunft == h).unwrap_or(true))
+                        .filter(|q| self.qs_ordner.as_ref().map(|o| &q.ordner == o).unwrap_or(true))
+                        .filter(|q| self.qs_spuren.map(|k| q.spurklasse() == k).unwrap_or(true))
+                        .filter(|q| self.qs_gehweg.map(|g| (q.gehwege > 0) == g).unwrap_or(true))
+                        .filter(|q| such.split_whitespace().all(|w| q.name.to_lowercase().contains(w) || q.ordner.to_lowercase().contains(w) || q.herkunft.to_lowercase().contains(w)))
                         .collect();
                     ui.label(egui::RichText::new(format!("{} von {} Strassen-Splines", treffer.len(), qs.len())).small().weak());
-                    let zeile = ui.text_style_height(&egui::TextStyle::Body) * 2.0 + 8.0;
-                    egui::ScrollArea::vertical().auto_shrink(false).max_height(ui.available_height() - 70.0).show_rows(ui, zeile, treffer.len(), |ui, bereich| {
-                        for q in &treffer[bereich] {
-                            let aktiv = self.strasse.sli.as_deref() == Some(q.rel.as_str());
-                            let spuren = if q.zurueck == 0 { format!("{} Spur(en) Einbahn", q.vor) } else { format!("{}+{} Spuren", q.vor, q.zurueck) };
-                            let txt = format!("{}\n{} | {} | {:.1} m{}", q.name, q.ordner, spuren, q.breite, if q.gehwege > 0 { format!(" | {} Gehweg(e)", q.gehwege) } else { String::new() });
-                            if ui.selectable_label(aktiv, egui::RichText::new(txt).small()).on_hover_text(&q.rel).clicked() {
-                                aktionen.push(UiAktion::Querschnitt(q.rel.clone()));
-                            }
+                    let bild = vorschau::GROESSE as f32;
+                    let zelle = bild + 14.0;
+                    let spalten = ((ui.available_width() / zelle).floor() as usize).max(1);
+                    let zeilen = treffer.len().div_ceil(spalten);
+                    let ctx2 = ui.ctx().clone();
+                    egui::ScrollArea::vertical().auto_shrink(false).max_height(ui.available_height() - 70.0).show_rows(ui, bild + 46.0, zeilen, |ui, bereich| {
+                        for z in bereich {
+                            ui.horizontal(|ui| {
+                                for q in treffer.iter().skip(z * spalten).take(spalten) {
+                                    let aktiv = self.strasse.sli.as_deref() == Some(q.rel.as_str());
+                                    let textur = self.vorschau.textur(&ctx2, &q.rel);
+                                    let fehlt = self.vorschau.fehlt(&q.rel);
+                                    let spuren = if q.zurueck == 0 || q.vor == 0 { format!("{} Einb.", q.vor + q.zurueck) } else { format!("{}+{}", q.vor, q.zurueck) };
+                                    let antwort = ui.vertical(|ui| {
+                                        ui.set_width(zelle - 6.0);
+                                        let (rect, r) = ui.allocate_exact_size(egui::vec2(bild, bild), egui::Sense::click());
+                                        let rand = if aktiv { egui::Color32::from_rgb(255, 60, 220) } else if r.hovered() { egui::Color32::WHITE } else { egui::Color32::from_gray(70) };
+                                        ui.painter().rect_filled(rect, 4.0, egui::Color32::from_gray(35));
+                                        match textur {
+                                            Some(t) => {
+                                                egui::Image::new(&t).corner_radius(4.0).paint_at(ui, rect);
+                                            }
+                                            None => {
+                                                ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, if fehlt { "kein Bild" } else { "..." }, egui::FontId::proportional(11.0), egui::Color32::GRAY);
+                                            }
+                                        }
+                                        ui.painter().rect_stroke(rect, 4.0, egui::Stroke::new(if aktiv { 3.0 } else { 1.0 }, rand), egui::StrokeKind::Inside);
+                                        let mut name = q.name.clone();
+                                        if name.chars().count() > 16 {
+                                            name = name.chars().take(15).collect::<String>() + "…";
+                                        }
+                                        ui.label(egui::RichText::new(name).small());
+                                        ui.label(egui::RichText::new(format!("{spuren} | {:.1} m", q.breite)).small().weak());
+                                        r
+                                    }).inner;
+                                    let antwort = antwort.on_hover_text(format!("{}\n{}\nHerkunft: {}\nFahrspuren {} vor / {} zurueck, {} Gehweg(e), {:.1} m breit",
+                                                                               q.name, q.rel, q.herkunft, q.vor, q.zurueck, q.gehwege, q.breite));
+                                    if antwort.clicked() {
+                                        aktionen.push(UiAktion::Querschnitt(q.rel.clone()));
+                                    }
+                                }
+                            });
                         }
                     });
                     ui.separator();
@@ -725,7 +814,7 @@ impl App {
             }
         });
         gui.state.handle_platform_output(window, out.platform_output);
-        if self.bearb.werkzeug == Werkzeug::Platzieren {
+        if matches!(self.bearb.werkzeug, Werkzeug::Platzieren | Werkzeug::Strasse) {
             if let Some(v) = self.viewer.as_mut() {
                 self.vorschau.erzeugen(v, &gui.ctx, 8);
             }
@@ -994,6 +1083,13 @@ impl ApplicationHandler for App {
                     let s = self.gestartet.elapsed().as_secs_f32();
                     if s > t {
                         if let Some(k) = self.katalog.as_ref() {
+                            if let Some(q) = self.querschnitte.as_ref() {
+                                let mut h: std::collections::BTreeMap<&str, usize> = Default::default();
+                                for x in q {
+                                    *h.entry(x.herkunft.as_str()).or_default() += 1;
+                                }
+                                println!("Testlauf Strassen: {} Querschnitte, Herkunft {:?}", q.len(), h);
+                            }
                             println!("Testlauf Katalog: {} Vorschaubilder erzeugt, Herkuenfte: {}", self.vorschau.erzeugt,
                                      k.herkuenfte.iter().map(|(h, n)| format!("{h} {n}")).collect::<Vec<_>>().join(", "));
                         }

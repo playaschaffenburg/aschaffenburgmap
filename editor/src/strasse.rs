@@ -32,10 +32,28 @@ pub struct Querschnitt {
     pub zurueck: usize,
     pub gehwege: usize,
     pub breite: f32,
+    /// wie im Objektkatalog: "OMSI (Standard)", Stadt/Karte, ...
+    pub herkunft: String,
 }
+
+impl Querschnitt {
+    /// Spurfilter: "1" Einbahn 1 Spur, "1+1", "2+2", "Einbahn 2+", "andere"
+    pub fn spurklasse(&self) -> &'static str {
+        match (self.vor, self.zurueck) {
+            (1, 0) | (0, 1) => "Einbahn 1 Spur",
+            (_, 0) | (0, _) => "Einbahn 2+ Spuren",
+            (1, 1) => "1+1 Spuren",
+            (2, 2) => "2+2 Spuren",
+            _ => "andere",
+        }
+    }
+}
+
+pub const SPURKLASSEN: [&str; 5] = ["1+1 Spuren", "2+2 Spuren", "Einbahn 1 Spur", "Einbahn 2+ Spuren", "andere"];
 
 /// alle .sli unter Splines mit mindestens einer Fahrspur (Hintergrund)
 pub fn querschnitte(root: &Path) -> Vec<Querschnitt> {
+    let genutzt = crate::katalog::nutzung_splines(root);
     let basis = root.join("Splines");
     let mut out = Vec::new();
     let mut stapel = vec![basis.clone()];
@@ -87,7 +105,8 @@ pub fn querschnitte(root: &Path) -> Vec<Querschnitt> {
             let rel = p.strip_prefix(root).unwrap_or(&p).to_string_lossy().replace('/', "\\");
             let ordner = p.strip_prefix(&basis).ok().and_then(|r| r.components().next()).map(|c| c.as_os_str().to_string_lossy().to_string()).unwrap_or_default();
             let name = p.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
-            out.push(Querschnitt { rel, name, ordner, vor, zurueck, gehwege, breite: hi - lo });
+            let herkunft = crate::katalog::herkunft(&ordner, &genutzt);
+            out.push(Querschnitt { rel, name, ordner, vor, zurueck, gehwege, breite: hi - lo, herkunft });
         }
     }
     out.sort_by_key(|q| (q.ordner.to_lowercase(), q.name.to_lowercase()));

@@ -45,7 +45,7 @@ const STAEDTE: [(&str, &str); 16] = [
     ("szczecin", "Express 91.06"), ("spandau", STANDARD), ("grundorf", STANDARD),
 ];
 
-type Nutzung = std::collections::HashMap<String, std::collections::HashMap<String, usize>>;
+pub type Nutzung = std::collections::HashMap<String, std::collections::HashMap<String, usize>>;
 
 fn stadt(name: &str) -> Option<&'static str> {
     let n = name.to_lowercase();
@@ -54,6 +54,16 @@ fn stadt(name: &str) -> Option<&'static str> {
 
 /// Welche Karte nutzt welche Objekte: erster Ordner unter Sceneryobjects (klein) -> Karte -> Anzahl
 pub fn nutzung(root: &Path) -> Nutzung {
+    nutzung_von(root, "sceneryobjects", &["[object]", "[attachobj]", "[splineattachement]"])
+}
+
+/// dasselbe fuer Splines: erster Ordner unter Splines -> Karte -> Anzahl
+pub fn nutzung_splines(root: &Path) -> Nutzung {
+    nutzung_von(root, "splines", &["[spline]", "[spline_h]"])
+}
+
+/// Eintraege mit einem der Schluessel, Datei zwei Zeilen darunter unter `basis\<Ordner>\...`
+fn nutzung_von(root: &Path, basis: &str, schluessel: &[&str]) -> Nutzung {
     let mut out: Nutzung = Default::default();
     let Ok(karten) = std::fs::read_dir(root.join("maps")) else { return out };
     let trenner = |c: char| c == '\\' || c == '/';
@@ -74,13 +84,12 @@ pub fn nutzung(root: &Path) -> Nutzung {
             let zeilen: Vec<&str> = text.lines().collect();
             for (i, z) in zeilen.iter().enumerate() {
                 let z = z.trim();
-                if !(z.eq_ignore_ascii_case("[object]") || z.eq_ignore_ascii_case("[attachObj]")
-                    || z.eq_ignore_ascii_case("[splineAttachement]")) {
+                if !schluessel.iter().any(|k| z.eq_ignore_ascii_case(k)) {
                     continue;
                 }
                 let Some(pfad) = zeilen.get(i + 2) else { continue };
                 let teile: Vec<String> = pfad.trim().split(trenner).map(|t| t.to_lowercase()).collect();
-                if teile.len() >= 3 && teile[0] == "sceneryobjects" {
+                if teile.len() >= 3 && teile[0] == basis {
                     *out.entry(teile[1].clone()).or_default().entry(karte.clone()).or_default() += 1;
                 }
             }
@@ -91,7 +100,7 @@ pub fn nutzung(root: &Path) -> Nutzung {
 
 /// Herkunft eines Objektordners: Standard, wenn eine Standardkarte ihn nutzt; sonst die Stadt der Karte, die ihn am
 /// meisten nutzt; sonst nach Namen; sonst "ohne Karte"
-fn herkunft(ordner: &str, nutzung: &Nutzung) -> String {
+pub fn herkunft(ordner: &str, nutzung: &Nutzung) -> String {
     if let Some(k) = nutzung.get(&ordner.to_lowercase()) {
         if k.keys().any(|karte| STANDARD_KARTEN.contains(&karte.to_lowercase().as_str())) {
             return STANDARD.into();

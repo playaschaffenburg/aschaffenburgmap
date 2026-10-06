@@ -1,4 +1,5 @@
-//! Vorschaubilder fuer den Objektkatalog: jedes Objekt einmal allein gerendert (openOMSI, vor Himmel), als PNG
+//! Vorschaubilder fuer Objekt- und Strassenkatalog: jedes Objekt (.sco) bzw. ein gerades Strassenstueck (.sli)
+//! einmal allein gerendert (openOMSI, vor Himmel), als PNG
 //! zwischengespeichert in %LOCALAPPDATA%\omsi-editor\vorschau. Erzeugt werden nur die Bilder, die gerade im
 //! Katalog zu sehen sind, wenige je Bild, damit die Bedienung fluessig bleibt.
 
@@ -70,7 +71,8 @@ impl Vorschau {
             if t0.elapsed().as_millis() as u64 >= zeit_ms {
                 break;
             }
-            match v.preview_image(&rel, GROESSE) {
+            let bild = if rel.to_ascii_lowercase().ends_with(".sli") { v.preview_spline_image(&rel, GROESSE) } else { v.preview_image(&rel, GROESSE) };
+            match bild {
                 Some(px) => {
                     let d = datei(&rel);
                     let _ = std::fs::create_dir_all(d.parent().unwrap());
@@ -118,5 +120,10 @@ mod tests {
             }
         }
         assert!(n >= 2, "nur {n} Vorschaubilder");
+        // Strassen
+        for (k, rel) in ["Splines\\Marcel\\str_2spur_10m_Grunewaldstr.sli", "Splines\\Marcel\\str_2spur_11m_SeeburgerStr1.sli"].iter().enumerate() {
+            let px = v.preview_spline_image(rel, 256).expect("Strassenvorschau");
+            image::save_buffer(aus.join(format!("s{k}.png")), &px, 256, 256, image::ColorType::Rgba8).unwrap();
+        }
     }
 }

@@ -46,8 +46,9 @@ lassen sich danach wie alle anderen bearbeiten.
 Vorschaubilder: jedes Objekt wird einmal allein mit openOMSI gerendert und als PNG in
 `%LOCALAPPDATA%\omsi-editor\vorschau` gespeichert; erzeugt werden nur die gerade sichtbaren, höchstens ~8 ms je Bild.
 
-**Straße bauen (Werkzeug „Straße bauen“, Taste B)** wie in Transport Fever 2: rechts den Querschnitt wählen (alle
-`.sli` mit Fahrspuren, mit Spuren, Breite und Gehwegen; Suche), Modus **Gerade (G)** oder **Kurve (K)**. Klick setzt den
+**Straße bauen (Werkzeug „Straße bauen“, Taste B)** wie in Transport Fever 2: rechts den Querschnitt wählen – Kachelraster
+aller `.sli` mit Fahrspuren mit Vorschaubild (gerades Straßenstück), Filter Herkunft, Spuren (1+1, 2+2, Einbahn …),
+Gehweg, Ordner und Suche, Modus **Gerade (G)** oder **Kurve (K)**. Klick setzt den
 Start, die Maus zieht die Vorschau als echte OMSI-Straße, Klick setzt den nächsten Punkt, Esc/Rechtsklick beendet den
 Zug. Freie Straßenenden (grüner Kreis) setzen tangential fort; trifft eine Kurve ein freies Ende, wird sie tangential
 eingefädelt (Bogenpaar). Am Mauszeiger: Länge, kleinster Radius, Steigung (rot bei R < 10 m oder > 12 %). Bild ↑/↓:
