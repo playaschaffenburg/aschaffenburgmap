@@ -6,7 +6,7 @@
 Projekt (JSON, Endung .omsiprojekt): siehe neues_projekt(). Koordinaten in Metern um den Ursprung (x Ost, z Nord,
 Projektion route.Projection)."""
 import collections, json, math, os
-from . import osm, ansicht, kreuzung, vorfahrt, gelaende as gel_mod, hoehen as hoe_mod
+from . import osm, ansicht, kreuzung, vorfahrt, bauwerke, gelaende as gel_mod, hoehen as hoe_mod
 from .route import Projection, route, corridor
 from .network import build, proj_point
 from .splinedb import SplineDB
@@ -130,10 +130,19 @@ def erzeuge(projekt, name, omsi=None, ausgabe='build', korrekturen=None, uebersc
             f'{sum(1 for ch in net["road_chains"] for v in ch["ebene"] if v)} Elemente auf Bruecken/in Tunneln')
     else:
         log('    Gelaende: keine DGM-Daten (ausserhalb Bayerns, ohne Netz oder abgeschaltet) - Karte bleibt flach')
+    # Bauwerke: Brueckenkoerper, Tunnelroehren (Begleit-Splines), Pfeiler, Portale, Gelaendeloecher
+    bw = bauwerke.bauen(net, sdb, hoe, name)
+    b = bw['stats']
+    if b['bruecken'] or b['tunnel'] or b['einschnitte']:
+        log(f"    Bauwerke: {b['bruecken']} Brueckenabschnitte mit {b['pfeiler']} Pfeilern, {b['tunnel']} "
+            f"Tunnelabschnitte mit {b['portale']} Portalen, {b['einschnitte']} Elemente im Einschnitt (Gelaendeloch)")
+    install_splines(root, bw['splines'])
+    chains = chains + bw['ketten']
+    objekte = junctions + bw['objekte']
     desc = (f'Erzeugt mit omsigen: {projekt.get("beschreibung") or projekt.get("name", "")}.\n'
             + ('Strassendaten (c) OpenStreetMap-Mitwirkende, ODbL.' if 'OpenStreetMap' in projekt.get('quelle', '')
                else '') + (('\n' + gel_mod.QUELLE) if hat_gelaende else ''))
-    if junctions:
+    if objekte:
         kdir = os.path.join(root, 'Sceneryobjects', 'Aschaffenburg_KI', name)
         if os.path.exists(kdir) and not ueberschreiben:
             raise FileExistsError(f'Objektordner {kdir} existiert schon - anderen Kartennamen waehlen')
@@ -154,11 +163,11 @@ def erzeuge(projekt, name, omsi=None, ausgabe='build', korrekturen=None, uebersc
             entrypoints.append(dict(e, name=n[:60]))
     info = write_map(os.path.join(root, 'maps'), name, chains, stops, omsi_dir=omsi, friendly=titel or name,
                      description=desc, cam_xz=(entrypoints[0]['x'], entrypoints[0]['z']) if entrypoints else
-                     tuple(linie[0]), overwrite=ueberschreiben, junctions=junctions, entrypoints=entrypoints,
+                     tuple(linie[0]), overwrite=ueberschreiben, junctions=objekte, entrypoints=entrypoints,
                      raster=hoe.raster if hat_gelaende else None)
     kdir = None
-    if junctions:
-        kdir, _ = kreuzung.install_objects(root, name, junctions, omsi_dir=omsi, overwrite=ueberschreiben)
+    if objekte:
+        kdir, _ = kreuzung.install_objects(root, name, objekte, omsi_dir=omsi, overwrite=ueberschreiben)
     with open(os.path.join(info['dir'], 'omsigen.json'), 'w', encoding='utf-8') as f:
         json.dump(dict(projekt=projekt.get('name'), origin=[proj.lat0, proj.lon0], offset=info['offset'],
                        hoehe_basis=hoe.base if hat_gelaende else None,

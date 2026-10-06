@@ -19,7 +19,7 @@ from . import vorfahrt, ampel
 
 ASPH_H, WALK_H = 0.10, 0.25          # Hoehe Fahrbahn / Gehweg wie in den Splines
 U_KERB, U_OUT = 0.953, 0.187         # str_side1.bmp: u an der Bordsteinkante / 3,5 m weiter aussen
-TEXTURES = ['str_asphdrk.bmp', 'str_asphdrk.bmp.cfg', 'str_side1.bmp', 'str_side1.bmp.cfg']
+TEXTURES = ['str_asphdrk.bmp', 'str_asphdrk.bmp.cfg', 'str_side1.bmp', 'str_side1.bmp.cfg', 'betonwand1.bmp']
 FOOT_LEN = 60.0                      # so weit reicht die freigehaltene Flaeche eines Arms nach aussen
 R_KERB = 8.0                         # Bordsteinradius an Ecken (wird kleiner, wenn der Platz nicht reicht)
 
@@ -201,10 +201,10 @@ def mesh(J):
     return V, F
 
 
-def x_file(V, F):
+def x_file(V, F, mats=None):
     def f(v):
         return f'{v:.4f}'
-    mats = [('Asphalt', 'str_asphdrk.bmp'), ('Gehweg', 'str_side1.bmp')]
+    mats = mats or [('Asphalt', 'str_asphdrk.bmp'), ('Gehweg', 'str_side1.bmp')]
     L = ['xof 0302txt 0032', '', 'Mesh Kreuzung {', f' {len(V)};']
     L += [f' {f(v[0])};{f(v[1])};{f(v[2])};' + (',' if i < len(V) - 1 else ';') for i, v in enumerate(V)]
     L += [f' {len(F)};']

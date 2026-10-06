@@ -252,4 +252,8 @@ class Hoehen:
         w = np.clip(best / UEBERGANG, 0, 1)                      # 0 = auf der Strasse, 1 = Gelaende
         m = np.isfinite(best)
         H = np.where(m, ziel * (1 - w) + H * w, H)
+        for (x, z, h, innen) in getattr(self, 'decken', ()):   # ueber Tunnelroehren nicht unter die Decke
+            if x < x0 - 30 or z < z0 - 30 or x > x0 + rand or z > z0 + rand:
+                continue
+            H = np.where(np.hypot(X - x, Z - z) < innen, np.maximum(H, h), H)
         return H

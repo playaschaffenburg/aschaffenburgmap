@@ -95,7 +95,9 @@ Kreuzungsobjekte; Klick auf eine Spur zeigt Spline/Objekt, Datei, Kachel und Pfa
   (`--ohne-gelaende` für flache Karten; außerhalb Bayerns bleibt die Karte flach)
 - **Brücken und Tunnel** aus OSM sind Teil des Netzes: Brückenfahrbahn mindestens 5,5 m über dem Boden darunter,
   Tunnel mindestens 6 m unter der Oberfläche, mit Rampen; berechnet als Ausgleichsrechnung über das ganze Netz
-  (`omsigen/hoehen.py`). Geländer/Pfeiler und Tunnelröhren fehlen noch
+  (`omsigen/hoehen.py`)
+- **Brückenkörper** mit Brüstung und Pfeilern, **Tunnelröhren** mit Portalen und Geländeloch an den Mündungen
+  (`omsigen/bauwerke.py`)
 - **Einsetzpunkte** an Start, Ziel und allen Haltestellen
 - **KI-Verkehr**: `ailists.cfg` mit den Standard-KI-Autos und -LKW, Tagesganglinie des Verkehrs; unsichtbare Wendeschleifen an
   Straßenenden (Kartenrand, Sackgassen), damit die KI dort nicht stecken bleibt
@@ -107,7 +109,6 @@ Kreuzungsobjekte; Klick auf eine Spur zeigt Spline/Objekt, Datei, Kachel und Pfa
 1. Fußgängerampeln und Fußgängerquerungen (Zebrastreifen); Ampeln und Vorfahrt sind erledigt
 4. Haltestellen mit Haltepunkten, Linien und Fahrplänen (aus GTFS-Daten)
 5. Gebäude (OSM-Umrisse, ggf. LoD2-Modelle), Bäume, Straßenmöbel
-6. Brücken-Optik (Geländer, Pfeiler) und Tunnelröhren mit Portalen
 
 ## Projektaufbau
 
@@ -121,6 +122,7 @@ omsigen/
   kreuzung.py       Kreuzungsobjekte: Fläche, Bordsteine, Pfade -> .sco + .x
   gelaende.py       DGM1 Bayern laden (utm.py: Umrechnung nach UTM 32)
   hoehen.py         Strassenhoehen, Bruecken/Tunnel, Gelaenderaster
+  bauwerke.py       Brueckenkoerper, Tunnelroehren, Pfeiler, Portale, Gelaendeloecher
   vorfahrt.py       Vorfahrt je Kreuzung (Schilder, Vorfahrtstraßen, StVO, Korrekturen)
   ampel.py          Ampelprogramme, Bindung der Zufahrten, Signalmasten
   studie.py         vorhandene OMSI-Karten auswerten (docs/kartenstudie.md)

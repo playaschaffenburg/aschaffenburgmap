@@ -55,3 +55,32 @@ def test_hang_bruecke_tunnel():
     assert _hoehe_bei(net, 550) + b <= g.hoehe(550, 0) - UEBERDECKUNG + 0.1
     # Steigungen bleiben fahrbar
     assert max(abs(v) for ch in net['road_chains'] for v in ch['g']) < 12
+
+
+def test_bauwerke():
+    from omsigen import bauwerke
+    from omsigen.splinedb import parse_sli
+    net = _netz((190, {}), (120, {'bridge': 'yes', 'layer': '1'}), (180, {}), (130, {'tunnel': 'yes', 'layer': '-1'}),
+                (180, {}))
+    hoe = Hoehen(Kunstgelaende(), log=lambda *a: None).berechnen(net, SplineDB())
+    bw = bauwerke.bauen(net, SplineDB(), hoe, 'Test')
+    st = bw['stats']
+    assert st['bruecken'] == 1 and st['tunnel'] == 1
+    assert st['pfeiler'] >= 2 and st['portale'] == 2
+    arten = {k['begleit']: k for k in bw['ketten']}
+    # Begleit-Splines liegen genau auf der Fahrbahn und haben keine Pfade
+    assert abs(sum(e[3] for e in arten['bruecke']['els']) - 120) < 1
+    for datei, text in bw['splines'].items():
+        assert parse_sli(text)['lanes'] == [] and parse_sli(text)['walks'] == []
+        assert ('[terrainholeprofile]' in text) == datei.startswith('AB_tunnel')
+    # Gelaendeloch nur am Portal, nicht mitten im Tunnel
+    al = arten['tunnel']['align']
+    assert al[0] and al[-1] and not all(al)
+    # Pfeiler stehen auf dem Talboden und reichen bis unter die Platte
+    for o in bw['objekte']:
+        if o['name'].startswith('pfeiler'):
+            x, z = o['origin']
+            assert abs(o['hoehe'] + 1.0 - hoe.gelaende(x, z)) < 0.01 and 200 <= x <= 300
+    # ueber der Tunnelroehre bleibt Gelaende
+    H = hoe.raster(500.0, -150.0)                       # Kachel ueber dem Tunnel (x 500..800)
+    assert hoe.decken and H[30, 10] >= _hoehe_bei(net, 550) + bauwerke.TUNNEL_H

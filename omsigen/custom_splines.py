@@ -100,4 +100,4 @@ for g in KREUZ_GAPS:
 
 
 TEXTURE_FILES = ['str_side1.bmp', 'str_side1.bmp.cfg', 'str_asphdrk.bmp', 'str_asphdrk.bmp.cfg',
-                 'str_asphdrk_1line.bmp', 'str_asphdrk_1line.bmp.cfg']
+                 'str_asphdrk_1line.bmp', 'str_asphdrk_1line.bmp.cfg', 'betonwand1.bmp']

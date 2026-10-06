@@ -124,8 +124,36 @@ geprüft mit openOMSI `--entry 0`: „spawned at entry point … "Start: Hauptba
 - `[path]` Typ (0 = Fahrzeug, 1 = Fußgänger, 2 = Schiene), Querlage x, Höhe, Breite, Richtung
   (0 = mit Spline, 1 = dagegen, 2 = beide). Positive x = rechts der Splinerichtung (Rechtsverkehr: Spur mit
   Richtung 0 liegt bei +x).
-- `[terrainholeprofile]`/`[terrainholeprofilepnt]`: Umriss, der das Gelände unter der Straße ausschneidet
-  *[openOMSI]* – wichtig, sobald Höhen dazukommen.
+- `[terrainholeprofile]`, danach je `[terrainholeprofilepnt]` x, Höhe, Überstand am Ende: Profil des
+  Geländelochs, von links nach rechts *[openOMSI docs/FORMATS.md, `omsi-geometry` `terrain_hole_profiles`]*.
+  Geschnitten wird nur bei Splines mit `[spline_terrain_align]` in der Kachel; der Umriss von oben ist die
+  Profilbreite entlang des Splines. Ohne eigenes Profil macht OMSI eines aus den `[profile]`s (Mulde von der
+  linken bis zur rechten Kante, 3 cm eingerückt). Das Original schneidet nur die Geländedreiecke weg; openOMSI
+  zeichnet zusätzlich Lochwände vom Lochrand bis zum Gelände (gestreift) – die gibt es im Spiel nicht.
+- Sichtbare Seite eines `[profile]`: links der Laufrichtung von Punkt zu Punkt (waagerecht von links nach rechts
+  = Oberseite, senkrecht nach oben = Fläche nach links) *[Splines\Marcel\rail_boxcut_concrete_1tr6m.sli]*.
+
+## Gelände ausschneiden in der Kachel
+
+Hinter einem `[spline]`-Block (nach den zwei Leerzeilen) steht `[spline_terrain_align]` oder
+`[spline_terrain_align_2]` mit einer Zahl (1–4; 2/4 halten das ferne, 3/4 das nahe Lochende am Splineende)
+*[Berlin-Spandau tile_2382_11285.map; openOMSI docs/FORMATS.md]*. In Spandau tragen 236 von 2486 Splines das
+Kennzeichen.
+
+## Brücken und Tunnel (omsigen/bauwerke.py)
+
+Die Standardkarten benutzen eigene Brücken-Splines (z. B. `Splines\Ruede\str_2spur_9.5m_DDR_Potsdamer_Str_BUE.sli`).
+omsigen legt stattdessen einen **Begleit-Spline ohne Pfade** genau auf die Fahrbahn (gleiche Lage, Höhe,
+Steigung), damit die Spuranschlüsse unverändert bleiben:
+
+- `AB_bruecke_<links>_<rechts>.sli`: Platte 1,2 m, Brüstung 1 m über dem Gehweg, Beton `betonwand1.bmp`
+  aus `Splines\Marcel\texture`; Pfeiler (Objekte `pfeiler_n`, `[absheight]`) etwa alle 30 m, 1 m eingegraben.
+- `AB_tunnel_<links>_<rechts>.sli`: Wände, Decke 5 m, Außenhaut und `[terrainholeprofile]`. Das Gelände wird
+  auf den ersten 15 m hinter jedem Portal ausgeschnitten (Röhre und Fahrbahn davor), weiter innen auf
+  mindestens Deckenhöhe + 0,3 m angehoben. Portale sind Objekte (`portal_n`): Rahmen um die Öffnung bis über das
+  Gelände. Ein Portal entsteht, wo der Tunnel in offene Strecke übergeht oder an einer Kreuzung mit Straßen
+  außerhalb des Tunnels endet.
+- Fahrbahn mehr als 1,5 m unter dem Gelände (Einschnitt): `[spline_terrain_align]` am Straßen-Spline.
 
 ## Kreuzungsobjekte `.sco` (so bauen die Standardkarten Kreuzungen)
 

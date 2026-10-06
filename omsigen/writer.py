@@ -159,6 +159,8 @@ def write_map(out_maps_dir, name, chains, stops, omsi_dir=None, friendly=None, d
                              str(ids[i + 1] if i < len(ids) - 1 else 0), fmt(x - TILE * t[0]), fmt(y),
                              fmt(z - TILE * t[1]), fmt(h % 360), fmt(L), fmt(R), fmt(g), fmt(g), '0', '0', '0', '0',
                              fmt(cum), '', ''])
+            if c.get('align') and c['align'][i]:       # Gelaendeloch entlang des Splines (wie Berlin-Spandau)
+                tiles[t][-1] += ['[spline_terrain_align]', '']
             cum += L
     objs = collections.defaultdict(list)
     for s in stops:
@@ -172,7 +174,7 @@ def write_map(out_maps_dir, name, chains, stops, omsi_dir=None, friendly=None, d
         x, z = j['origin'][0] - ox, j['origin'][1] - oz
         t = (int(x // TILE), int(z // TILE))
         blk = ['[object]', '0', j['rel'], str(nid), fmt(x - TILE * t[0]), fmt(z - TILE * t[1]),
-               fmt(j.get('hoehe', 0.0)), '0', '0', '0', '0', '']
+               fmt(j.get('hoehe', 0.0)), fmt(j.get('rot', 0.0)), '0', '0', '0', '']
         for idx, val in j.get('rules', ()):     # Vorfahrt: [rule] gilt fuer den Pfad idx des Objekts davor
             blk += ['[rule]', str(idx), 'priority', str(val), '0', '']
         objs[t].append(blk)
@@ -251,11 +253,13 @@ def write_map(out_maps_dir, name, chains, stops, omsi_dir=None, friendly=None, d
                 objects=sum(len(v) for v in objs.values()))
 
 
-def install_splines(omsi_dir_or_out):
+def install_splines(omsi_dir_or_out, extra=None):
     """Eigene .sli-Dateien nach Splines\\Aschaffenburg_KI schreiben; Texturen aus Splines\\Marcel\\texture kopieren"""
     d = os.path.join(omsi_dir_or_out, 'Splines', 'Aschaffenburg_KI')
     os.makedirs(os.path.join(d, 'texture'), exist_ok=True)
-    for n, (t, _) in CUSTOM.items():
+    dateien = {n: t for n, (t, _) in CUSTOM.items()}
+    dateien.update(extra or {})          # Bauwerks-Splines (bauwerke.py)
+    for n, t in dateien.items():
         with open(os.path.join(d, n), 'w', encoding='cp1252', newline='') as f:
             f.write(t)
     src = os.path.join(omsi_dir_or_out, 'Splines', 'Marcel', 'texture')
