@@ -185,6 +185,8 @@ pub fn mit_hoehe(stuecke: &[Stueck], za: f64, ga: f64, zb: f64, gb: f64) -> Vec<
 pub struct Knoten {
     pub id: u32,
     pub pos: DVec3,
+    /// Anschluss an eine vorhandene Strasse der Karte: (Richtung weg von ihr, Steigung in dieser Richtung)
+    pub anschluss: Option<(f64, f64)>,
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -223,7 +225,14 @@ impl Netz {
 
     pub fn knoten_neu(&mut self, pos: DVec3) -> u32 {
         let id = self.neue_id();
-        self.knoten.push(Knoten { id, pos });
+        self.knoten.push(Knoten { id, pos, anschluss: None });
+        id
+    }
+
+    /// Knoten am Ende einer vorhandenen Strasse: neue Kanten muessen ihn in `richtung` verlassen
+    pub fn anschluss_neu(&mut self, pos: DVec3, richtung: f64, steigung: f64) -> u32 {
+        let id = self.neue_id();
+        self.knoten.push(Knoten { id, pos, anschluss: Some((richtung, steigung)) });
         id
     }
 
@@ -242,8 +251,12 @@ impl Netz {
     /// anschliesst (None: freies Ende ohne Kante oder Kreuzung)
     pub fn weiter_richtung(&self, k: u32) -> Option<f64> {
         let an = self.an(k);
-        if an.len() != 1 {
+        let anschluss = self.knoten(k).and_then(|x| x.anschluss);
+        if an.len() + anschluss.is_some() as usize != 1 {
             return None;
+        }
+        if let Some((h, _)) = anschluss {
+            return Some(h);
         }
         let e = an[0];
         Some(if e.b == k { e.hb } else { (e.ha + 180.0).rem_euclid(360.0) })
@@ -258,6 +271,10 @@ impl Netz {
             (b.z - a.z) / l
         };
         let an = self.an(k);
+        if let (Some((_, g)), 1) = (self.knoten(k).and_then(|x| x.anschluss), an.len()) {
+            // an der vorhandenen Strasse: deren Steigung (verlaesst e den Knoten, gilt sie so; kommt e an, umgekehrt)
+            return if e.a == k { g } else { -g };
+        }
         if an.len() == 2 {
             // Steigung in Richtung von e: die andere Kante zaehlt mit ihrem Vorzeichen in derselben Fahrtrichtung
             let andere = if an[0].id == e.id { an[1] } else { an[0] };

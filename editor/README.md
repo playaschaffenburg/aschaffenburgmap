@@ -53,6 +53,12 @@ Start, die Maus zieht die Vorschau als echte OMSI-Straße, Klick setzt den näch
 Zug. Freie Straßenenden (grüner Kreis) setzen tangential fort; trifft eine Kurve ein freies Ende, wird sie tangential
 eingefädelt (Bogenpaar). Am Mauszeiger: Länge, kleinster Radius, Steigung (rot bei R < 10 m oder > 12 %). Bild ↑/↓:
 Höhe des nächsten Punkts über dem Gelände. Entf: Straße unter der Maus löschen. Strg+Z / Strg+Y.
+
+**An vorhandene Straßen anschließen:** blaue Kreise mit Strich zeigen freie Enden vorhandener Straßen (Richtung, in
+der es weitergeht). „Frei“ entscheidet openOMSIs Spurnetz – es verknüpft Spuren wie das Spiel, auch mit den Pfaden
+der Kreuzungsobjekte; Enden am Rand des geladenen Bereichs gelten nicht als frei. Start oder Ziel rasten dort ein;
+die neue Straße übernimmt Richtung, Höhe und Steigung. Passen die Fahrspuren des gewählten Querschnitts nicht, wird
+beim Start der vorhandene übernommen (abschaltbar), am Ziel erscheint eine Warnung.
 Gespeichert wird jede Straße als Kette von `[spline_h]`-Einträgen (glatter Höhenverlauf, Enden exakt auf den Knoten
 in gleicher Richtung – so verbindet OMSI die Spuren).
 
@@ -70,6 +76,6 @@ Tests: `cargo test --release` (ohne OMSI), `cargo test --release -- --include-ig
 2. **Bearbeiten** (Objekte fertig): auswählen, ziehen, drehen, heben, löschen, kopieren, aus dem Katalog
    platzieren, Rückgängig, Speichern als neue Karte. Splines verschieben kommt mit dem Netz-Kern (Schritt 3) – das kann auch openOMSI selbst noch nicht
 3. **Straßen** (in Arbeit): Netz-Kern (Knoten, Kanten aus Geraden/Bögen, glatte Höhe), Werkzeug Gerade/Kurve mit
-   Live-Vorschau und Einrasten, Speichern als Splines (fertig); Anschluss an vorhandene Splines der Karte, Knoten
-   ziehen, Kreuzungsobjekte über omsigen (offen)
+   Live-Vorschau und Einrasten, Speichern als Splines, Anschluss an freie Enden vorhandener Straßen (fertig); Knoten ziehen,
+   Kreuzungsobjekte über omsigen (offen)
 4. omsigen-Funktionen: OSM-Import, Kreuzungsgenerator, DGM-Gelände, Luftbild

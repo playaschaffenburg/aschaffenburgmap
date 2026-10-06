@@ -10,6 +10,7 @@
 //! Bedienung: rechte Maustaste drehen/neigen, mittlere verschieben, Mausrad zoomen,
 //! W A S D / Pfeile verschieben, Q / E drehen, R / F neigen.
 
+mod anschluss;
 mod bearbeiten;
 mod kamera;
 mod katalog;
@@ -121,6 +122,8 @@ struct App {
     qs_gehweg: Option<bool>,
     /// Rechtsklick ohne Ziehen erkennen (Zug beenden)
     rechts_start: Option<(f32, f32)>,
+    /// Enden vorhandener Strassen (frei/angeschlossen) in den geladenen Kacheln
+    anschluesse: anschluss::Anschluesse,
 }
 
 /// Was die Oberflaeche ausloesen will (nach dem Zeichnen ausgefuehrt)
@@ -193,6 +196,7 @@ impl App {
             qs_spuren: None,
             qs_gehweg: None,
             rechts_start: None,
+            anschluesse: anschluss::Anschluesse::default(),
         }
     }
 
@@ -203,6 +207,7 @@ impl App {
         // schon eine Karte offen: Renderer behalten (Pipelines nur einmal kompilieren), Welt tauschen
         self.bearb = Bearbeiten::neu(self.bearb.werkzeug);
         self.strasse = strasse::Strassenbau::neu(self.strasse.sli.clone(), self.strasse.modus);
+        self.anschluesse = anschluss::Anschluesse::default();
         if let Some(v) = self.viewer.as_mut() {
             let cam = v.open_map(&self.karten[i].global)?;
             self.kamera_von(&cam);
@@ -292,6 +297,9 @@ impl App {
         let (ziel, weite) = (self.kam.ziel, self.sichtweite());
         if let Some(v) = self.viewer.as_mut() {
             v.stream(ziel, weite, std::time::Duration::from_millis(STREAM_BUDGET_MS));
+            if self.bearb.werkzeug == Werkzeug::Strasse {
+                self.anschluesse.aktualisieren(v);
+            }
         }
     }
 
@@ -618,7 +626,9 @@ impl App {
                     if self.strasse.baut() && ui.button("Zug beenden (Esc / Rechtsklick)").clicked() {
                         aktionen.push(UiAktion::ZugBeenden);
                     }
-                    ui.label(egui::RichText::new(format!("{} Knoten, {} Strassenstuecke", self.strasse.netz.knoten.len(), self.strasse.netz.kanten.len())).small().weak());
+                    ui.checkbox(&mut self.strasse.uebernehmen, "an vorhandenen Strassen deren Querschnitt uebernehmen");
+                    let frei = self.anschluesse.liste.iter().filter(|a| a.frei).count();
+                    ui.label(egui::RichText::new(format!("{} Knoten, {} Strassenstuecke | {} freie Enden vorhandener Strassen (blau)", self.strasse.netz.knoten.len(), self.strasse.netz.kanten.len(), frei)).small().weak());
                     ui.separator();
                     ui.label("Querschnitt");
                     let Some(qs) = self.querschnitte.as_ref() else {
@@ -757,6 +767,20 @@ impl App {
                 bearbeiten::markieren(&maler, &self.kam, o, bw, bh, egui::Color32::from_rgb(255, 60, 220), 3.0);
             }
             if self.bearb.werkzeug == Werkzeug::Strasse {
+                for a in self.anschluesse.liste.iter().filter(|a| a.frei) {
+                    if (a.pos - self.kam.ziel).length() > self.kam.abstand * 3.0 + 200.0 {
+                        continue;
+                    }
+                    if let Some((x, y, _)) = bearbeiten::projizieren(&self.kam, a.pos, bw, bh) {
+                        let c = egui::Color32::from_rgb(80, 200, 255);
+                        maler.circle_stroke(egui::pos2(x, y), 7.0, egui::Stroke::new(2.5, c));
+                        // Richtung, in der es weitergeht
+                        let s = a.pos + glam::DVec3::new(a.richtung.to_radians().sin(), a.richtung.to_radians().cos(), 0.0) * 6.0;
+                        if let Some((x2, y2, _)) = bearbeiten::projizieren(&self.kam, s, bw, bh) {
+                            maler.line_segment([egui::pos2(x, y), egui::pos2(x2, y2)], egui::Stroke::new(2.0, c));
+                        }
+                    }
+                }
                 for (_, p, frei) in self.strasse.knoten_punkte() {
                     if let Some((x, y, _)) = bearbeiten::projizieren(&self.kam, p, bw, bh) {
                         let f = if frei { egui::Color32::from_rgb(90, 230, 120) } else { egui::Color32::WHITE };
@@ -770,9 +794,13 @@ impl App {
                         t += &format!("   R {:.0} m", plan.min_radius);
                     }
                     t += &format!("   {:+.1} %", plan.steigung);
-                    if plan.ziel.is_some() {
+                    if plan.ziel.is_some() || plan.ziel_anschluss.is_some() {
                         t += "   Anschluss";
                     }
+                    if let Some(w) = plan.warnung.as_ref() {
+                        t += &format!("\n{w}");
+                    }
+                    let warn = warn || plan.warnung.is_some();
                     let farbe = if warn { egui::Color32::from_rgb(255, 120, 90) } else { egui::Color32::WHITE };
                     maler.text(egui::pos2(m.0 + 18.0, m.1 + 14.0), egui::Align2::LEFT_TOP, t, egui::FontId::proportional(14.0), farbe);
                 }
@@ -1144,8 +1172,8 @@ impl ApplicationHandler for App {
                             for (i, p) in punkte.iter().enumerate() {
                                 let g = DVec3::new(p.x, p.y, v.terrain_height(p.x, p.y).unwrap_or(p.z));
                                 self.strasse.modus = if i < 2 { strasse::Modus::Gerade } else { strasse::Modus::Kurve };
-                                self.strasse.maus(v, g, 3.0);
-                                meldungen.push(self.strasse.klick(v, g, 3.0).unwrap_or_default());
+                                self.strasse.maus(v, g, 3.0, &self.anschluesse);
+                                meldungen.push(self.strasse.klick(v, g, 3.0, &self.anschluesse).unwrap_or_default());
                             }
                             self.strasse.beenden(v);
                         }
@@ -1213,7 +1241,7 @@ impl ApplicationHandler for App {
                     if self.bearb.werkzeug == Werkzeug::Strasse {
                         let fang = 12.0 * self.kam.m_pro_px(bh);
                         if let (Some(g), Some(v)) = (self.boden_unter_maus, self.viewer.as_mut()) {
-                            self.strasse.maus(v, g, fang.max(2.0));
+                            self.strasse.maus(v, g, fang.max(2.0), &self.anschluesse);
                         }
                     }
                     if self.bearb.werkzeug == Werkzeug::Objekte {
@@ -1243,12 +1271,12 @@ impl ApplicationHandler for App {
                         let (_, bh) = self.bildgroesse();
                         let fang = (12.0 * self.kam.m_pro_px(bh)).max(2.0);
                         if let (Some(g), Some(v)) = (self.boden_unter_maus, self.viewer.as_mut()) {
-                            match self.strasse.klick(v, g, fang) {
+                            match self.strasse.klick(v, g, fang, &self.anschluesse) {
                                 Some(m) => self.meldung = m,
                                 None if self.strasse.sli.is_none() => self.meldung = "erst einen Querschnitt waehlen".into(),
                                 None => {}
                             }
-                            self.strasse.maus(v, g, fang);
+                            self.strasse.maus(v, g, fang, &self.anschluesse);
                         }
                     }
                     if button == MouseButton::Left && self.bearb.werkzeug == Werkzeug::Platzieren {

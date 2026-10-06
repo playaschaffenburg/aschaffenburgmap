@@ -23,7 +23,10 @@ pub fn vorschlag(root: &Path, alt: &str) -> String {
 
 /// Teil 1 (braucht die Welt): geaenderte Kacheln in einen Zwischenordner schreiben -> Dateien
 pub fn kacheln_schreiben(v: &Viewer, ed: &Editor, alt: &str) -> Result<(PathBuf, Vec<PathBuf>)> {
-    let staging = std::env::temp_dir().join("omsi-editor").join(format!("speichern-{}", std::process::id()));
+    // je Speichervorgang ein eigener Ordner (auch bei mehreren gleichzeitig, z. B. in Tests)
+    static NR: std::sync::atomic::AtomicUsize = std::sync::atomic::AtomicUsize::new(0);
+    let nr = NR.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+    let staging = std::env::temp_dir().join("omsi-editor").join(format!("speichern-{}-{nr}", std::process::id()));
     if staging.exists() {
         std::fs::remove_dir_all(&staging).ok();
     }
