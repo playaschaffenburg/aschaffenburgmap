@@ -37,6 +37,23 @@ python -m omsigen --von "49.98053,9.14023" --nach "49.97790,9.14998" --name Test
 python -m pytest
 ```
 
+## Karteneditor (Programm)
+
+```powershell
+python -m omsieditor                      # Startdialog: OSM-Import, leer anfangen oder Projekt öffnen
+python -m omsieditor mein.omsiprojekt     # Projekt direkt öffnen
+```
+
+- **Hintergrund:** amtliches Luftbild der Bayerischen Vermessungsverwaltung (DOP40, 40 cm, CC BY 4.0, kostenfrei),
+  wird beim Zoomen nachgeladen und zwischengespeichert (`.cache/luftbild`)
+- **Auswählen (V):** Straße anklicken, Klasse/Name/Spuren/Einbahn/Tempo/Vorfahrtstraße rechts ändern, Punkte ziehen
+  (gemeinsame Kreuzungspunkte wandern mit), Alt+Klick löscht einen Punkt, Entf löscht die Straße
+- **Straße zeichnen (S):** Klick setzt Punkte und rastet an vorhandenen Straßen ein – dort entsteht automatisch
+  eine Kreuzung; Doppelklick, Enter oder Rechtsklick beendet
+- Mausrad zoomt, rechte oder mittlere Maustaste verschiebt; Strg+Z/Strg+Y; Speichern als `.omsiprojekt`
+- **Karte erzeugen (Strg+E):** baut die OMSI-Karte mit omsigen (Kreuzungsobjekte, Vorfahrt, Ampeln,
+  Wendeschleifen), prüft sie und zeigt auf Wunsch ein Spielbild aus openOMSI
+
 ## Karten prüfen und ansehen
 
 ```powershell
@@ -90,7 +107,8 @@ Kreuzungsobjekte; Klick auf eine Spur zeigt Spline/Objekt, Datei, Kachel und Pfa
 
 ```
 omsigen/
-  cli.py            Kommandozeile, Ablauf in 6 Schritten
+  cli.py            Kommandozeile
+  pipeline.py       Import (OSM -> Projekt) und Erzeugen (Projekt -> Karte), gemeinsam fuer CLI und Editor
   osm.py            Ortssuche (Nominatim), Download (Overpass), Zwischenspeicher
   route.py          Projektion, Routing (Dijkstra), Korridor
   network.py        Kanten, Knoten, Kreisverkehre, Kürzen, Ketten, Kreuzungsspuren
@@ -106,6 +124,7 @@ omsigen/
   check.py          Spurprüfung und Vorschau
   ansicht.py        Karten-Betrachter für beliebige OMSI-Karten (PNG, HTML, Bericht)
   openomsi.py       Karte in openOMSI rendern, dessen Pfadnetz-Auswertung lesen
+omsieditor/         Karteneditor (PySide6): Startdialog, Kartenansicht mit Luftbild, Eigenschaften, Export
 docs/omsi-format.md alles, was wir über das Dateiformat wissen
 samples/            Testdaten (OSM-Auszug Aschaffenburg)
 ```

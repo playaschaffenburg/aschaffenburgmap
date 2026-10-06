@@ -30,6 +30,13 @@ Projekt: `omsigen` erzeugt OMSI-2-Karten aus OpenStreetMap (siehe README.md). Sp
 - Kreuzungen sind eigene Objekte (`omsigen/kreuzung.py`: .sco + .x-Modell + Pfade), wie in den Standardkarten.
   Nur so erkennt die KI Vorfahrtskonflikte, und nur dort gibt es Ampeln.
 
+## Karteneditor (`omsieditor/`, PySide6)
+
+Bearbeitet nur das Projekt (`.omsiprojekt`, Format in `omsigen/pipeline.py`), nie OMSI-Dateien direkt; die Karte
+entsteht immer über `pipeline.erzeuge()`. Luftbild: Bayern DOP40-WMS (CC BY 4.0, Quellenangabe in der Statuszeile
+behalten). Tests laufen ohne Bildschirm (`QT_QPA_PLATFORM=offscreen`, `OMSIEDITOR_OHNE_LUFTBILD=1`).
+Etappen: 1 Strassen (fertig) → 2 Kreuzungswerkzeug (Vorfahrt/Ampel per Klick) → 3 Haltestellen/Linien.
+
 ## Vorfahrt
 
 Regelwerk in `omsigen/vorfahrt.py` (Reihenfolge: Korrektur, Kreisel, Schild, Vorfahrtstraße, StVO, Vermutung).

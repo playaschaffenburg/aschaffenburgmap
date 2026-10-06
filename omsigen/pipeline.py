@@ -1,0 +1,158 @@
+"""Die zwei Schritte von omsigen, gemeinsam fuer Kommandozeile und Editor:
+
+  importiere()  OSM-Ort/Strecke -> Projekt (Strassen in Metern mit OSM-Tags, Haltestellen, Schilder, Rand)
+  erzeuge()     Projekt -> fertige OMSI-Karte (Kreuzungsobjekte, Vorfahrt, Ampeln, Wendeschleifen) + Pruefung
+
+Projekt (JSON, Endung .omsiprojekt): siehe neues_projekt(). Koordinaten in Metern um den Ursprung (x Ost, z Nord,
+Projektion route.Projection)."""
+import collections, json, math, os
+from . import osm, ansicht, kreuzung, vorfahrt
+from .route import Projection, route, corridor
+from .network import build, proj_point
+from .splinedb import SplineDB
+from .writer import write_map, place_stops, install_splines
+
+VERSION = 1
+
+
+def neues_projekt(lat0, lon0, name='Neues Projekt'):
+    return dict(version=VERSION, name=name, ursprung=[lat0, lon0], strassen=[], haltestellen=[], schilder=[],
+                rand=[], linie=[], quelle='', beschreibung='')
+
+
+def laden(path):
+    with open(path, encoding='utf-8') as f:
+        p = json.load(f)
+    if p.get('version', 0) > VERSION:
+        raise ValueError(f'Projekt {path} ist von einer neueren Version ({p["version"]})')
+    return p
+
+
+def speichern(projekt, path):
+    tmp = path + '.tmp'
+    with open(tmp, 'w', encoding='utf-8') as f:
+        json.dump(projekt, f, ensure_ascii=False, indent=1)
+    os.replace(tmp, path)
+
+
+def importiere(von, nach, stadt=None, ueber=(), breite=150.0, cache='.cache', osm_datei=None, log=print):
+    """OSM-Strecke importieren -> Projekt"""
+    log('1/6 Orte suchen ...')
+    qs = [von] + list(ueber) + [nach]
+    places = [osm.find_place(q, stadt, cache) for q in qs]
+    pts = [(p['lat'], p['lon']) for p in places]
+    for q, p in zip(qs, places):
+        info = f'  ({p["name"]}, {p["art"]})' if p['name'] else ''
+        log(f'    {q}: {p["lat"]:.6f}, {p["lon"]:.6f}{info}')
+
+    log('2/6 OSM-Daten laden ...')
+    lat = [p[0] for p in pts]; lon = [p[1] for p in pts]
+    m = (breite + 400) / 111000
+    bbox = (min(lat) - m, min(lon) - m / math.cos(math.radians(lat[0])), max(lat) + m,
+            max(lon) + m / math.cos(math.radians(lat[0])))
+    data = osm.load(osm_datei) if osm_datei else osm.fetch(bbox, cache)
+    log(f'    {len(data["ways"])} Strassen, {len(data["stops"])} Haltestellen')
+
+    proj = Projection(sum(lat) / len(lat), sum(lon) / len(lon))
+    log('3/6 Strecke berechnen ...')
+    rinfo = {}
+    line, length = route(data['ways'], proj, pts, rinfo)
+    log(f'    Streckenlaenge {length:.0f} m (Abstand zur Strasse: '
+        + ', '.join(f'{d:.0f} m' for d in rinfo['andocken']) + ')')
+    ways, cuts = corridor(data['ways'], proj, line, breite)
+    stops = []
+    for s in data['stops']:
+        p = proj.to_m(s['lat'], s['lon'])
+        if min(proj_point(p, a_, b_)[1] for a_, b_ in zip(line, line[1:])) <= breite:
+            stops.append(dict(name=s['name'], p=list(p)))
+    P = neues_projekt(proj.lat0, proj.lon0, f'{von} - {nach}')
+    P.update(strassen=[dict(id=i + 1, tags=w['tags'], punkte=[list(q) for q in w['P']]) for i, w in enumerate(ways)],
+             haltestellen=stops,
+             schilder=[dict(kind=g['kind'], p=list(proj.to_m(g['lat'], g['lon'])), direction=g.get('direction'))
+                       for g in data.get('signs', [])],
+             rand=[list(c) for c in cuts], linie=[list(q) for q in line], laenge=length,
+             quelle='OpenStreetMap (ODbL)',
+             beschreibung=f'{von} -> {nach}' + (f' ({stadt})' if stadt else '') + f', Korridor {breite:.0f} m')
+    return P
+
+
+def erzeuge(projekt, name, omsi=None, ausgabe='build', korrekturen=None, ueberschreiben=False, kreuzungen='objekt',
+            titel=None, vorschau=None, ansicht_html=None, log=print):
+    """Projekt -> OMSI-Karte. -> dict(rc, dir, offen, enden, stats, kreuzungen, vorfahrt)"""
+    proj = Projection(*projekt['ursprung'])
+    ways = [dict(tags=s['tags'], P=[tuple(q) for q in s['punkte']]) for s in projekt['strassen']
+            if len(s['punkte']) >= 2]
+    if not ways:
+        raise ValueError('Das Projekt enthaelt keine Strassen')
+    log('4/6 Strassennetz und Kreuzungen bauen ...')
+    sdb = SplineDB(omsi)
+    signs = [dict(kind=g['kind'], p=tuple(g['p']), direction=g.get('direction')) for g in projekt.get('schilder', [])]
+    net = build(ways, sdb, signs)
+    st = net['stats']
+    log(f'    {len(net["road_chains"])} Strassenzuege, {st["kreuzungen"]} Kreuzungen, '
+        f'{st["verbindungen"]} Kreuzungsspuren {st["bewegungen"]}')
+    log(f'    {st["wendeschleifen"]} unsichtbare Wendeschleifen an Strassenenden'
+        + (f', {st["enden_ohne_wende"]} Einbahn-Enden ohne Gegenspur' if st['enden_ohne_wende'] else ''))
+    stops = place_stops([(s['name'], tuple(s['p'])) for s in projekt.get('haltestellen', [])], net['road_chains'], sdb)
+
+    log('5/6 Karte schreiben ...')
+    root = omsi if omsi else ausgabe
+    os.makedirs(root, exist_ok=True)
+    install_splines(root)
+    chains, junctions, V = net['road_chains'] + net['wenden'], [], []
+    if kreuzungen == 'objekt':
+        junctions = kreuzung.build_objects(net, sdb, name, vorfahrt.load_corrections(korrekturen) if
+                                           isinstance(korrekturen, str) else (korrekturen or []), proj.to_ll)
+        V = [j['vorfahrt'] for j in junctions if j['vorfahrt']]
+        q = collections.Counter(v['quelle'] for v in V)
+        log(f'    Vorfahrt: {len(signs)} Schilder/Ampeln aus OSM; Quelle je Kreuzung: ' +
+            ', '.join(f'{k} {n}' for k, n in q.most_common()) + f" (davon mit Ampel {sum(v['ampel'] for v in V)})")
+    else:
+        chains = chains + net['conn_chains']
+    desc = (f'Erzeugt mit omsigen: {projekt.get("beschreibung") or projekt.get("name", "")}.\n'
+            + ('Strassendaten (c) OpenStreetMap-Mitwirkende, ODbL.' if 'OpenStreetMap' in projekt.get('quelle', '')
+               else ''))
+    if junctions:
+        kdir = os.path.join(root, 'Sceneryobjects', 'Aschaffenburg_KI', name)
+        if os.path.exists(kdir) and not ueberschreiben:
+            raise FileExistsError(f'Objektordner {kdir} existiert schon - anderen Kartennamen waehlen')
+    linie = projekt.get('linie') or [projekt['strassen'][0]['punkte'][0]]
+    info = write_map(os.path.join(root, 'maps'), name, chains, stops, omsi_dir=omsi, friendly=titel or name,
+                     description=desc, cam_xz=tuple(linie[0]), overwrite=ueberschreiben, junctions=junctions)
+    kdir = None
+    if junctions:
+        kdir, _ = kreuzung.install_objects(root, name, junctions, omsi_dir=omsi, overwrite=ueberschreiben)
+    with open(os.path.join(info['dir'], 'omsigen.json'), 'w', encoding='utf-8') as f:
+        json.dump(dict(projekt=projekt.get('name'), origin=[proj.lat0, proj.lon0], offset=info['offset'],
+                       length_m=projekt.get('laenge'), stats=st,
+                       kreuzungen=[dict(j['vorfahrt'], objekt=j['name'], x=j['origin'][0] - info['offset'][0],
+                                        z=j['origin'][1] - info['offset'][1]) for j in junctions if j['vorfahrt']]),
+                  f, ensure_ascii=False, indent=1)
+    log(f'    {info["dir"]}: {info["tiles"]} Kacheln, {info["splines"]} Splines, '
+        f'{len(junctions)} Kreuzungsobjekte, {len(stops)} Haltestellen')
+    if junctions:
+        log(f'    Kreuzungsobjekte: {kdir} ({sum(j["faces"] for j in junctions)} Dreiecke, '
+            f'{sum(j["paths"] for j in junctions)} Pfade)')
+
+    log('6/6 Pruefen ...')
+    ox, oz = info['offset']
+    r = ansicht.analyse(info['dir'], omsi)
+    offen, enden = ansicht.classify(r['lanes'], r['ends'],
+                                    edge_points=[(x - ox, z - oz) for x, z in projekt.get('rand', [])])
+    se = r['summary']['Strasse_enden']
+    log(f'    {se["gesamt"]} Spurenden, ohne Anschluss: {len(offen)} (+ {len(enden)} Strassenenden am '
+        f'Rand/Sackgassen)')
+    for e in offen[:10]:
+        src = r['lanes'][e['lane']]['src']
+        log(f'      offen: {src["art"]} {src["id"]} Pfad {src["pfad"]} bei x={e["p"][0]:.1f} z={e["p"][1]:.1f}')
+    if r['summary']['fehlende_dateien']:
+        log('    Nicht gefunden: ' + ', '.join(r['summary']['fehlende_dateien'][:5]))
+    if vorschau:
+        ansicht.write_png(vorschau, r['lanes'], r['roads'], r['objs'], r['ends'])
+        log(f'    Vorschau: {vorschau}')
+    if ansicht_html:
+        ansicht.write_html(ansicht_html, r['m'], r['lanes'], r['roads'], r['objs'], r['ends'], r['summary'],
+                           r['kreuzungen'])
+        log(f'    Ansicht: {ansicht_html}')
+    return dict(rc=0 if not offen else 2, dir=info['dir'], offen=len(offen), enden=len(enden), stats=st,
+                kreuzungen=len(junctions), vorfahrt=V, kdir=kdir, offset=info['offset'])

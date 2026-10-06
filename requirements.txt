@@ -3,3 +3,4 @@ requests
 matplotlib
 pytest
 shapely>=2.1
+PySide6>=6.7
