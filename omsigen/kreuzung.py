@@ -19,6 +19,7 @@ from . import vorfahrt, ampel
 
 ASPH_H, WALK_H = 0.10, 0.25          # Hoehe Fahrbahn / Gehweg wie in den Splines
 U_KERB, U_OUT = 0.953, 0.187         # str_side1.bmp: u an der Bordsteinkante / 3,5 m weiter aussen
+MATS = [('Asphalt', 'str_asphdrk.bmp'), ('Gehweg', 'str_side1.bmp')]      # Materialien der Kreuzungsplatten
 TEXTURES = ['str_asphdrk.bmp', 'str_asphdrk.bmp.cfg', 'str_side1.bmp', 'str_side1.bmp.cfg', 'betonwand1.bmp',
             'gras.bmp']
 FOOT_LEN = 60.0                      # so weit reicht die freigehaltene Flaeche eines Arms nach aussen
@@ -205,7 +206,7 @@ def mesh(J):
 def x_file(V, F, mats=None):
     def f(v):
         return f'{v:.4f}'
-    mats = mats or [('Asphalt', 'str_asphdrk.bmp'), ('Gehweg', 'str_side1.bmp')]
+    mats = mats or MATS
     L = ['xof 0302txt 0032', '', 'Mesh Kreuzung {', f' {len(V)};']
     L += [f' {f(v[0])};{f(v[1])};{f(v[2])};' + (',' if i < len(V) - 1 else ';') for i, v in enumerate(V)]
     L += [f' {len(F)};']
@@ -318,7 +319,8 @@ def build_objects(net, sdb, map_name, korrekturen=(), to_ll=None):
                         sco=sco_text(f'{map_name} Kreuzung {n + 1}', name + '.x', moves, J['walks'],
                                      ampel.sco_block(plan) if plan else ()),
                         paths=idx + sum(len(w) for w in J['walks']),
-                        rel=f'Sceneryobjects\\Aschaffenburg_KI\\{map_name}\\{name}.sco', geom=J))
+                        rel=f'Sceneryobjects\\Aschaffenburg_KI\\{map_name}\\{name}.sco', geom=J,
+                        mesh=(V, F), mats=list(MATS)))
     return out
 
 

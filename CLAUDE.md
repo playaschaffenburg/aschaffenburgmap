@@ -35,7 +35,12 @@ Projekt: `omsigen` erzeugt OMSI-2-Karten aus OpenStreetMap (siehe README.md). Sp
 Bearbeitet nur das Projekt (`.omsiprojekt`, Format in `omsigen/pipeline.py`), nie OMSI-Dateien direkt; die Karte
 entsteht immer über `pipeline.erzeuge()`. Luftbild: Bayern DOP40-WMS (CC BY 4.0, Quellenangabe in der Statuszeile
 behalten). Tests laufen ohne Bildschirm (`QT_QPA_PLATFORM=offscreen`, `OMSIEDITOR_OHNE_LUFTBILD=1`).
-Etappen: 1 Strassen (fertig) → 2 Kreuzungswerkzeug (Vorfahrt/Ampel per Klick) → 3 Haltestellen/Linien.
+3D-Hauptansicht (OpenGL 3.3 über PyOpenGL) zeigt das Ergebnis von `pipeline.berechne()` – dieselbe Geometrie,
+die OMSI bekommt; zum Prüfen ohne Fenster `python -m omsieditor.bild3d <projekt> --png …` und Bild ansehen.
+**Jede neue Generator-Funktion muss auch im Editor bedienbar und sichtbar sein** (Hauptprodukt ist der Editor).
+Höhen je Punkt (`strasse['hoehen']`) → Brücken/Tunnel automatisch (`omsigen/ebenen.py`, wie Transport Fever 2).
+Etappen: 1 Strassen (fertig) → 1b 3D + Brücken/Tunnel (fertig) → 2 Kreuzungswerkzeug (Vorfahrt/Ampel per Klick)
+→ 3 Haltestellen/Linien.
 
 ## Vorfahrt
 

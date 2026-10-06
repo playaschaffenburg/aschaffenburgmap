@@ -132,6 +132,14 @@ def flat_terrain():
     return struct.pack('<i', 60) + b'\x00' * (61 * 61 * 4)
 
 
+def karten_ursprung(chains, stops=(), junctions=()):
+    """Welt-Ecke der Kachel 0_0 (Projektmeter): mindestens 20 m vor dem westlichsten/suedlichsten Inhalt, auf dem
+    festen 300-m-Raster um den Projektursprung (so bleiben die Kacheln beim Bearbeiten im Editor dieselben)"""
+    xs = [el[0] for c in chains for el in c['els']] + [s['x'] for s in stops] + [j['origin'][0] for j in junctions]
+    zs = [el[1] for c in chains for el in c['els']] + [s['z'] for s in stops] + [j['origin'][1] for j in junctions]
+    return TILE * math.floor((min(xs) - 20.0) / TILE), TILE * math.floor((min(zs) - 20.0) / TILE)
+
+
 def write_map(out_maps_dir, name, chains, stops, omsi_dir=None, friendly=None, description='', cam_xz=None,
               overwrite=False, junctions=(), entrypoints=(), raster=None):
     """chains: Liste Ketten (els in Metern, beliebiger Ursprung); junctions: Kreuzungsobjekte (kreuzung.py) mit
@@ -141,9 +149,7 @@ def write_map(out_maps_dir, name, chains, stops, omsi_dir=None, friendly=None, d
         raise FileExistsError(f'Kartenordner {D} existiert schon - anderen Namen waehlen')
     os.makedirs(os.path.join(D, 'texture'), exist_ok=True)
 
-    xs = [el[0] for c in chains for el in c['els']] + [s['x'] for s in stops] + [j['origin'][0] for j in junctions]
-    zs = [el[1] for c in chains for el in c['els']] + [s['z'] for s in stops] + [j['origin'][1] for j in junctions]
-    ox, oz = math.floor(min(xs)) - 20.0, math.floor(min(zs)) - 20.0     # Karte beginnt bei Kachel 0_0
+    ox, oz = karten_ursprung(chains, stops, junctions)
 
     nid, tiles = 1, collections.defaultdict(list)
     for c in chains:

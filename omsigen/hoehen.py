@@ -21,6 +21,8 @@ LICHTE_HOEHE = 5.5      # m: Brueckenfahrbahn mindestens so weit ueber dem Boden
 UEBERDECKUNG = 6.0      # m: Tunnelfahrbahn mindestens so weit unter der Oberflaeche
 RAMPE = 0.12            # der geforderte Abstand waechst vom Bauwerksende an mit hoechstens 12 %
 KREUZUNG_GEWICHT = 5.0  # Kreuzungen halten sich stark ans Gelaende (flache Platte)
+ZIEL_GEWICHT = 20.0     # Hoehenvorgaben aus dem Editor (Projekt: strasse['hoehen']) gehen vor dem Gelaende
+ZIEL_RADIUS = 3.0       # m: Vorgabe gilt fuer Netzpunkte in diesem Umkreis
 
 
 def zerlegen(els, lvls, maxlen=TEILEN):
@@ -60,12 +62,13 @@ class Hoehen:
         return None if h is None else h - self.base
 
     # ---------------------------------------------------------------- Strassen und Kreuzungen
-    def berechnen(self, net, sdb, kreuzungen=()):
+    def berechnen(self, net, sdb, kreuzungen=(), ziele=()):
         """Hoehen aller Strassen als Ausgleichsrechnung ueber das ganze Netz:
         - jeder Punkt auf Grund (nicht Bruecke/Tunnel) moeglichst nah am Gelaende,
         - Steigung aendert sich entlang der Strasse nur sanft (zweite Ableitung klein, Massstab GLAETTEN),
         - alle Arme einer Kreuzung teilen eine Hoehe; liegt die Mehrheit der Arme auf Bruecke/im Tunnel, hat die
           Kreuzung keinen Gelaendewert (das DGM zeigt dort den Boden darunter/darueber).
+        - Hoehenvorgaben ziele [(x, z, Hoehe ue. NN)] (Editor, pipeline.hoehenziele) gehen mit ZIEL_GEWICHT vor.
         Setzt ch['els'] (geteilt), ch['ebene'], ch['y'], ch['g']; Wendeschleifen linear; Kreuzungsobjekte 'hoehe'."""
         from scipy.sparse import coo_matrix
         from scipy.sparse.linalg import lsqr
@@ -73,8 +76,8 @@ class Hoehen:
         for ch in chains:
             ch['els'], ch['ebene'] = zerlegen(ch['els'], ch.get('ebene') or [None] * len(ch['els']))
         werte = [self.gel.hoehe(e[0], e[1]) for ch in chains for e in ch['els']] if self.gel else []
-        werte = [h for h in werte if h is not None]
-        self.base = math.floor(min(werte)) - 2.0 if werte else 0.0
+        werte = [h for h in werte if h is not None] + [h for _, _, h in ziele]
+        self.base = math.floor(min(werte)) - 2.0 if werte and self.gel else 0.0
 
         nvar = 0
         jvar = {}
@@ -146,6 +149,16 @@ class Hoehen:
             # sehr kurze Verbindung zwischen zwei Kreuzungen: praktisch gleiche Hoehe (beide Platten gehoeren zusammen)
             if s[-1] < 10 and var[0] in jvar.values() and var[-1] in jvar.values():
                 zeile([(var[0], -20.0), (var[-1], 20.0)], 0.0)
+        if ziele:                                 # Hoehenvorgaben: naechste Vorgabe im Umkreis ZIEL_RADIUS
+            from scipy.spatial import cKDTree
+            baum = cKDTree(np.array([(x, z) for x, z, _ in ziele]))
+            gesetzt = set()
+            for ch, pts, s, var in info:
+                d, idx = baum.query(np.array(pts), distance_upper_bound=ZIEL_RADIUS)
+                for v, di, k in zip(var, d, idx):
+                    if np.isfinite(di) and v not in gesetzt:
+                        gesetzt.add(v)
+                        zeile([(v, ZIEL_GEWICHT)], ZIEL_GEWICHT * (ziele[k][2] - self.base))
         for k, arms in net['arms'].items():
             if bauwerk_arme.get(k, 0) * 2 > len(arms):    # Kreuzung liegt selbst auf der Bruecke/im Tunnel
                 continue

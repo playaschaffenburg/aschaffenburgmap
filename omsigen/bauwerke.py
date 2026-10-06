@@ -106,7 +106,7 @@ def _objekt(name, map_name, V, F, x, z, hoehe, rot, art, mats=((('Beton', TEX)),
     sco = '\r\n'.join(['Erzeugt mit omsigen (Aschaffenburg-KI).', '', '[friendlyname]', f'{art} {name}', '',
                        '[groups]', '1', 'Aschaffenburg_KI', '', '[fixed]', '', '[absheight]', '',
                        '[mesh]', name + '.x', '']) + '\r\n'
-    return dict(name=name, origin=(x, z), hoehe=hoehe, rot=rot % 360, sco=sco, art=art,
+    return dict(name=name, origin=(x, z), hoehe=hoehe, rot=rot % 360, sco=sco, art=art, mats=list(mats),
                 x=x_file(V, F, list(mats)), faces=len(F), paths=0, mesh=(V, F),
                 rel=f'Sceneryobjects\\Aschaffenburg_KI\\{map_name}\\{name}.sco')
 

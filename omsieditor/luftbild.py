@@ -42,35 +42,41 @@ class _Signale(QObject):
     fertig = Signal(tuple, bytes)
 
 
+def rechteck_laden(proj, x0, z0, x1, z1, pixel=PIXEL, cache='.cache/luftbild'):
+    """Luftbild fuer ein Rechteck in Projektmetern (blockierend, mit Zwischenspeicher) -> JPEG-Bytes oder None"""
+    la0, lo0 = proj.to_ll(x0, z0)
+    la1, lo1 = proj.to_ll(x1, z1)
+    key = f'{EBENE}_{la0:.7f}_{lo0:.7f}_{la1:.7f}_{lo1:.7f}_{pixel}'
+    datei = os.path.join(cache, hashlib.sha1(key.encode()).hexdigest()[:20] + '.jpg')
+    try:
+        if os.path.exists(datei):
+            with open(datei, 'rb') as f:
+                return f.read()
+        r = requests.get(WMS, params=dict(SERVICE='WMS', REQUEST='GetMap', VERSION='1.3.0', LAYERS=EBENE,
+                                          STYLES='', CRS='EPSG:4326', BBOX=f'{la0},{lo0},{la1},{lo1}',
+                                          WIDTH=pixel, HEIGHT=pixel, FORMAT='image/jpeg'),
+                         headers={'User-Agent': UA}, timeout=30)
+        if r.status_code != 200 or not r.headers.get('content-type', '').startswith('image'):
+            return None
+        os.makedirs(cache, exist_ok=True)
+        with open(datei, 'wb') as f:
+            f.write(r.content)
+        return r.content
+    except (requests.RequestException, OSError):
+        return None
+
+
 class _Laden(QRunnable):
-    def __init__(self, kachel, proj, cache, signale):
+    def __init__(self, kachel, proj, cache, signale, rechteck=None, pixel=PIXEL):
         super().__init__()
         self.kachel, self.proj, self.cache, self.s = kachel, proj, cache, signale
+        self.rechteck, self.pixel = rechteck, pixel
 
     def run(self):
-        x0, z0, x1, z1 = kachel_rechteck(self.kachel)
-        la0, lo0 = self.proj.to_ll(x0, z0)
-        la1, lo1 = self.proj.to_ll(x1, z1)
-        key = f'{EBENE}_{la0:.7f}_{lo0:.7f}_{la1:.7f}_{lo1:.7f}_{PIXEL}'
-        datei = os.path.join(self.cache, hashlib.sha1(key.encode()).hexdigest()[:20] + '.jpg')
-        try:
-            if os.path.exists(datei):
-                with open(datei, 'rb') as f:
-                    daten = f.read()
-            else:
-                r = requests.get(WMS, params=dict(SERVICE='WMS', REQUEST='GetMap', VERSION='1.3.0', LAYERS=EBENE,
-                                                  STYLES='', CRS='EPSG:4326', BBOX=f'{la0},{lo0},{la1},{lo1}',
-                                                  WIDTH=PIXEL, HEIGHT=PIXEL, FORMAT='image/jpeg'),
-                                 headers={'User-Agent': UA}, timeout=30)
-                if r.status_code != 200 or not r.headers.get('content-type', '').startswith('image'):
-                    return
-                daten = r.content
-                os.makedirs(self.cache, exist_ok=True)
-                with open(datei, 'wb') as f:
-                    f.write(daten)
+        daten = rechteck_laden(self.proj, *(self.rechteck or kachel_rechteck(self.kachel)), pixel=self.pixel,
+                               cache=self.cache)
+        if daten:
             self.s.fertig.emit(self.kachel, daten)
-        except (requests.RequestException, OSError):
-            pass
 
 
 class Luftbild(QObject):
@@ -86,11 +92,12 @@ class Luftbild(QObject):
         self.s.fertig.connect(self._fertig)
         self.bestellt = set()
 
-    def bestellen(self, kachel):
+    def bestellen(self, kachel, rechteck=None, pixel=PIXEL):
+        """kachel: Schluessel; rechteck (x0, z0, x1, z1) fuer beliebige Flaechen (3D-Gelaende je OMSI-Kachel)"""
         if kachel in self.bestellt:
             return
         self.bestellt.add(kachel)
-        self.pool.start(_Laden(kachel, self.proj, self.cache, self.s))
+        self.pool.start(_Laden(kachel, self.proj, self.cache, self.s, rechteck, pixel))
 
     def _fertig(self, kachel, daten):
         self.kachel.emit(kachel, daten)

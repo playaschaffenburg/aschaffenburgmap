@@ -2,7 +2,10 @@
 Rueckgaengig. Unabhaengig von der Oberflaeche (testbar ohne Qt).
 
 Kreuzungen entstehen automatisch dort, wo Strassen einen gemeinsamen Punkt haben - deshalb rasten neue Punkte an
-vorhandenen Punkten ein oder teilen eine vorhandene Strasse an der Klickstelle."""
+vorhandenen Punkten ein oder teilen eine vorhandene Strasse an der Klickstelle.
+
+Hoehen: strasse['hoehen'] (optional, parallel zu 'punkte') = Hoehe ueber dem Gelaende je Punkt oder None (folgt dem
+Gelaende). Bruecken und Tunnel entstehen daraus automatisch (omsigen/ebenen.py), wie in Transport Fever 2."""
 import copy, math
 from omsigen.pipeline import neues_projekt, laden, speichern
 from omsigen.network import proj_point
@@ -101,6 +104,7 @@ class Modell:
     def einrasten(self, p, radius, aendern=True):
         """Punkt fuer eine neue Strasse: vorhandener Punkt in radius, sonst Punkt auf einer Strasse (diese bekommt
         dort einen Stuetzpunkt, damit eine Kreuzung entsteht), sonst p selbst -> (x, z)"""
+        p = (float(p[0]), float(p[1]))                 # keine numpy-Zahlen ins Projekt (JSON)
         q = self.naechster_punkt(p, radius)
         if q:
             return q
@@ -108,19 +112,31 @@ class Modell:
         if hit:
             sid, i, q, _ = hit
             if aendern:
-                self.strasse(sid)['punkte'].insert(i + 1, [q[0], q[1]])
+                s = self.strasse(sid)
+                s['punkte'].insert(i + 1, [q[0], q[1]])
+                if s.get('hoehen'):
+                    a, b = s['hoehen'][i], s['hoehen'][i + 1]
+                    t = math.dist(s['punkte'][i], q) / max(math.dist(s['punkte'][i], s['punkte'][i + 2]), 1e-9)
+                    s['hoehen'].insert(i + 1, None if a is None or b is None else round(a + (b - a) * t, 2))
             return q
         return tuple(p)
 
-    def strasse_hinzufuegen(self, punkte, tags):
-        """punkte: bereits eingerastete Punkte -> neue Strassen-ID"""
-        P = [list(punkte[0])] + [list(q) for a, q in zip(punkte, punkte[1:]) if math.dist(a, q) > 0.05]
+    def strasse_hinzufuegen(self, punkte, tags, hoehen=None):
+        """punkte: bereits eingerastete Punkte; hoehen: je Punkt Hoehe ueber Gelaende oder None -> neue Strassen-ID"""
+        hoehen = list(hoehen) if hoehen is not None else [None] * len(punkte)
+        P, H = [[float(v) for v in punkte[0]]], [None if hoehen[0] is None else float(hoehen[0])]
+        for a, q, h in zip(punkte, punkte[1:], hoehen[1:]):
+            if math.dist(a, q) > 0.05:
+                P.append([float(v) for v in q]); H.append(None if h is None else float(h))
         if len(P) < 2:
             return None
         self._merken()
         sid = self._next_id
         self._next_id += 1
-        self.p['strassen'].append(dict(id=sid, tags=dict(tags), punkte=P))
+        s = dict(id=sid, tags=dict(tags), punkte=P)
+        if any(h is not None for h in H):
+            s['hoehen'] = H
+        self.p['strassen'].append(s)
         return sid
 
     def strasse_loeschen(self, sid):
@@ -142,21 +158,46 @@ class Modell:
         for s in self.p['strassen']:
             for q in s['punkte']:
                 if math.dist(q, alt) < 0.01:
-                    q[0], q[1] = neu[0], neu[1]
+                    q[0], q[1] = float(neu[0]), float(neu[1])
 
     def punkt_loeschen(self, sid, index):
         s = self.strasse(sid)
         if s and len(s['punkte']) > 2:
             self._merken()
             del s['punkte'][index]
+            if s.get('hoehen'):
+                del s['hoehen'][index]
             return True
         return False
+
+    def punkt_hoehe(self, p):
+        """Hoehe ueber Gelaende am Punkt p (erste Strasse mit Vorgabe) oder None"""
+        for s in self.p['strassen']:
+            for i, q in enumerate(s['punkte']):
+                if math.dist(q, p) < 0.01 and s.get('hoehen') and s['hoehen'][i] is not None:
+                    return s['hoehen'][i]
+        return None
+
+    def punkt_hoehe_setzen(self, p, h, merken=True):
+        """Hoehe ueber Gelaende an allen Strassenpunkten bei p setzen (None = folgt dem Gelaende)"""
+        if merken:
+            self._merken()
+        for s in self.p['strassen']:
+            for i, q in enumerate(s['punkte']):
+                if math.dist(q, p) < 0.01:
+                    if 'hoehen' not in s or len(s['hoehen']) != len(s['punkte']):
+                        s['hoehen'] = [None] * len(s['punkte'])
+                    s['hoehen'][i] = None if h is None else round(float(h), 2)
+            if s.get('hoehen') is not None and all(v is None for v in s['hoehen']):
+                del s['hoehen']
 
     def umkehren(self, sid):
         s = self.strasse(sid)
         if s:
             self._merken()
             s['punkte'].reverse()
+            if s.get('hoehen'):
+                s['hoehen'].reverse()
 
 
 def standard_tags(klasse='residential', name='', einbahn='nein', spuren=0, tempo=''):

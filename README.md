@@ -44,13 +44,24 @@ python -m omsieditor                      # Startdialog: OSM-Import, leer anfang
 python -m omsieditor mein.omsiprojekt     # Projekt direkt öffnen
 ```
 
-- **Hintergrund:** amtliches Luftbild der Bayerischen Vermessungsverwaltung (DOP40, 40 cm, CC BY 4.0, kostenfrei),
+- **3D-Ansicht (Hauptansicht, wie Transport Fever 2):** Gelände aus dem DGM1 mit Luftbild, darauf die Karte genau
+  so, wie omsigen sie baut – echte OMSI-Spline-Profile mit Texturen, Kreuzungsplatten, Brücken mit Pfeilern,
+  Tunnel mit Portalen und Deckel. Nach jeder Änderung rechnet eine Live-Vorschau im Hintergrund neu.
+  Kamera: rechte Maustaste drehen/neigen, mittlere verschieben, Mausrad zoomen, W A S D / Pfeile, Q/E, R/F.
+  **F2** schaltet auf die 2D-Luftbildkarte um.
+- **Brücken und Tunnel bauen:** Beim Zeichnen hebt/senkt **Bild ↑/↓** den nächsten Punkt (Umschalt: 5 m).
+  Zwischen zwei Punkten verläuft die Straße gerade; wo sie dabei mindestens 4 m über dem Gelände liegt, wird sie
+  automatisch zur Brücke (Vorschau gelb), wo sie mindestens 5 m darunter liegt, zum Tunnel (blau). Beim Auswählen
+  ändert Bild ↑/↓ die Höhe des gewählten Punkts, Pos1 lässt ihn wieder dem Gelände folgen. Rechts lässt sich die
+  Ebene je Straße auch fest einstellen (automatisch / Boden / Brücke / Tunnel).
+- **Hintergrund 2D:** amtliches Luftbild der Bayerischen Vermessungsverwaltung (DOP40, 40 cm, CC BY 4.0, kostenfrei),
   wird beim Zoomen nachgeladen und zwischengespeichert (`.cache/luftbild`)
-- **Auswählen (V):** Straße anklicken, Klasse/Name/Spuren/Einbahn/Tempo/Vorfahrtstraße rechts ändern, Punkte ziehen
-  (gemeinsame Kreuzungspunkte wandern mit), Alt+Klick löscht einen Punkt, Entf löscht die Straße
-- **Straße zeichnen (S):** Klick setzt Punkte und rastet an vorhandenen Straßen ein – dort entsteht automatisch
+- **Auswählen (V):** Straße anklicken, Klasse/Name/Spuren/Einbahn/Tempo/Ebene/Vorfahrtstraße rechts ändern, Punkte
+  ziehen (gemeinsame Kreuzungspunkte wandern mit), Alt+Klick (2D) löscht einen Punkt, Entf löscht die Straße
+- **Straße zeichnen (B):** Klick setzt Punkte und rastet an vorhandenen Straßen ein – dort entsteht automatisch
   eine Kreuzung; Doppelklick, Enter oder Rechtsklick beendet
-- Mausrad zoomt, rechte oder mittlere Maustaste verschiebt; Strg+Z/Strg+Y; Speichern als `.omsiprojekt`
+- Strg+Z/Strg+Y; Speichern als `.omsiprojekt`
+- Bild der 3D-Ansicht ohne Fenster: `python -m omsieditor.bild3d mein.omsiprojekt --png bild.png --cam=x,z,gier,neigung,abstand`
 - **Karte erzeugen (Strg+E):** baut die OMSI-Karte mit omsigen (Kreuzungsobjekte, Vorfahrt, Ampeln,
   Wendeschleifen), prüft sie und zeigt auf Wunsch ein Spielbild aus openOMSI
 
@@ -122,7 +133,8 @@ omsigen/
   kreuzung.py       Kreuzungsobjekte: Fläche, Bordsteine, Pfade -> .sco + .x
   gelaende.py       DGM1 Bayern laden (utm.py: Umrechnung nach UTM 32)
   hoehen.py         Strassenhoehen, Bruecken/Tunnel, Gelaenderaster
-  bauwerke.py       Brueckenkoerper, Tunnelroehren, Pfeiler, Portale, Gelaendeloecher
+  bauwerke.py       Brueckenkoerper, Tunnelroehren, Pfeiler, Portale, Tunnelgraben und Deckel
+  ebenen.py         Hoehenvorgaben aus dem Editor, automatische Bruecken/Tunnel (wie TF2)
   vorfahrt.py       Vorfahrt je Kreuzung (Schilder, Vorfahrtstraßen, StVO, Korrekturen)
   ampel.py          Ampelprogramme, Bindung der Zufahrten, Signalmasten
   studie.py         vorhandene OMSI-Karten auswerten (docs/kartenstudie.md)
@@ -134,7 +146,8 @@ omsigen/
   check.py          Spurprüfung und Vorschau
   ansicht.py        Karten-Betrachter für beliebige OMSI-Karten (PNG, HTML, Bericht)
   openomsi.py       Karte in openOMSI rendern, dessen Pfadnetz-Auswertung lesen
-omsieditor/         Karteneditor (PySide6): Startdialog, Kartenansicht mit Luftbild, Eigenschaften, Export
+omsieditor/         Karteneditor (PySide6): Startdialog, 3D-Ansicht (ansicht3d, render3d, geometrie3d),
+                    2D-Luftbildkarte (karte), Eigenschaften, Export, bild3d (3D-Bild ohne Fenster)
 docs/omsi-format.md alles, was wir über das Dateiformat wissen
 samples/            Testdaten (OSM-Auszug Aschaffenburg)
 ```

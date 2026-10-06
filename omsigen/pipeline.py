@@ -6,7 +6,7 @@
 Projekt (JSON, Endung .omsiprojekt): siehe neues_projekt(). Koordinaten in Metern um den Ursprung (x Ost, z Nord,
 Projektion route.Projection)."""
 import collections, json, math, os
-from . import osm, ansicht, kreuzung, vorfahrt, bauwerke, gelaende as gel_mod, hoehen as hoe_mod
+from . import osm, ansicht, kreuzung, vorfahrt, bauwerke, ebenen, gelaende as gel_mod, hoehen as hoe_mod
 from .route import Projection, route, corridor
 from .network import build, proj_point
 from .splinedb import SplineDB
@@ -85,12 +85,36 @@ def importiere(von, nach, stadt=None, ueber=(), breite=150.0, cache='.cache', os
     return P
 
 
-def erzeuge(projekt, name, omsi=None, ausgabe='build', korrekturen=None, ueberschreiben=False, kreuzungen='objekt',
-            titel=None, vorschau=None, ansicht_html=None, log=print, gelaende=True):
-    """Projekt -> OMSI-Karte. -> dict(rc, dir, offen, enden, stats, kreuzungen, vorfahrt)"""
+def wege(projekt, gel=None):
+    """Projektstrassen -> (Wege fuer network.build, Hoehenvorgaben). Strassen mit Hoehen aus dem Editor
+    (strasse['hoehen'], siehe ebenen.py) werden automatisch in Boden/Bruecke/Tunnel geteilt."""
+    ways, ziele = [], []
+    for s in projekt['strassen']:
+        if len(s['punkte']) < 2:
+            continue
+        P = [tuple(q) for q in s['punkte']]
+        if ebenen.hat_vorgaben(s) and len(s['hoehen']) == len(P):
+            ziele += ebenen.ziele(P, s['hoehen'], gel)
+            if ebenen.automatik(s['tags']):
+                for art, Q, _ in ebenen.einteilen(P, s['hoehen'], gel):
+                    ways.append(dict(tags=ebenen.ebene_tags(s['tags'], art), P=[tuple(q) for q in Q], sid=s['id']))
+                continue
+        ways.append(dict(tags=s['tags'], P=P, sid=s['id']))
+    return ways, ziele
+
+
+def berechne(projekt, name='Vorschau', omsi=None, korrekturen=None, kreuzungen='objekt', gelaende=True, log=print,
+             gel=None):
+    """Projekt -> alles, was die Karte ausmacht, ohne Dateien zu schreiben (auch fuer die 3D-Vorschau im Editor):
+    dict(proj, sdb, net, signs, stops, junctions, vorfahrt, hoe, hat_gelaende, bw, chains, objekte).
+    gel: vorhandenes Gelaende-Objekt (Editor), sonst wird es angelegt."""
     proj = Projection(*projekt['ursprung'])
-    ways = [dict(tags=s['tags'], P=[tuple(q) for q in s['punkte']]) for s in projekt['strassen']
-            if len(s['punkte']) >= 2]
+    if gelaende and gel is None:
+        gel = gel_mod.Gelaende(proj, log=log)
+    hat_gelaende = bool(gelaende and gel and any(gel.hoehe(*q) is not None for q in linie_probe(projekt)))
+    if not hat_gelaende:
+        gel = None
+    ways, ziele = wege(projekt, gel)
     if not ways:
         raise ValueError('Das Projekt enthaelt keine Strassen')
     log('4/6 Strassennetz und Kreuzungen bauen ...')
@@ -103,11 +127,6 @@ def erzeuge(projekt, name, omsi=None, ausgabe='build', korrekturen=None, uebersc
     log(f'    {st["wendeschleifen"]} unsichtbare Wendeschleifen an Strassenenden'
         + (f', {st["enden_ohne_wende"]} Einbahn-Enden ohne Gegenspur' if st['enden_ohne_wende'] else ''))
     stops = place_stops([(s['name'], tuple(s['p'])) for s in projekt.get('haltestellen', [])], net['road_chains'], sdb)
-
-    log('5/6 Karte schreiben ...')
-    root = omsi if omsi else ausgabe
-    os.makedirs(root, exist_ok=True)
-    install_splines(root)
     chains, junctions, V = net['road_chains'] + net['wenden'], [], []
     if kreuzungen == 'objekt':
         junctions = kreuzung.build_objects(net, sdb, name, vorfahrt.load_corrections(korrekturen) if
@@ -118,27 +137,36 @@ def erzeuge(projekt, name, omsi=None, ausgabe='build', korrekturen=None, uebersc
             ', '.join(f'{k} {n}' for k, n in q.most_common()) + f" (davon mit Ampel {sum(v['ampel'] for v in V)})")
     else:
         chains = chains + net['conn_chains']
-    # Hoehen: Gelaende (DGM1 Bayern), Strassenprofile, Bruecken/Tunnel, flache Kreuzungen
-    hoe = hoe_mod.Hoehen(gel_mod.Gelaende(proj, log=log) if gelaende else None, log=log)
-    hat_gelaende = gelaende and any(hoe.gel.hoehe(*q) is not None for q in linie_probe(projekt))
-    if not hat_gelaende:
-        hoe.gel = None
-    hoe.berechnen(net, sdb, junctions)
+    # Hoehen: Gelaende (DGM1 Bayern), Strassenprofile, Bruecken/Tunnel, flache Kreuzungen, Vorgaben aus dem Editor
+    hoe = hoe_mod.Hoehen(gel, log=log)
+    hoe.berechnen(net, sdb, junctions, ziele)
     if hat_gelaende:
         hs = [h for ch in net['road_chains'] for h in ch['y']]
         log(f'    Gelaende: Basis {hoe.base:.0f} m ue. NN, Strassen {min(hs):.1f} bis {max(hs):.1f} m darueber, '
             f'{sum(1 for ch in net["road_chains"] for v in ch["ebene"] if v)} Elemente auf Bruecken/in Tunneln')
     else:
         log('    Gelaende: keine DGM-Daten (ausserhalb Bayerns, ohne Netz oder abgeschaltet) - Karte bleibt flach')
-    # Bauwerke: Brueckenkoerper, Tunnelroehren (Begleit-Splines), Pfeiler, Portale, Gelaendeloecher
+    # Bauwerke: Brueckenkoerper, Tunnelroehren (Begleit-Splines), Pfeiler, Portale, Deckel ueber Tunnelgraeben
     bw = bauwerke.bauen(net, sdb, hoe, name)
     b = bw['stats']
     if b['bruecken'] or b['tunnel']:
         log(f"    Bauwerke: {b['bruecken']} Brueckenabschnitte mit {b['pfeiler']} Pfeilern, {b['tunnel']} "
             f"Tunnelabschnitte mit {b['portale']} Portalen und {b['deckel']} Deckeln ueber dem Tunnelgraben")
+    return dict(proj=proj, sdb=sdb, net=net, signs=signs, stops=stops, junctions=junctions, vorfahrt=V, hoe=hoe,
+                hat_gelaende=hat_gelaende, bw=bw, chains=chains + bw['ketten'], objekte=junctions + bw['objekte'])
+
+
+def erzeuge(projekt, name, omsi=None, ausgabe='build', korrekturen=None, ueberschreiben=False, kreuzungen='objekt',
+            titel=None, vorschau=None, ansicht_html=None, log=print, gelaende=True):
+    """Projekt -> OMSI-Karte. -> dict(rc, dir, offen, enden, stats, kreuzungen, vorfahrt)"""
+    B = berechne(projekt, name, omsi, korrekturen, kreuzungen, gelaende, log)
+    proj, sdb, net, stops, junctions, V, hoe = (B['proj'], B['sdb'], B['net'], B['stops'], B['junctions'],
+                                                B['vorfahrt'], B['hoe'])
+    hat_gelaende, bw, chains, objekte, st = B['hat_gelaende'], B['bw'], B['chains'], B['objekte'], net['stats']
+    log('5/6 Karte schreiben ...')
+    root = omsi if omsi else ausgabe
+    os.makedirs(root, exist_ok=True)
     install_splines(root, bw['splines'])
-    chains = chains + bw['ketten']
-    objekte = junctions + bw['objekte']
     desc = (f'Erzeugt mit omsigen: {projekt.get("beschreibung") or projekt.get("name", "")}.\n'
             + ('Strassendaten (c) OpenStreetMap-Mitwirkende, ODbL.' if 'OpenStreetMap' in projekt.get('quelle', '')
                else '') + (('\n' + gel_mod.QUELLE) if hat_gelaende else ''))

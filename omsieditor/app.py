@@ -8,6 +8,10 @@ from .modell import Modell
 
 def main(argv=None):
     argv = sys.argv if argv is None else argv
+    from PySide6.QtGui import QSurfaceFormat
+    fmt = QSurfaceFormat()                       # 3D-Ansicht: OpenGL 3.3 Core, Tiefenpuffer, Kantenglaettung
+    fmt.setVersion(3, 3); fmt.setProfile(QSurfaceFormat.CoreProfile); fmt.setDepthBufferSize(24); fmt.setSamples(4)
+    QSurfaceFormat.setDefaultFormat(fmt)
     app = QApplication.instance() or QApplication(argv)
     app.setApplicationName('OMSI-Karteneditor')
     app.setStyle('Fusion')
