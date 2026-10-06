@@ -62,6 +62,14 @@ beim Start der vorhandene übernommen (abschaltbar), am Ziel erscheint eine Warn
 Gespeichert wird jede Straße als Kette von `[spline_h]`-Einträgen (glatter Höhenverlauf, Enden exakt auf den Knoten
 in gleicher Richtung – so verbindet OMSI die Spuren).
 
+**Vorhandene Straßen ändern (Werkzeug „Ändern“, Taste U)** wie das Upgrade-Werkzeug in Transport Fever 2: die Straße
+unter der Maus wird umrissen, Klick wählt den Spline (Umschalt+Klick: ganze verknüpfte Kette, Strg+Klick: dazu/weg).
+Rechts: Daten des Splines, **Richtung umkehren** (`mirror`), **Löschen** (Entf) und **Upgrade** auf einen anderen
+Querschnitt (Raster mit Vorschaubildern; Warnung, wenn die Fahrspuren nicht mehr zu den Nachbar-Splines passen).
+Strg+Z / Strg+Y. Technik: die geänderte Kachel wird in einen Sitzungsordner geschrieben, den openOMSI vor der
+Installation liest, und neu geladen – sofort sichtbar, die Originalkarte bleibt unverändert; beim Speichern als
+neue Karte kommen diese Kacheln mit.
+
 **Strg+S: als neue Karte speichern** – der Kartenordner wird kopiert, geänderte Kacheln (UTF-16 bleibt) kommen
 darüber, neue Objekte stehen als `[object]`-Einträge mit eindeutigen IDs in ihrer Kachel, `global.cfg` bekommt den
 neuen Namen und `[NextIDCode]`; die Originalkarte bleibt unverändert.

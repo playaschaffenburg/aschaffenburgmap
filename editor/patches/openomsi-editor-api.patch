@@ -1,7 +1,7 @@
 From 6a28afa52f391b1e21dd812a7f86f94221f673a7 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 16:01:32 +0200
-Subject: [PATCH 1/8] editor-api: oeffentliche Viewer-Schnittstelle, OpenXR zur
+Subject: [PATCH 1/9] editor-api: oeffentliche Viewer-Schnittstelle, OpenXR zur
  Laufzeit laden
 
 ---
@@ -210,7 +210,7 @@ index 0000000..f57565c
 From cc51e3c693d2333dc4ee49c47f6e37c20ab516e8 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 16:22:56 +0200
-Subject: [PATCH 2/8] editor-api: Hintergrund-Streaming und Kartenwechsel mit
+Subject: [PATCH 2/9] editor-api: Hintergrund-Streaming und Kartenwechsel mit
  demselben Renderer
 
 ---
@@ -316,7 +316,7 @@ index f57565c..ebd8833 100644
 From 596e460251b086f739871a8134343aea3f22e5e0 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 16:35:56 +0200
-Subject: [PATCH 3/8] editor-api: Objekte bearbeiten und Kacheln schreiben
+Subject: [PATCH 3/9] editor-api: Objekte bearbeiten und Kacheln schreiben
  ueber den Viewer
 
 ---
@@ -391,7 +391,7 @@ index ebd8833..e926a15 100644
 From 0cb9086cbb9faad1472cd454cb3fd12000216701 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 16:54:59 +0200
-Subject: [PATCH 4/8] editor-api: freie Objekte setzen, naechste freie ID,
+Subject: [PATCH 4/9] editor-api: freie Objekte setzen, naechste freie ID,
  Kacheldatei
 
 ---
@@ -448,7 +448,7 @@ index e926a15..61f58bb 100644
 From 237ec37d6957dab1787c4d67d58d7803945fd3f5 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 17:10:18 +0200
-Subject: [PATCH 5/8] editor-api: Objektausmasse und Vorschaubilder
+Subject: [PATCH 5/9] editor-api: Objektausmasse und Vorschaubilder
 
 ---
  crates/omsi-app/src/viewer.rs | 34 ++++++++++++++++++++++++++++++++++
@@ -504,7 +504,7 @@ index 61f58bb..e92c3f2 100644
 From 9988917031be8d360dab043f72364f777791de76 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 17:24:46 +0200
-Subject: [PATCH 6/8] editor-api: Splines frei zeichnen (Live-Vorschau), Spuren
+Subject: [PATCH 6/9] editor-api: Splines frei zeichnen (Live-Vorschau), Spuren
  einer .sli
 
 ---
@@ -614,7 +614,7 @@ index e92c3f2..d50c032 100644
 From d35054e68c9b423943fb69c23c58cdc2d8efbd2b Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 17:43:57 +0200
-Subject: [PATCH 7/8] editor-api: Vorschaubild fuer Strassen-Splines
+Subject: [PATCH 7/9] editor-api: Vorschaubild fuer Strassen-Splines
 
 ---
  crates/omsi-app/src/viewer.rs | 23 +++++++++++++++++++++++
@@ -659,7 +659,7 @@ index d50c032..95495df 100644
 From 75a2e1b33f1c31ba93373732ec3a2bea0cca2a96 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 17:59:02 +0200
-Subject: [PATCH 8/8] editor-api: Spurnetz der geladenen Kacheln, freie
+Subject: [PATCH 8/9] editor-api: Spurnetz der geladenen Kacheln, freie
  Spline-Enden
 
 ---
@@ -760,6 +760,104 @@ index 95495df..39d3a19 100644
 +        self.world.loaded_tiles()
 +    }
  }
+-- 
+2.55.0.windows.5
+
+
+From 1f9802294094922bdb9a50fdec716db6f2ac445b Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 6 Oct 2026 18:19:59 +0200
+Subject: [PATCH 9/9] editor-api: Sitzungsebene fuer geaenderte Kacheln,
+ Kacheln neu laden
+
+---
+ crates/omsi-app/src/viewer.rs | 48 ++++++++++++++++++++++++++++++++++-
+ 1 file changed, 47 insertions(+), 1 deletion(-)
+
+diff --git a/crates/omsi-app/src/viewer.rs b/crates/omsi-app/src/viewer.rs
+index 39d3a19..0dab235 100644
+--- a/crates/omsi-app/src/viewer.rs
++++ b/crates/omsi-app/src/viewer.rs
+@@ -32,6 +32,9 @@ pub struct Viewer {
+     /// The lanes of the loaded tiles, linked as the game links them (end meets start within
+     /// 1.5 m and in direction): which spline ends lead on and which are free.
+     pub lanes: omsi_sim::traffic::Network,
++    /// every lane taken from the tiles (the network is rebuilt from it when tiles are read
++    /// again: a network cannot drop lanes)
++    all_lanes: Vec<omsi_sim::traffic::Lane>,
+ }
+ 
+ impl Viewer {
+@@ -57,7 +60,7 @@ impl Viewer {
+         let camera = crate::camera_util::default_camera(&world);
+         Ok((
+             Viewer { renderer, scene, world: Arc::new(world), root: root.to_path_buf(), hour: 12.0, loaded: HashSet::new(),
+-                     streamer: None, lanes: Default::default() },
++                     streamer: None, lanes: Default::default(), all_lanes: Vec::new() },
+             camera,
+         ))
+     }
+@@ -67,6 +70,7 @@ impl Viewer {
+     pub fn open_map(&mut self, global_cfg: &Path) -> Result<Camera> {
+         self.streamer = None;
+         self.lanes = Default::default();
++        self.all_lanes.clear();
+         self.loaded.clear();
+         let world = World::open(&self.root, global_cfg, Self::clock_at(self.hour).date_code())?;
+         world.set_fast_texture_loads(true);
+@@ -350,10 +354,52 @@ impl Viewer {
+             .filter(|l| l.key.map(|k| self.lanes.find(k, Some(l.reversed)).is_none()).unwrap_or(true))
+             .collect();
+         if !new.is_empty() {
++            self.all_lanes.extend(new.iter().cloned());
+             self.lanes.extend(new, 1.5);
+         }
+     }
+ 
++    // ------------------------------------------------------------ editing tiles (session overlay)
++
++    /// Read the map's files from `dir` first where it has them (a content root in front of
++    /// the installation): the editor writes the tiles it changed there, and the original
++    /// map stays as it is.
++    pub fn session_overlay(&self, dir: &Path) {
++        omsi_cfg::add_content_root(self.root.clone());
++        omsi_cfg::add_content_root_first(dir.to_path_buf());
++    }
++
++    /// Read tiles `keys` again (their files changed): they go now and come back with the next
++    /// streaming batches (or at once without streaming); the lane network forgets their lanes.
++    pub fn reload_tiles(&mut self, keys: &[(i32, i32)]) -> Result<()> {
++        // the folders' listings are kept between lookups: a file the editor just wrote would not be found
++        omsi_cfg::content_changed();
++        self.all_lanes.retain(|l| l.key.map(|k| !keys.contains(&k.tile)).unwrap_or(true));
++        self.lanes = Default::default();
++        if !self.all_lanes.is_empty() {
++            self.lanes.extend(self.all_lanes.clone(), 1.5);
++        }
++        if let Some(s) = self.streamer.as_mut() {
++            s.reload(&self.renderer, &mut self.scene, Some(keys), None);
++            return Ok(());
++        }
++        let wieder: Vec<_> = keys.iter().copied().filter(|k| self.loaded.remove(k)).collect();
++        for k in &wieder {
++            self.world.unload_tile(&self.renderer, &mut self.scene, *k, None);
++        }
++        self.world.trim_object_types();
++        self.world.refresh_tile_lists();
++        let tiles: Vec<_> = self.world.select_tiles(None, None).into_iter().filter(|t| wieder.contains(&(t.0, t.1))).collect();
++        if !tiles.is_empty() {
++            self.world.build_scene(&self.renderer, &mut self.scene, &tiles)?;
++            for t in &tiles {
++                self.loaded.insert((t.0, t.1));
++            }
++            self.collect_lanes();
++        }
++        Ok(())
++    }
++
+     /// Is the start (`at_end` false) or the end of map spline `id` a free road end: none of
+     /// its street lanes leads on there or comes in from somewhere? None when the spline has
+     /// no street lanes (or its tile is not loaded).
 -- 
 2.55.0.windows.5
 

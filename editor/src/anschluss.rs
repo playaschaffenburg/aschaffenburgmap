@@ -87,6 +87,12 @@ impl Anschluesse {
         true
     }
 
+    /// Kacheldateien wurden geaendert: alles neu lesen
+    pub fn vergessen(&mut self) {
+        self.kacheln.clear();
+        self.stand = (vec![], 0);
+    }
+
     /// naechster freier Anschluss in r Metern (waagerecht)
     pub fn bei(&self, p: DVec2, r: f64) -> Option<usize> {
         self.liste

@@ -7,6 +7,19 @@ use anyhow::{bail, Context, Result};
 use openomsi_game::viewer::{Editor, Viewer};
 use std::path::{Path, PathBuf};
 
+/// Reste frueherer Sitzungen im Temp-Ordner (aelter als einen Tag) loeschen
+pub fn aufraeumen() {
+    let d = std::env::temp_dir().join("omsi-editor");
+    let Ok(rd) = std::fs::read_dir(&d) else { return };
+    for e in rd.flatten() {
+        let alt = e.metadata().and_then(|m| m.modified()).ok().and_then(|t| t.elapsed().ok()).map(|a| a.as_secs() > 86_400).unwrap_or(false);
+        let n = e.file_name().to_string_lossy().to_string();
+        if alt && (n.starts_with("sitzung-") || n.starts_with("speichern-")) {
+            let _ = std::fs::remove_dir_all(e.path());
+        }
+    }
+}
+
 /// Kartenname fuer einen neuen Ordner: Buchstaben, Ziffern, _ - und Leerzeichen
 pub fn name_ok(n: &str) -> bool {
     !n.trim().is_empty() && n.chars().all(|c| c.is_alphanumeric() || "_- ".contains(c)) && !n.starts_with(' ')
@@ -42,6 +55,8 @@ pub struct Paket {
     pub naechste_id: Option<i64>,
     pub neue_objekte: usize,
     pub neue_splines: usize,
+    /// Zwischenordner (wird nach dem Anlegen der Karte geloescht)
+    pub staging: PathBuf,
 }
 
 /// ein Eintrag fuer eine Kachel: neues Objekt oder neuer Spline (in Zeilen, ohne Zeilenende)
@@ -51,10 +66,19 @@ enum Eintrag {
 }
 
 /// Teil 1 komplett: Aenderungen der Kartenobjekte (openOMSI) und neue Objekte in die Kacheln schreiben
-pub fn vorbereiten(v: &Viewer, b: &Bearbeiten, netz: &crate::netz::Netz, alt: &str) -> Result<Paket> {
+pub fn vorbereiten(v: &Viewer, b: &Bearbeiten, netz: &crate::netz::Netz, kopien: &[PathBuf], alt: &str) -> Result<Paket> {
     let (staging, mut dateien) = kacheln_schreiben(v, &b.ed, alt)?;
     let ordner = staging.join("maps").join(alt);
     std::fs::create_dir_all(&ordner)?;
+    // vom Aendern-Werkzeug umgeschriebene Kacheln (Sitzungskopien), soweit nicht schon oben geschrieben
+    for k in kopien {
+        let Some(name) = k.file_name() else { continue };
+        let ziel = ordner.join(name);
+        if !ziel.exists() {
+            std::fs::copy(k, &ziel)?;
+            dateien.push(ziel);
+        }
+    }
     let groesse = omsi_map::tile_size();
     let mut id = v.next_object_id();
     let start = id;
@@ -121,13 +145,13 @@ pub fn vorbereiten(v: &Viewer, b: &Bearbeiten, netz: &crate::netz::Netz, alt: &s
             dateien.push(ziel);
         }
     }
-    Ok(Paket { dateien, naechste_id: (id > start).then_some(id), neue_objekte, neue_splines })
+    Ok(Paket { dateien, naechste_id: (id > start).then_some(id), neue_objekte, neue_splines, staging })
 }
 
 /// alles in einem Schritt (Tests)
 #[cfg(test)]
 pub fn alles_speichern(v: &Viewer, b: &Bearbeiten, netz: &crate::netz::Netz, alt: &str, neu: &str, root: &Path) -> Result<PathBuf> {
-    let p = vorbereiten(v, b, netz, alt)?;
+    let p = vorbereiten(v, b, netz, &[], alt)?;
     karte_anlegen(root, alt, neu, &p)
 }
 
@@ -175,6 +199,7 @@ pub fn karte_anlegen(root: &Path, alt: &str, neu: &str, paket: &Paket) -> Result
         werte.push(("[NextIDCode]", id.to_string()));
     }
     global_setzen(&ziel.join("global.cfg"), &werte)?;
+    let _ = std::fs::remove_dir_all(&paket.staging);
     Ok(ziel)
 }
 

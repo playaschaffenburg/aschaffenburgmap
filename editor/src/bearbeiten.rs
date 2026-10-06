@@ -19,6 +19,7 @@ pub enum Werkzeug {
     Objekte,
     Platzieren,
     Strasse,
+    Aendern,
 }
 
 /// Was gewaehlt ist: ein Objekt der Karte (id) oder ein neues (Index in `neue`)
