@@ -155,6 +155,10 @@ Umlauf 72 s, Hauptrichtung `3 2 / 6 31 / 9 3 / 0 0`, Nebenrichtung ab 39 s.
   Darunter steht ein Mast (`Streetobjects_RUE\whip_beam.sco` bzw. `single_pole.sco`, Höhe 0,25 m),
   0,46 m hinter dem Signal und um 180° gedreht. Das Signal blickt den ankommenden Fahrern entgegen
   (Drehung ≈ Richtung des Arms von der Kreuzung weg).
+- Das Signal **oben am Ausleger** ist ein `[attachObj]` *[Grundorf]*: `0`, `Verkehrszeichen_MC\Ampel_Kfz_Oh_1.sco`
+  (bzw. `…OhBlind_1`), ID, **ID des Masts**, `0` (Instanz), `0` (Anhängepunkt des Masts = Ende des Auslegers,
+  `whip_beam.sco` hat zwei `[new_attachment]`), Drehung `2.98…`, `0`, `0`, Texte (`1`, Signalgruppe), danach
+  `[varparent] <Kreuzung>`. Muss in der Kachel **nach** dem Mast stehen.
 - omsigen (`omsigen/ampel.py`) baut es genauso: Phasen aus gegenüberliegenden Armen (Hauptstraße zuerst),
   2 s rot-gelb, 3 s gelb, 3 s Räumzeit, Umlauf 70 s bei 2 Phasen (+15 s je weitere), Hauptrichtung 1,5-fache
   Grünzeit; Signal + Mast je Zufahrt rechts am Bordstein.
@@ -167,6 +171,15 @@ beginnen und enden. `omsigen.check.validate` rechnet das für jede Karte nach (T
 
 openOMSI verbindet großzügiger: Abstand ≤ 1,5 m, Richtung < 40°, Höhe < 3 m *[openOMSI]*. Wie tolerant das
 Original ist, ist nicht geprüft – deshalb bleibt unsere Prüfung streng.
+
+## KI-Verkehr *[Grundorf, openOMSI]*
+
+- `ailists.cfg`: je Gruppe `[aigroup_2]`, Name, Hof-Datei (leer bei Autos), dann `Fahrzeugdatei<TAB>Anzahl`
+  je Zeile, `[end]`. Die Vorlage `template\NewMap\ailists.cfg` hat ein älteres Format, mit dem openOMSI keine
+  Fahrzeuge findet – omsigen schreibt deshalb eine eigene (Gruppen `NormalCars`, `Trucks`, wie sie
+  `unsched_vehgroups.txt` der Vorlage erwartet).
+- `global.cfg` `[trafficdensity_road] <Stunde> <Faktor>`: Tagesganglinie des Straßenverkehrs (Grundorf: 11 Punkte,
+  Spitzen 7 und 17 Uhr mit 1,5).
 
 ## Fahrplan `TTData/` *[openOMSI]*
 

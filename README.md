@@ -45,7 +45,7 @@ python -m omsigen.ansicht Aschaffenburg_Live_v1 --png build/ansicht.png --html b
 python -m omsigen.ansicht Grundorf --png build/kreuzung.png --bereich=340,-230,420,-150
 
 # Karte im Nachbau openOMSI laden und ein Spielbild rendern (Kamera: x,y,z,gier,neigung in Kartenmetern)
-python -m omsigen.openomsi Aschaffenburg_Live_v1 --png build/spiel.png --cam 390,320,60,0,-40
+python -m omsigen.openomsi Aschaffenburg_Live_v5 --png build/spiel.png --cam 390,320,60,0,-40 --verkehr 40 --sekunden 40
 ```
 
 `omsigen.ansicht` ersetzt „Show paths“ im nEditor: Fahrspuren, Gehwege, Vorfahrt-Regeln, Ampelpfade und
@@ -71,7 +71,9 @@ Kreuzungsobjekte; Klick auf eine Spur zeigt Spline/Objekt, Datei, Kachel und Pfa
   festlegen, vermutete Vorfahrt bestätigen (`"bestaetigt": true`), Ampel erzwingen/abschalten (`"ampel"`)
   (Vorlage: `korrekturen/beispiel.json`, Koordinaten per Klick in der HTML-Ansicht)
 - **Ampeln** (`omsigen/ampel.py`) an Kreuzungen mit OSM-Ampel: Phasenplan (gegenüberliegende Arme gemeinsam,
-  Hauptstraße zuerst, Umlauf 70–100 s), Bindung der Zufahrten, Signalmasten wie in Grundorf
+  Hauptstraße zuerst, Umlauf 70–100 s), Bindung der Zufahrten, Signalmasten mit Signal unten und am Ausleger
+  wie in Grundorf
+- **KI-Verkehr**: `ailists.cfg` mit den Standard-KI-Autos und -LKW, Tagesganglinie des Verkehrs
 - Haltestellenschilder an den OSM-Haltestellen
 - automatische Prüfung jedes Spurendes + Draufsicht als PNG
 
