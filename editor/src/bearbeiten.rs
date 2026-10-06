@@ -18,6 +18,7 @@ pub enum Werkzeug {
     Ansehen,
     Objekte,
     Platzieren,
+    Strasse,
 }
 
 /// Was gewaehlt ist: ein Objekt der Karte (id) oder ein neues (Index in `neue`)
@@ -491,7 +492,7 @@ pub mod tests {
         let _ = std::fs::remove_dir_all(&test_root);
         kopieren(&root.join("maps/Grundorf"), &test_root.join("maps/Grundorf"));
         let start = v.next_object_id();
-        let ziel = crate::speichern::alles_speichern(&v, &b, "Grundorf", "Grundorf_test", &test_root).unwrap();
+        let ziel = crate::speichern::alles_speichern(&v, &b, &crate::netz::Netz::default(), "Grundorf", "Grundorf_test", &test_root).unwrap();
         let g = utf16(&std::fs::read(ziel.join("global.cfg")).unwrap());
         assert!(g.contains("[name]\r\nGrundorf_test"), "Name");
         assert!(g.contains(&format!("[NextIDCode]\r\n{}", start + 2)), "NextIDCode");

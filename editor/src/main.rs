@@ -15,6 +15,7 @@ mod kamera;
 mod katalog;
 mod netz;
 mod speichern;
+mod strasse;
 mod vorschau;
 
 use anyhow::{Context, Result};
@@ -109,6 +110,13 @@ struct App {
     vorschau: vorschau::Vorschau,
     /// gewaehltes Objekt zum Platzieren (relativer .sco-Pfad)
     platzier: Option<String>,
+    /// Strassenbau (Meilenstein 3)
+    strasse: strasse::Strassenbau,
+    querschnitte: Option<Vec<strasse::Querschnitt>>,
+    qs_job: Option<std::thread::JoinHandle<Vec<strasse::Querschnitt>>>,
+    qs_suche: String,
+    /// Rechtsklick ohne Ziehen erkennen (Zug beenden)
+    rechts_start: Option<(f32, f32)>,
 }
 
 /// Was die Oberflaeche ausloesen will (nach dem Zeichnen ausgefuehrt)
@@ -124,6 +132,10 @@ enum UiAktion {
     Verwerfen(usize),
     FrageZu,
     Platzier(Option<String>),
+    Querschnitt(String),
+    StrassenModus(strasse::Modus),
+    StrassenHoehe(f64),
+    ZugBeenden,
 }
 
 impl App {
@@ -168,6 +180,11 @@ impl App {
             katalog_herkunft: None,
             vorschau: vorschau::Vorschau::default(),
             platzier: None,
+            strasse: strasse::Strassenbau::default(),
+            querschnitte: None,
+            qs_job: None,
+            qs_suche: String::new(),
+            rechts_start: None,
         }
     }
 
@@ -177,6 +194,7 @@ impl App {
         let t0 = Instant::now();
         // schon eine Karte offen: Renderer behalten (Pipelines nur einmal kompilieren), Welt tauschen
         self.bearb = Bearbeiten::neu(self.bearb.werkzeug);
+        self.strasse = strasse::Strassenbau::neu(self.strasse.sli.clone(), self.strasse.modus);
         if let Some(v) = self.viewer.as_mut() {
             let cam = v.open_map(&self.karten[i].global)?;
             self.kamera_von(&cam);
@@ -293,11 +311,20 @@ impl App {
                 self.katalog = Some(k);
             }
         }
+        if self.qs_job.as_ref().map(|j| j.is_finished()).unwrap_or(false) {
+            if let Ok(q) = self.qs_job.take().unwrap().join() {
+                if self.strasse.sli.is_none() {
+                    self.strasse.sli = q.iter().find(|q| q.name == "str_2spur_10m_Grunewaldstr").or(q.first()).map(|q| q.rel.clone());
+                }
+                self.querschnitte = Some(q);
+            }
+        }
         if self.speichern_job.as_ref().map(|j| j.is_finished()).unwrap_or(false) {
             match self.speichern_job.take().unwrap().join() {
                 Ok(Ok(ziel)) => {
                     self.meldung = format!("gespeichert als neue Karte: {}", ziel.display());
                     self.bearb.aenderungen = 0;
+                    self.strasse.aenderungen = 0;
                     self.karten = karten_finden(&self.root);
                 }
                 Ok(Err(e)) => self.meldung = format!("Speichern fehlgeschlagen: {e:#}"),
@@ -366,22 +393,22 @@ impl App {
                 ui.horizontal(|ui| {
                     ui.strong("OMSI-Editor");
                     ui.separator();
-                    for (wz, t) in [(Werkzeug::Ansehen, "Ansehen"), (Werkzeug::Objekte, "Objekte (O)"), (Werkzeug::Platzieren, "Platzieren (P)")] {
+                    for (wz, t) in [(Werkzeug::Ansehen, "Ansehen"), (Werkzeug::Objekte, "Objekte (O)"), (Werkzeug::Platzieren, "Platzieren (P)"), (Werkzeug::Strasse, "Strasse bauen (B)")] {
                         if ui.selectable_label(self.bearb.werkzeug == wz, t).clicked() {
                             aktionen.push(UiAktion::Werkzeug(wz));
                         }
                     }
-                    ui.add_enabled(false, egui::Button::new("Strasse bauen"));
                     ui.add_enabled(false, egui::Button::new("Gelaende"));
                     ui.separator();
-                    if ui.add_enabled(self.bearb.kann_rueckgaengig(), egui::Button::new("Rueckgaengig")).on_hover_text("Strg+Z").clicked() {
+                    let (kr, kw) = if self.bearb.werkzeug == Werkzeug::Strasse { (self.strasse.kann_rueckgaengig(), self.strasse.kann_wiederholen()) } else { (self.bearb.kann_rueckgaengig(), self.bearb.kann_wiederholen()) };
+                    if ui.add_enabled(kr, egui::Button::new("Rueckgaengig")).on_hover_text("Strg+Z").clicked() {
                         aktionen.push(UiAktion::Rueckgaengig);
                     }
-                    if ui.add_enabled(self.bearb.kann_wiederholen(), egui::Button::new("Wiederholen")).on_hover_text("Strg+Y").clicked() {
+                    if ui.add_enabled(kw, egui::Button::new("Wiederholen")).on_hover_text("Strg+Y").clicked() {
                         aktionen.push(UiAktion::Wiederholen);
                     }
                     ui.separator();
-                    let txt = if self.bearb.aenderungen > 0 { "Als neue Karte speichern *" } else { "Als neue Karte speichern" };
+                    let txt = if self.bearb.aenderungen + self.strasse.aenderungen > 0 { "Als neue Karte speichern *" } else { "Als neue Karte speichern" };
                     if ui.add_enabled(self.viewer.is_some() && self.speichern_job.is_none(), egui::Button::new(txt)).on_hover_text("Strg+S").clicked() {
                         aktionen.push(UiAktion::SpeichernDialog);
                     }
@@ -558,6 +585,59 @@ impl App {
                     }
                 });
             }
+            if self.bearb.werkzeug == Werkzeug::Strasse {
+                egui::Panel::right("strasse").default_size(340.0).show(ctx, |ui| {
+                    ui.heading("Strasse bauen");
+                    ui.horizontal(|ui| {
+                        for (m, t) in [(strasse::Modus::Gerade, "Gerade (G)"), (strasse::Modus::Kurve, "Kurve (K)")] {
+                            if ui.selectable_label(self.strasse.modus == m, t).clicked() {
+                                aktionen.push(UiAktion::StrassenModus(m));
+                            }
+                        }
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label(format!("Hoehe naechster Punkt: {:+.2} m", self.strasse.hoehe));
+                        if ui.small_button("-").clicked() {
+                            aktionen.push(UiAktion::StrassenHoehe(-1.0));
+                        }
+                        if ui.small_button("+").clicked() {
+                            aktionen.push(UiAktion::StrassenHoehe(1.0));
+                        }
+                        if ui.small_button("0").clicked() {
+                            aktionen.push(UiAktion::StrassenHoehe(-self.strasse.hoehe));
+                        }
+                    });
+                    if self.strasse.baut() && ui.button("Zug beenden (Esc / Rechtsklick)").clicked() {
+                        aktionen.push(UiAktion::ZugBeenden);
+                    }
+                    ui.label(egui::RichText::new(format!("{} Knoten, {} Strassenstuecke", self.strasse.netz.knoten.len(), self.strasse.netz.kanten.len())).small().weak());
+                    ui.separator();
+                    ui.label("Querschnitt");
+                    let Some(qs) = self.querschnitte.as_ref() else {
+                        ui.label("Splines werden eingelesen ...");
+                        return;
+                    };
+                    ui.add(egui::TextEdit::singleline(&mut self.qs_suche).hint_text("suchen (Name, Ordner)").desired_width(f32::INFINITY));
+                    let such = self.qs_suche.to_lowercase();
+                    let treffer: Vec<&strasse::Querschnitt> = qs.iter()
+                        .filter(|q| such.split_whitespace().all(|w| q.name.to_lowercase().contains(w) || q.ordner.to_lowercase().contains(w)))
+                        .collect();
+                    ui.label(egui::RichText::new(format!("{} von {} Strassen-Splines", treffer.len(), qs.len())).small().weak());
+                    let zeile = ui.text_style_height(&egui::TextStyle::Body) * 2.0 + 8.0;
+                    egui::ScrollArea::vertical().auto_shrink(false).max_height(ui.available_height() - 70.0).show_rows(ui, zeile, treffer.len(), |ui, bereich| {
+                        for q in &treffer[bereich] {
+                            let aktiv = self.strasse.sli.as_deref() == Some(q.rel.as_str());
+                            let spuren = if q.zurueck == 0 { format!("{} Spur(en) Einbahn", q.vor) } else { format!("{}+{} Spuren", q.vor, q.zurueck) };
+                            let txt = format!("{}\n{} | {} | {:.1} m{}", q.name, q.ordner, spuren, q.breite, if q.gehwege > 0 { format!(" | {} Gehweg(e)", q.gehwege) } else { String::new() });
+                            if ui.selectable_label(aktiv, egui::RichText::new(txt).small()).on_hover_text(&q.rel).clicked() {
+                                aktionen.push(UiAktion::Querschnitt(q.rel.clone()));
+                            }
+                        }
+                    });
+                    ui.separator();
+                    ui.label(egui::RichText::new("Klick: Start / naechster Punkt (rastet an Knoten ein, gruen = freies Ende: tangential weiter). Bild auf/ab: Hoehe. Entf: Strasse unter der Maus loeschen.").small().weak());
+                });
+            }
             egui::Panel::bottom("status").show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(format!("{:.0} fps", self.fps));
@@ -586,6 +666,27 @@ impl App {
             }
             if let Some(o) = gewaehlt.as_ref() {
                 bearbeiten::markieren(&maler, &self.kam, o, bw, bh, egui::Color32::from_rgb(255, 60, 220), 3.0);
+            }
+            if self.bearb.werkzeug == Werkzeug::Strasse {
+                for (_, p, frei) in self.strasse.knoten_punkte() {
+                    if let Some((x, y, _)) = bearbeiten::projizieren(&self.kam, p, bw, bh) {
+                        let f = if frei { egui::Color32::from_rgb(90, 230, 120) } else { egui::Color32::WHITE };
+                        maler.circle_stroke(egui::pos2(x, y), 6.0, egui::Stroke::new(2.0, f));
+                    }
+                }
+                if let (Some(plan), Some(m)) = (self.strasse.plan.as_ref(), self.maus) {
+                    let warn = plan.min_radius < strasse::MIN_RADIUS || plan.steigung.abs() > strasse::MAX_STEIGUNG;
+                    let mut t = format!("{:.1} m", plan.laenge);
+                    if plan.min_radius.is_finite() {
+                        t += &format!("   R {:.0} m", plan.min_radius);
+                    }
+                    t += &format!("   {:+.1} %", plan.steigung);
+                    if plan.ziel.is_some() {
+                        t += "   Anschluss";
+                    }
+                    let farbe = if warn { egui::Color32::from_rgb(255, 120, 90) } else { egui::Color32::WHITE };
+                    maler.text(egui::pos2(m.0 + 18.0, m.1 + 14.0), egui::Align2::LEFT_TOP, t, egui::FontId::proportional(14.0), farbe);
+                }
             }
             // Dialoge
             if let Some(name) = self.speichern_name.as_mut() {
@@ -672,7 +773,7 @@ impl App {
     fn ausfuehren(&mut self, a: UiAktion) {
         match a {
             UiAktion::Karte(i) => {
-                if self.bearb.aenderungen > 0 {
+                if self.bearb.aenderungen + self.strasse.aenderungen > 0 {
                     self.verwerfen_frage = Some(i);
                 } else {
                     self.zu_laden = Some(i);
@@ -682,10 +783,24 @@ impl App {
             UiAktion::Verwerfen(i) => {
                 self.verwerfen_frage = None;
                 self.bearb.aenderungen = 0;
+                self.strasse.aenderungen = 0;
                 self.zu_laden = Some(i);
             }
             UiAktion::FrageZu => self.verwerfen_frage = None,
+            UiAktion::Querschnitt(rel) => self.strasse.sli = Some(rel),
+            UiAktion::StrassenModus(m) => self.strasse.modus = m,
+            UiAktion::StrassenHoehe(d) => self.strasse.hoehe = (self.strasse.hoehe + d).clamp(-30.0, 40.0),
+            UiAktion::ZugBeenden => {
+                if let Some(v) = self.viewer.as_mut() {
+                    self.strasse.beenden(v);
+                }
+            }
             UiAktion::Werkzeug(w) => {
+                if w != Werkzeug::Strasse {
+                    if let Some(v) = self.viewer.as_mut() {
+                        self.strasse.beenden(v);
+                    }
+                }
                 self.bearb.werkzeug = w;
                 if w != Werkzeug::Objekte {
                     self.bearb.waehlen(None);
@@ -717,6 +832,20 @@ impl App {
                     }
                 }
             }
+            UiAktion::Rueckgaengig if self.bearb.werkzeug == Werkzeug::Strasse => {
+                if let Some(v) = self.viewer.as_mut() {
+                    if self.strasse.rueckgaengig(v) {
+                        self.meldung = "rueckgaengig".into();
+                    }
+                }
+            }
+            UiAktion::Wiederholen if self.bearb.werkzeug == Werkzeug::Strasse => {
+                if let Some(v) = self.viewer.as_mut() {
+                    if self.strasse.wiederholen(v) {
+                        self.meldung = "wiederholt".into();
+                    }
+                }
+            }
             UiAktion::Rueckgaengig => {
                 if let Some(v) = self.viewer.as_mut() {
                     if let Some(m) = self.bearb.rueckgaengig(v) {
@@ -740,10 +869,10 @@ impl App {
             UiAktion::Speichern(neu) => {
                 self.speichern_name = None;
                 let (Some(v), Some(alt)) = (self.viewer.as_ref(), self.karte.clone()) else { return };
-                match speichern::vorbereiten(v, &self.bearb, &alt) {
+                match speichern::vorbereiten(v, &self.bearb, &self.strasse.netz, &alt) {
                     Ok(paket) => {
                         let root = self.root.clone();
-                        self.meldung = format!("speichere {neu} ({} geaenderte Dateien, {} neue Objekte) ...", paket.dateien.len(), paket.neue_objekte);
+                        self.meldung = format!("speichere {neu} ({} geaenderte Dateien, {} neue Objekte, {} neue Splines) ...", paket.dateien.len(), paket.neue_objekte, paket.neue_splines);
                         self.speichern_job = Some(std::thread::spawn(move || speichern::karte_anlegen(&root, &alt, &neu, &paket)));
                     }
                     Err(e) => self.meldung = format!("Speichern fehlgeschlagen: {e:#}"),
@@ -765,6 +894,27 @@ impl App {
                 Some(UiAktion::Werkzeug(w))
             }
             KeyCode::Escape if self.platzier.is_some() => Some(UiAktion::Platzier(None)),
+            KeyCode::KeyB if !self.strg => {
+                let w = if self.bearb.werkzeug == Werkzeug::Strasse { Werkzeug::Ansehen } else { Werkzeug::Strasse };
+                Some(UiAktion::Werkzeug(w))
+            }
+            KeyCode::Escape if self.bearb.werkzeug == Werkzeug::Strasse && self.strasse.baut() => Some(UiAktion::ZugBeenden),
+            KeyCode::PageUp if self.bearb.werkzeug == Werkzeug::Strasse => Some(UiAktion::StrassenHoehe(if fein { 0.25 } else { 1.0 })),
+            KeyCode::PageDown if self.bearb.werkzeug == Werkzeug::Strasse => Some(UiAktion::StrassenHoehe(if fein { -0.25 } else { -1.0 })),
+            KeyCode::Home if self.bearb.werkzeug == Werkzeug::Strasse => Some(UiAktion::StrassenHoehe(-self.strasse.hoehe)),
+            KeyCode::KeyG if self.bearb.werkzeug == Werkzeug::Strasse => Some(UiAktion::StrassenModus(strasse::Modus::Gerade)),
+            KeyCode::KeyK if self.bearb.werkzeug == Werkzeug::Strasse => Some(UiAktion::StrassenModus(strasse::Modus::Kurve)),
+            KeyCode::Delete if self.bearb.werkzeug == Werkzeug::Strasse => {
+                let (bw, bh) = self.bildgroesse();
+                let fang = 12.0 * self.kam.m_pro_px(bh).max(0.02);
+                let _ = bw;
+                if let (Some(g), Some(v)) = (self.boden_unter_maus, self.viewer.as_mut()) {
+                    if let Some(m) = self.strasse.loeschen_bei(v, g.truncate(), fang.max(3.0)) {
+                        self.meldung = m;
+                    }
+                }
+                None
+            }
             KeyCode::Comma | KeyCode::Period if self.bearb.werkzeug == Werkzeug::Platzieren => {
                 let d = if fein { 1.0 } else { 15.0 } * if k == KeyCode::Comma { -1.0 } else { 1.0 };
                 self.bearb.platzier_richtung = (self.bearb.platzier_richtung + d).rem_euclid(360.0);
@@ -816,6 +966,8 @@ impl ApplicationHandler for App {
         self.window = Some(window.clone());
         let root = self.root.clone();
         self.katalog_job = Some(std::thread::spawn(move || katalog::einlesen(&root)));
+        let root = self.root.clone();
+        self.qs_job = Some(std::thread::spawn(move || strasse::querschnitte(&root)));
         window.request_redraw();
     }
 
@@ -887,6 +1039,21 @@ impl ApplicationHandler for App {
                             (Some(rel), Some(v)) => self.bearb.platzieren(v, rel, ziel),
                             _ => None,
                         };
+                        // Strasse bauen: Gerade, dann Kurve
+                        self.ausfuehren(UiAktion::Werkzeug(Werkzeug::Strasse));
+                        let z = self.kam.ziel;
+                        let punkte = [z, z + DVec3::new(0.0, 60.0, 0.0), z + DVec3::new(50.0, 110.0, 0.0)];
+                        let mut meldungen = Vec::new();
+                        if let Some(v) = self.viewer.as_mut() {
+                            for (i, p) in punkte.iter().enumerate() {
+                                let g = DVec3::new(p.x, p.y, v.terrain_height(p.x, p.y).unwrap_or(p.z));
+                                self.strasse.modus = if i < 2 { strasse::Modus::Gerade } else { strasse::Modus::Kurve };
+                                self.strasse.maus(v, g, 3.0);
+                                meldungen.push(self.strasse.klick(v, g, 3.0).unwrap_or_default());
+                            }
+                            self.strasse.beenden(v);
+                        }
+                        println!("Testlauf Strasse: {} Knoten, {} Kanten | {}", self.strasse.netz.knoten.len(), self.strasse.netz.kanten.len(), meldungen.join(" | "));
                         println!("Testlauf Kopie: {:?}, Katalog {} Objekte, platziert: {:?}",
                                  kopie, self.katalog.as_ref().map(|k| k.eintraege.len()).unwrap_or(0), platziert);
                         println!("Testlauf Bearbeiten: {} Objekte, Objekt {:?} gewaehlt, Aenderungen {}, Meldung: {}",
@@ -947,6 +1114,12 @@ impl ApplicationHandler for App {
                             }
                         }
                     }
+                    if self.bearb.werkzeug == Werkzeug::Strasse {
+                        let fang = 12.0 * self.kam.m_pro_px(bh);
+                        if let (Some(g), Some(v)) = (self.boden_unter_maus, self.viewer.as_mut()) {
+                            self.strasse.maus(v, g, fang.max(2.0));
+                        }
+                    }
                     if self.bearb.werkzeug == Werkzeug::Objekte {
                         if self.bearb.zieht() {
                             if let (Some(g), Some(v)) = (self.boden_unter_maus, self.viewer.as_mut()) {
@@ -965,6 +1138,21 @@ impl ApplicationHandler for App {
                     if matches!(button, MouseButton::Right | MouseButton::Middle) {
                         if let Some(p) = self.maus {
                             self.ziehen = Some((button, p));
+                        }
+                    }
+                    if button == MouseButton::Right {
+                        self.rechts_start = self.maus;
+                    }
+                    if button == MouseButton::Left && self.bearb.werkzeug == Werkzeug::Strasse {
+                        let (_, bh) = self.bildgroesse();
+                        let fang = (12.0 * self.kam.m_pro_px(bh)).max(2.0);
+                        if let (Some(g), Some(v)) = (self.boden_unter_maus, self.viewer.as_mut()) {
+                            match self.strasse.klick(v, g, fang) {
+                                Some(m) => self.meldung = m,
+                                None if self.strasse.sli.is_none() => self.meldung = "erst einen Querschnitt waehlen".into(),
+                                None => {}
+                            }
+                            self.strasse.maus(v, g, fang);
                         }
                     }
                     if button == MouseButton::Left && self.bearb.werkzeug == Werkzeug::Platzieren {
@@ -990,6 +1178,15 @@ impl ApplicationHandler for App {
                     if button == MouseButton::Left {
                         if let Some(v) = self.viewer.as_ref() {
                             self.bearb.loslassen(v);
+                        }
+                    }
+                    if button == MouseButton::Right && self.bearb.werkzeug == Werkzeug::Strasse {
+                        let ohne_ziehen = match (self.rechts_start, self.maus) {
+                            (Some(a), Some(b)) => (a.0 - b.0).abs() + (a.1 - b.1).abs() < 5.0,
+                            _ => false,
+                        };
+                        if ohne_ziehen && self.strasse.baut() {
+                            self.ausfuehren(UiAktion::ZugBeenden);
                         }
                     }
                 }

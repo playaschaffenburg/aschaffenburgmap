@@ -46,6 +46,15 @@ lassen sich danach wie alle anderen bearbeiten.
 Vorschaubilder: jedes Objekt wird einmal allein mit openOMSI gerendert und als PNG in
 `%LOCALAPPDATA%\omsi-editor\vorschau` gespeichert; erzeugt werden nur die gerade sichtbaren, höchstens ~8 ms je Bild.
 
+**Straße bauen (Werkzeug „Straße bauen“, Taste B)** wie in Transport Fever 2: rechts den Querschnitt wählen (alle
+`.sli` mit Fahrspuren, mit Spuren, Breite und Gehwegen; Suche), Modus **Gerade (G)** oder **Kurve (K)**. Klick setzt den
+Start, die Maus zieht die Vorschau als echte OMSI-Straße, Klick setzt den nächsten Punkt, Esc/Rechtsklick beendet den
+Zug. Freie Straßenenden (grüner Kreis) setzen tangential fort; trifft eine Kurve ein freies Ende, wird sie tangential
+eingefädelt (Bogenpaar). Am Mauszeiger: Länge, kleinster Radius, Steigung (rot bei R < 10 m oder > 12 %). Bild ↑/↓:
+Höhe des nächsten Punkts über dem Gelände. Entf: Straße unter der Maus löschen. Strg+Z / Strg+Y.
+Gespeichert wird jede Straße als Kette von `[spline_h]`-Einträgen (glatter Höhenverlauf, Enden exakt auf den Knoten
+in gleicher Richtung – so verbindet OMSI die Spuren).
+
 **Strg+S: als neue Karte speichern** – der Kartenordner wird kopiert, geänderte Kacheln (UTF-16 bleibt) kommen
 darüber, neue Objekte stehen als `[object]`-Einträge mit eindeutigen IDs in ihrer Kachel, `global.cfg` bekommt den
 neuen Namen und `[NextIDCode]`; die Originalkarte bleibt unverändert.
@@ -59,5 +68,7 @@ Tests: `cargo test --release` (ohne OMSI), `cargo test --release -- --include-ig
    Blickpunkt gestreamt (Worker-Thread, 6 ms Hochladen je Bild), Kartenwechsel ohne neuen Renderer
 2. **Bearbeiten** (Objekte fertig): auswählen, ziehen, drehen, heben, löschen, kopieren, aus dem Katalog
    platzieren, Rückgängig, Speichern als neue Karte. Splines verschieben kommt mit dem Netz-Kern (Schritt 3) – das kann auch openOMSI selbst noch nicht
-3. Straßenwerkzeug wie in Transport Fever 2 mit Netz-Kern (Knoten, Kanten mit Kurven, Querschnitte)
+3. **Straßen** (in Arbeit): Netz-Kern (Knoten, Kanten aus Geraden/Bögen, glatte Höhe), Werkzeug Gerade/Kurve mit
+   Live-Vorschau und Einrasten, Speichern als Splines (fertig); Anschluss an vorhandene Splines der Karte, Knoten
+   ziehen, Kreuzungsobjekte über omsigen (offen)
 4. omsigen-Funktionen: OSM-Import, Kreuzungsgenerator, DGM-Gelände, Luftbild

@@ -38,24 +38,64 @@ pub struct Paket {
     /// neuer Wert fuer [NextIDCode], wenn neue Objekte dazukamen
     pub naechste_id: Option<i64>,
     pub neue_objekte: usize,
+    pub neue_splines: usize,
+}
+
+/// ein Eintrag fuer eine Kachel: neues Objekt oder neuer Spline (in Zeilen, ohne Zeilenende)
+enum Eintrag {
+    Objekt(Vec<String>),
+    Spline(Vec<String>),
 }
 
 /// Teil 1 komplett: Aenderungen der Kartenobjekte (openOMSI) und neue Objekte in die Kacheln schreiben
-pub fn vorbereiten(v: &Viewer, b: &Bearbeiten, alt: &str) -> Result<Paket> {
+pub fn vorbereiten(v: &Viewer, b: &Bearbeiten, netz: &crate::netz::Netz, alt: &str) -> Result<Paket> {
     let (staging, mut dateien) = kacheln_schreiben(v, &b.ed, alt)?;
     let ordner = staging.join("maps").join(alt);
     std::fs::create_dir_all(&ordner)?;
     let groesse = omsi_map::tile_size();
     let mut id = v.next_object_id();
     let start = id;
-    // nach Kacheln sortiert, damit jede Datei einmal gelesen/geschrieben wird
-    let mut je_kachel: std::collections::BTreeMap<(i32, i32), Vec<&crate::bearbeiten::Neu>> = Default::default();
+    // alles nach Kacheln sammeln, damit jede Datei einmal gelesen/geschrieben wird
+    let kachel = |x: f64, y: f64| ((x / groesse).floor() as i32, (y / groesse).floor() as i32);
+    let mut je_kachel: std::collections::BTreeMap<(i32, i32), Vec<Eintrag>> = Default::default();
+    let mut neue_objekte = 0;
     for n in b.neue.iter().filter(|n| !n.z.geloescht) {
-        let k = ((n.z.pos.x / groesse).floor() as i32, (n.z.pos.y / groesse).floor() as i32);
-        je_kachel.entry(k).or_default().push(n);
+        let (tx, ty) = kachel(n.z.pos.x, n.z.pos.y);
+        let abs = std::fs::read(v.root.join(&n.rel)).map(|b| dekodieren(&b).0.to_ascii_lowercase().contains("[absheight]")).unwrap_or(false);
+        let hoehe = if abs { n.z.pos.z } else { n.z.ueber_boden };
+        let felder = vec![
+            "[object]".to_string(), "0".into(), n.rel.clone(), id.to_string(),
+            zahl(n.z.pos.x - tx as f64 * groesse), zahl(n.z.pos.y - ty as f64 * groesse), zahl(hoehe),
+            zahl(n.z.richtung.rem_euclid(360.0)), "0".into(), "0".into(), "0".into(),
+        ];
+        je_kachel.entry((tx, ty)).or_default().push(Eintrag::Objekt(felder));
+        id += 1;
+        neue_objekte += 1;
+    }
+    // Strassen: jede Kante als Kette von [spline_h] (Hoehenunterschied nach den Steigungen, wie Omsi.exe liest)
+    let mut neue_splines = 0;
+    for e in &netz.kanten {
+        let el = netz.elemente(e);
+        let ids: Vec<i64> = (0..el.len() as i64).map(|i| id + i).collect();
+        id += el.len() as i64;
+        let mut cum = 0.0;
+        for (i, x) in el.iter().enumerate() {
+            let (tx, ty) = kachel(x.stueck.start.x, x.stueck.start.y);
+            let felder = vec![
+                "[spline_h]".to_string(), "0".into(), e.sli.clone(), ids[i].to_string(),
+                if i > 0 { ids[i - 1].to_string() } else { "0".into() },
+                if i + 1 < ids.len() { ids[i + 1].to_string() } else { "0".into() },
+                zahl(x.stueck.start.x - tx as f64 * groesse), zahl(x.z), zahl(x.stueck.start.y - ty as f64 * groesse),
+                zahl(x.stueck.richtung.rem_euclid(360.0)), zahl(x.stueck.laenge), zahl(x.stueck.radius),
+                zahl(x.stg_a), zahl(x.stg_e), zahl(x.dh), "0".into(), "0".into(), "0".into(), "0".into(), zahl(cum),
+            ];
+            cum += x.stueck.laenge;
+            je_kachel.entry((tx, ty)).or_default().push(Eintrag::Spline(felder));
+            neue_splines += 1;
+        }
     }
     for ((tx, ty), liste) in je_kachel {
-        let quelle = v.tile_file(tx, ty).with_context(|| format!("Objekt bei Kachel {tx} {ty}: die Karte hat dort keine Kachel"))?;
+        let quelle = v.tile_file(tx, ty).with_context(|| format!("Kachel {tx} {ty}: die Karte hat dort keine Kachel (Strasse/Objekt ausserhalb)"))?;
         let name = quelle.file_name().context("Kachel ohne Namen")?.to_owned();
         let ziel = ordner.join(&name);
         let bytes = if ziel.exists() { std::fs::read(&ziel)? } else { std::fs::read(&quelle)? };
@@ -64,41 +104,27 @@ pub fn vorbereiten(v: &Viewer, b: &Bearbeiten, alt: &str) -> Result<Paket> {
         if !text.ends_with('\n') {
             text.push_str(eol);
         }
-        for n in liste {
-            let abs = std::fs::read(v.root.join(&n.rel)).map(|b| dekodieren(&b).0.to_ascii_lowercase().contains("[absheight]")).unwrap_or(false);
-            let hoehe = if abs { n.z.pos.z } else { n.z.ueber_boden };
-            let felder = [
-                "[object]".to_string(),
-                "0".into(),
-                n.rel.clone(),
-                id.to_string(),
-                zahl(n.z.pos.x - tx as f64 * groesse),
-                zahl(n.z.pos.y - ty as f64 * groesse),
-                zahl(hoehe),
-                zahl(n.z.richtung.rem_euclid(360.0)),
-                "0".into(),
-                "0".into(),
-                "0".into(),
-            ];
+        // Splines stehen in OMSI-Kacheln vor den Objekten; ans Ende geschrieben liest Omsi.exe sie genauso
+        for eintrag in liste {
+            let (Eintrag::Objekt(f) | Eintrag::Spline(f)) = eintrag;
             text.push_str(eol);
-            for f in felder {
-                text.push_str(&f);
+            for z in f {
+                text.push_str(&z);
                 text.push_str(eol);
             }
-            id += 1;
         }
         std::fs::write(&ziel, kodieren(&text, utf16))?;
         if !dateien.contains(&ziel) {
             dateien.push(ziel);
         }
     }
-    Ok(Paket { dateien, naechste_id: (id > start).then_some(id), neue_objekte: (id - start) as usize })
+    Ok(Paket { dateien, naechste_id: (id > start).then_some(id), neue_objekte, neue_splines })
 }
 
 /// alles in einem Schritt (Tests)
 #[cfg(test)]
-pub fn alles_speichern(v: &Viewer, b: &Bearbeiten, alt: &str, neu: &str, root: &Path) -> Result<PathBuf> {
-    let p = vorbereiten(v, b, alt)?;
+pub fn alles_speichern(v: &Viewer, b: &Bearbeiten, netz: &crate::netz::Netz, alt: &str, neu: &str, root: &Path) -> Result<PathBuf> {
+    let p = vorbereiten(v, b, netz, alt)?;
     karte_anlegen(root, alt, neu, &p)
 }
 
