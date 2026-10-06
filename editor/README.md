@@ -38,7 +38,7 @@ Strg+Z / Strg+Y. **Strg+S: als neue Karte speichern** – der Kartenordner wird 
 (UTF-16 bleibt) kommen darüber, `global.cfg` bekommt den neuen Namen; die Originalkarte bleibt unverändert.
 
 Tests: `cargo test --release` (ohne OMSI), `cargo test --release -- --include-ignored` (mit OMSI und Grafikkarte;
-`dxcompiler.dll`/`dxil.dll` auch nach `targetelease\deps`).
+`dxcompiler.dll`/`dxil.dll` auch nach `target\release\deps`).
 
 ## Stand und Plan
 
