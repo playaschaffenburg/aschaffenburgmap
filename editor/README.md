@@ -33,9 +33,17 @@ Q / E drehen, R / F neigen. Koordinaten wie in openOMSI: x Ost, y Nord, z hoch.
 
 **Objekte bearbeiten (Werkzeug „Objekte“, Taste O):** Klick wählt das Objekt unter der Maus (weißer Ring = unter der
 Maus, magenta = gewählt), Ziehen schiebt es über das Gelände, Strg+Mausrad oder `,` `.` dreht (Umschalt: fein),
-Bild ↑/↓ hebt/senkt, Entf löscht, „Kopieren“ legt eine Kopie daneben; Position und Richtung auch als Zahlen rechts.
-Strg+Z / Strg+Y. **Strg+S: als neue Karte speichern** – der Kartenordner wird kopiert, die geänderten Kacheln
-(UTF-16 bleibt) kommen darüber, `global.cfg` bekommt den neuen Namen; die Originalkarte bleibt unverändert.
+Bild ↑/↓ hebt/senkt, Entf löscht, „Kopieren“ legt eine Kopie 3 m daneben (danach gewählt); Position und Richtung
+auch als Zahlen rechts. Strg+Z / Strg+Y.
+
+**Objekte platzieren (Werkzeug „Platzieren“, Taste P)** wie im Asset-Menü von Transport Fever 2: rechts der Katalog
+aller `.sco` unter `Sceneryobjects` (Name aus `[friendlyname]`, Filter nach Ordner und `[groups]`, Suche). Objekt
+anklicken – es hängt als Vorschau an der Maus –, Klick in die Welt setzt es (beliebig oft), `,` `.` dreht
+(15°, Umschalt 1°), Esc beendet. Neue Objekte lassen sich danach wie alle anderen bearbeiten.
+
+**Strg+S: als neue Karte speichern** – der Kartenordner wird kopiert, geänderte Kacheln (UTF-16 bleibt) kommen
+darüber, neue Objekte stehen als `[object]`-Einträge mit eindeutigen IDs in ihrer Kachel, `global.cfg` bekommt den
+neuen Namen und `[NextIDCode]`; die Originalkarte bleibt unverändert.
 
 Tests: `cargo test --release` (ohne OMSI), `cargo test --release -- --include-ignored` (mit OMSI und Grafikkarte;
 `dxcompiler.dll`/`dxil.dll` auch nach `target\release\deps`).
@@ -44,7 +52,7 @@ Tests: `cargo test --release` (ohne OMSI), `cargo test --release -- --include-ig
 
 1. **Betrachter** (fertig): beliebige Karte, Darstellung wie im Spiel, Kacheln werden im Hintergrund um den
    Blickpunkt gestreamt (Worker-Thread, 6 ms Hochladen je Bild), Kartenwechsel ohne neuen Renderer
-2. **Bearbeiten** (Objekte fertig): auswählen, ziehen, drehen, heben, löschen, kopieren, Rückgängig, Speichern als
-   neue Karte. Splines verschieben kommt mit dem Netz-Kern (Schritt 3) – das kann auch openOMSI selbst noch nicht
+2. **Bearbeiten** (Objekte fertig): auswählen, ziehen, drehen, heben, löschen, kopieren, aus dem Katalog
+   platzieren, Rückgängig, Speichern als neue Karte. Splines verschieben kommt mit dem Netz-Kern (Schritt 3) – das kann auch openOMSI selbst noch nicht
 3. Straßenwerkzeug wie in Transport Fever 2 mit Netz-Kern (Knoten, Kanten mit Kurven, Querschnitte)
 4. omsigen-Funktionen: OSM-Import, Kreuzungsgenerator, DGM-Gelände, Luftbild

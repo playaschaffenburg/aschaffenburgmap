@@ -12,11 +12,12 @@
 
 mod bearbeiten;
 mod kamera;
+mod katalog;
 mod speichern;
 
 use anyhow::{Context, Result};
 use glam::DVec3;
-use bearbeiten::{Bearbeiten, Werkzeug};
+use bearbeiten::{Bearbeiten, Wahl, Werkzeug};
 use kamera::{treffer, Kamera};
 use openomsi_game::viewer::Action;
 use openomsi_game::viewer::{self, SurfaceState, Viewer};
@@ -96,6 +97,14 @@ struct App {
     speichern_job: Option<std::thread::JoinHandle<Result<PathBuf>>>,
     /// Kartenwechsel mit ungespeicherten Aenderungen: erst fragen
     verwerfen_frage: Option<usize>,
+    /// Objektkatalog (wird im Hintergrund eingelesen)
+    katalog: Option<katalog::Katalog>,
+    katalog_job: Option<std::thread::JoinHandle<katalog::Katalog>>,
+    katalog_suche: String,
+    katalog_ordner: Option<String>,
+    katalog_gruppe: Option<String>,
+    /// gewaehltes Objekt zum Platzieren (relativer .sco-Pfad)
+    platzier: Option<String>,
 }
 
 /// Was die Oberflaeche ausloesen will (nach dem Zeichnen ausgefuehrt)
@@ -110,6 +119,7 @@ enum UiAktion {
     Speichern(String),
     Verwerfen(usize),
     FrageZu,
+    Platzier(Option<String>),
 }
 
 impl App {
@@ -146,6 +156,12 @@ impl App {
             speichern_name: None,
             speichern_job: None,
             verwerfen_frage: None,
+            katalog: None,
+            katalog_job: None,
+            katalog_suche: String::new(),
+            katalog_ordner: None,
+            katalog_gruppe: None,
+            platzier: None,
         }
     }
 
@@ -262,6 +278,12 @@ impl App {
             self.laengstes = self.laengstes.max(dt);
         }
         self.bewegen(dt);
+        if self.katalog_job.as_ref().map(|j| j.is_finished()).unwrap_or(false) {
+            if let Ok(k) = self.katalog_job.take().unwrap().join() {
+                self.meldung = format!("Objektkatalog: {} Objekte in {} Ordnern", k.eintraege.len(), k.ordner.len());
+                self.katalog = Some(k);
+            }
+        }
         if self.speichern_job.as_ref().map(|j| j.is_finished()).unwrap_or(false) {
             match self.speichern_job.take().unwrap().join() {
                 Ok(Ok(ziel)) => {
@@ -321,19 +343,21 @@ impl App {
         let (bw, bh) = (w as f32 / window.scale_factor() as f32, h as f32 / window.scale_factor() as f32);
         // Daten fuer die Anzeige vorab (die Oberflaeche liest den Viewer nur)
         let objekte = if self.bearb.werkzeug == Werkzeug::Objekte {
-            self.viewer.as_ref().map(Bearbeiten::objekte).unwrap_or_default()
+            self.viewer.as_ref().map(|v| self.bearb.objekte(v)).unwrap_or_default()
         } else {
             Vec::new()
         };
-        let gewaehlt = self.bearb.ausgewaehlt().and_then(|id| objekte.iter().find(|o| o.id == id).cloned());
-        let kopie_aktiv = self.bearb.ed.editing_added.is_some();
-        let edit = gewaehlt.as_ref().and_then(|o| self.viewer.as_ref().map(|v| v.object_edit(o.id)));
+        let gewaehlt = self.bearb.wahl.and_then(|w| objekte.iter().find(|o| o.wahl == w).cloned());
+        let edit = match gewaehlt.as_ref().map(|o| o.wahl) {
+            Some(Wahl::Karte(id)) => self.viewer.as_ref().map(|v| v.object_edit(id)),
+            _ => None,
+        };
         let out = gui.ctx.run_ui(input, |ctx| {
             egui::Panel::top("werkzeuge").show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     ui.strong("OMSI-Editor");
                     ui.separator();
-                    for (wz, t) in [(Werkzeug::Ansehen, "Ansehen"), (Werkzeug::Objekte, "Objekte (O)")] {
+                    for (wz, t) in [(Werkzeug::Ansehen, "Ansehen"), (Werkzeug::Objekte, "Objekte (O)"), (Werkzeug::Platzieren, "Platzieren (P)")] {
                         if ui.selectable_label(self.bearb.werkzeug == wz, t).clicked() {
                             aktionen.push(UiAktion::Werkzeug(wz));
                         }
@@ -373,19 +397,15 @@ impl App {
             if self.bearb.werkzeug == Werkzeug::Objekte {
                 egui::Panel::right("eigenschaften").default_size(270.0).show(ctx, |ui| {
                     ui.heading("Objekt");
-                    if kopie_aktiv {
-                        ui.label("Neue Kopie: mit , / . drehen, Bild auf/ab heben.");
-                        if ui.button("Kopie loeschen").clicked() {
-                            aktionen.push(UiAktion::Objekt(Action::Delete));
-                        }
-                        if ui.button("Fertig").clicked() {
-                            aktionen.push(UiAktion::Abwaehlen);
-                        }
-                    } else if let (Some(o), Some(e)) = (gewaehlt.as_ref(), edit) {
+                    if let Some(o) = gewaehlt.as_ref() {
+                        let e = edit.unwrap_or_default();
                         let name = o.sco.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
                         ui.label(egui::RichText::new(name).strong());
                         ui.label(egui::RichText::new(o.sco.parent().map(|p| p.display().to_string()).unwrap_or_default()).small().weak());
-                        ui.label(format!("ID {}   Kachel {} {}", o.id, (o.pos.x / 300.0).floor(), (o.pos.y / 300.0).floor()));
+                        match o.wahl {
+                            Wahl::Karte(id) => ui.label(format!("ID {}   Kachel {} {}", id, (o.pos.x / 300.0).floor(), (o.pos.y / 300.0).floor())),
+                            Wahl::Neu(_) => ui.label(format!("neu   Kachel {} {}  (ID beim Speichern)", (o.pos.x / 300.0).floor(), (o.pos.y / 300.0).floor())),
+                        };
                         ui.separator();
                         let mut p = o.pos;
                         let alt_h = o.richtung.rem_euclid(360.0);
@@ -418,7 +438,7 @@ impl App {
                             if ui.button("Kopieren").on_hover_text("legt eine Kopie daneben").clicked() {
                                 aktionen.push(UiAktion::Objekt(Action::Copy));
                             }
-                            if ui.button("Zuruecksetzen").clicked() {
+                            if matches!(o.wahl, Wahl::Karte(_)) && ui.button("Zuruecksetzen").clicked() {
                                 aktionen.push(UiAktion::Objekt(Action::Undo));
                             }
                         });
@@ -430,6 +450,56 @@ impl App {
                     }
                     ui.separator();
                     ui.label(egui::RichText::new("Ziehen: verschieben | Strg+Rad oder , . : drehen (Umschalt fein) | Bild auf/ab: heben/senken | Entf: loeschen | Strg+Z/Y").small().weak());
+                });
+            }
+            if self.bearb.werkzeug == Werkzeug::Platzieren {
+                egui::Panel::right("katalog").default_size(320.0).show(ctx, |ui| {
+                    ui.heading("Objekte platzieren");
+                    let Some(kat) = self.katalog.as_ref() else {
+                        ui.label("Objektkatalog wird eingelesen ...");
+                        return;
+                    };
+                    ui.add(egui::TextEdit::singleline(&mut self.katalog_suche).hint_text("suchen (Name, Datei, Gruppe)"));
+                    ui.horizontal(|ui| {
+                        egui::ComboBox::from_id_salt("ordner").width(140.0).selected_text(self.katalog_ordner.clone().unwrap_or("alle Ordner".into())).show_ui(ui, |ui| {
+                            ui.selectable_value(&mut self.katalog_ordner, None, "alle Ordner");
+                            for o in &kat.ordner {
+                                ui.selectable_value(&mut self.katalog_ordner, Some(o.clone()), o);
+                            }
+                        });
+                        egui::ComboBox::from_id_salt("gruppe").width(140.0).selected_text(self.katalog_gruppe.clone().unwrap_or("alle Gruppen".into())).show_ui(ui, |ui| {
+                            ui.selectable_value(&mut self.katalog_gruppe, None, "alle Gruppen");
+                            for g in &kat.gruppen {
+                                ui.selectable_value(&mut self.katalog_gruppe, Some(g.clone()), g);
+                            }
+                        });
+                    });
+                    let suche = self.katalog_suche.to_lowercase();
+                    let treffer: Vec<&katalog::Eintrag> = kat.eintraege.iter()
+                        .filter(|e| e.passt(&suche, self.katalog_ordner.as_deref(), self.katalog_gruppe.as_deref()))
+                        .collect();
+                    ui.label(egui::RichText::new(format!("{} von {} Objekten", treffer.len(), kat.eintraege.len())).small().weak());
+                    ui.separator();
+                    let zeile = ui.text_style_height(&egui::TextStyle::Body) + 4.0;
+                    egui::ScrollArea::vertical().auto_shrink(false).max_height(ui.available_height() - 70.0).show_rows(ui, zeile, treffer.len(), |ui, bereich| {
+                        for e in &treffer[bereich] {
+                            let aktiv = self.platzier.as_deref() == Some(e.rel.as_str());
+                            let r = ui.selectable_label(aktiv, format!("{}   ", e.name)).on_hover_text(format!("{}\nGruppen: {}", e.rel, e.gruppen.join(", ")));
+                            if r.clicked() {
+                                aktionen.push(UiAktion::Platzier(if aktiv { None } else { Some(e.rel.clone()) }));
+                            }
+                        }
+                    });
+                    ui.separator();
+                    match self.platzier.as_deref() {
+                        Some(rel) => {
+                            ui.label(egui::RichText::new(rel).small());
+                            ui.label(egui::RichText::new(format!("Klick in die Welt setzt (mehrfach), , . drehen ({:.0} Grad), Esc beendet", self.bearb.platzier_richtung.rem_euclid(360.0))).small().weak());
+                        }
+                        None => {
+                            ui.label(egui::RichText::new("Objekt waehlen, dann in die Welt klicken.").small().weak());
+                        }
+                    }
                 });
             }
             egui::Panel::bottom("status").show(ctx, |ui| {
@@ -453,8 +523,8 @@ impl App {
             });
             // Markierungen ueber dem 3D-Bild (unter den Panels)
             let maler = ui_maler(ctx);
-            if let Some(id) = self.bearb.unter_maus.filter(|id| Some(*id) != self.bearb.ausgewaehlt()) {
-                if let Some(o) = objekte.iter().find(|o| o.id == id) {
+            if let Some(w) = self.bearb.unter_maus.filter(|w| Some(*w) != self.bearb.wahl) {
+                if let Some(o) = objekte.iter().find(|o| o.wahl == w) {
                     bearbeiten::markieren(&maler, &self.kam, o, bw, bh, egui::Color32::from_rgba_unmultiplied(255, 255, 255, 170), 1.5);
                 }
             }
@@ -556,9 +626,27 @@ impl App {
             UiAktion::FrageZu => self.verwerfen_frage = None,
             UiAktion::Werkzeug(w) => {
                 self.bearb.werkzeug = w;
-                if w == Werkzeug::Ansehen {
+                if w != Werkzeug::Objekte {
                     self.bearb.waehlen(None);
                     self.bearb.unter_maus = None;
+                }
+                if w != Werkzeug::Platzieren {
+                    self.platzier = None;
+                    if let Some(v) = self.viewer.as_mut() {
+                        self.bearb.geist_weg(v);
+                    }
+                }
+            }
+            UiAktion::Platzier(rel) => {
+                self.platzier = rel;
+                if let Some(v) = self.viewer.as_mut() {
+                    self.bearb.geist_weg(v);
+                    if let (Some(r), Some(g)) = (self.platzier.clone(), self.boden_unter_maus) {
+                        self.bearb.geist(v, &r, g);
+                        if !self.bearb.geist_ok() {
+                            self.meldung = format!("{r} laesst sich nicht laden");
+                        }
+                    }
                 }
             }
             UiAktion::Objekt(act) => {
@@ -591,11 +679,11 @@ impl App {
             UiAktion::Speichern(neu) => {
                 self.speichern_name = None;
                 let (Some(v), Some(alt)) = (self.viewer.as_ref(), self.karte.clone()) else { return };
-                match speichern::kacheln_schreiben(v, &self.bearb.ed, &alt) {
-                    Ok((_, dateien)) => {
+                match speichern::vorbereiten(v, &self.bearb, &alt) {
+                    Ok(paket) => {
                         let root = self.root.clone();
-                        self.meldung = format!("speichere {neu} ({} geaenderte Dateien) ...", dateien.len());
-                        self.speichern_job = Some(std::thread::spawn(move || speichern::karte_anlegen(&root, &alt, &neu, &dateien)));
+                        self.meldung = format!("speichere {neu} ({} geaenderte Dateien, {} neue Objekte) ...", paket.dateien.len(), paket.neue_objekte);
+                        self.speichern_job = Some(std::thread::spawn(move || speichern::karte_anlegen(&root, &alt, &neu, &paket)));
                     }
                     Err(e) => self.meldung = format!("Speichern fehlgeschlagen: {e:#}"),
                 }
@@ -610,6 +698,19 @@ impl App {
             KeyCode::KeyO if !self.strg => {
                 let w = if self.bearb.werkzeug == Werkzeug::Objekte { Werkzeug::Ansehen } else { Werkzeug::Objekte };
                 Some(UiAktion::Werkzeug(w))
+            }
+            KeyCode::KeyP if !self.strg => {
+                let w = if self.bearb.werkzeug == Werkzeug::Platzieren { Werkzeug::Ansehen } else { Werkzeug::Platzieren };
+                Some(UiAktion::Werkzeug(w))
+            }
+            KeyCode::Escape if self.platzier.is_some() => Some(UiAktion::Platzier(None)),
+            KeyCode::Comma | KeyCode::Period if self.bearb.werkzeug == Werkzeug::Platzieren => {
+                let d = if fein { 1.0 } else { 15.0 } * if k == KeyCode::Comma { -1.0 } else { 1.0 };
+                self.bearb.platzier_richtung = (self.bearb.platzier_richtung + d).rem_euclid(360.0);
+                if let (Some(v), Some(r), Some(g)) = (self.viewer.as_mut(), self.platzier.clone(), self.boden_unter_maus) {
+                    self.bearb.geist(v, &r, g);
+                }
+                None
             }
             KeyCode::KeyZ if self.strg => Some(UiAktion::Rueckgaengig),
             KeyCode::KeyY if self.strg => Some(UiAktion::Wiederholen),
@@ -652,6 +753,8 @@ impl ApplicationHandler for App {
             .with_inner_size(winit::dpi::LogicalSize::new(1500.0, 900.0));
         let window = Arc::new(el.create_window(attrs).expect("Fenster"));
         self.window = Some(window.clone());
+        let root = self.root.clone();
+        self.katalog_job = Some(std::thread::spawn(move || katalog::einlesen(&root)));
         window.request_redraw();
     }
 
@@ -696,7 +799,7 @@ impl ApplicationHandler for App {
                             for k in 0..40 {
                                 let r = k as f32 * 12.0;
                                 let p = (bw / 2.0 + r * (k as f32).cos(), bh / 2.0 + r * (k as f32).sin());
-                                if let Some(id) = Bearbeiten::suchen(v, &self.kam, p, bw, bh) {
+                                if let Some(id) = self.bearb.suchen(v, &self.kam, p, bw, bh) {
                                     gefunden = Some(id);
                                     break;
                                 }
@@ -706,6 +809,21 @@ impl ApplicationHandler for App {
                         self.ausfuehren(UiAktion::Objekt(Action::Turn(30.0)));
                         self.ausfuehren(UiAktion::Rueckgaengig);
                         self.ausfuehren(UiAktion::Wiederholen);
+                        self.ausfuehren(UiAktion::Objekt(Action::Copy));
+                        let kopie = self.bearb.wahl;
+                        // Platzieren aus dem Katalog an den Blickpunkt
+                        let eintrag = self.katalog.as_ref().and_then(|k| {
+                            k.eintraege.iter().find(|e| e.name.to_lowercase().contains("bank")).or(k.eintraege.first()).map(|e| e.rel.clone())
+                        });
+                        self.ausfuehren(UiAktion::Werkzeug(Werkzeug::Platzieren));
+                        self.ausfuehren(UiAktion::Platzier(eintrag.clone()));
+                        let ziel = self.kam.ziel;
+                        let platziert = match (eintrag.as_ref(), self.viewer.as_mut()) {
+                            (Some(rel), Some(v)) => self.bearb.platzieren(v, rel, ziel),
+                            _ => None,
+                        };
+                        println!("Testlauf Kopie: {:?}, Katalog {} Objekte, platziert: {:?}",
+                                 kopie, self.katalog.as_ref().map(|k| k.eintraege.len()).unwrap_or(0), platziert);
                         println!("Testlauf Bearbeiten: {} Objekte, Objekt {:?} gewaehlt, Aenderungen {}, Meldung: {}",
                                  self.viewer.as_ref().map(|v| v.objects().len()).unwrap_or(0), gefunden, self.bearb.aenderungen, self.meldung);
                     } else if s > t * 0.4 {
@@ -755,6 +873,15 @@ impl ApplicationHandler for App {
                     let (bw, bh) = self.bildgroesse();
                     let (o, d) = self.kam.strahl(p.0, p.1, bw, bh);
                     self.boden_unter_maus = treffer(o, d, |x, y| self.boden(x, y), 6000.0);
+                    if let (Werkzeug::Platzieren, Some(rel), Some(g)) = (self.bearb.werkzeug, self.platzier.clone(), self.boden_unter_maus) {
+                        if let Some(v) = self.viewer.as_mut() {
+                            if !egui_will {
+                                self.bearb.geist(v, &rel, g);
+                            } else {
+                                self.bearb.geist_weg(v);
+                            }
+                        }
+                    }
                     if self.bearb.werkzeug == Werkzeug::Objekte {
                         if self.bearb.zieht() {
                             if let (Some(g), Some(v)) = (self.boden_unter_maus, self.viewer.as_mut()) {
@@ -763,7 +890,7 @@ impl ApplicationHandler for App {
                                 }
                             }
                         } else if !egui_will {
-                            self.bearb.unter_maus = self.viewer.as_ref().and_then(|v| Bearbeiten::suchen(v, &self.kam, p, bw, bh));
+                            self.bearb.unter_maus = self.viewer.as_ref().and_then(|v| self.bearb.suchen(v, &self.kam, p, bw, bh));
                         }
                     }
                 }
@@ -775,10 +902,15 @@ impl ApplicationHandler for App {
                             self.ziehen = Some((button, p));
                         }
                     }
+                    if button == MouseButton::Left && self.bearb.werkzeug == Werkzeug::Platzieren {
+                        if let (Some(rel), Some(g), Some(v)) = (self.platzier.clone(), self.boden_unter_maus, self.viewer.as_mut()) {
+                            self.meldung = self.bearb.platzieren(v, &rel, g).unwrap_or_else(|| format!("{rel} laesst sich nicht laden"));
+                        }
+                    }
                     if button == MouseButton::Left && self.bearb.werkzeug == Werkzeug::Objekte {
                         let (bw, bh) = self.bildgroesse();
                         let treffer_id = match (self.viewer.as_ref(), self.maus) {
-                            (Some(v), Some(p)) => Bearbeiten::suchen(v, &self.kam, p, bw, bh),
+                            (Some(v), Some(p)) => self.bearb.suchen(v, &self.kam, p, bw, bh),
                             _ => None,
                         };
                         self.bearb.waehlen(treffer_id);
@@ -797,7 +929,7 @@ impl ApplicationHandler for App {
                     }
                 }
             }
-            WindowEvent::MouseWheel { delta, .. } if !egui_will && self.strg && self.bearb.ausgewaehlt().is_some() => {
+            WindowEvent::MouseWheel { delta, .. } if !egui_will && self.strg && self.bearb.wahl.is_some() => {
                 let y = match delta {
                     MouseScrollDelta::LineDelta(_, y) => y,
                     MouseScrollDelta::PixelDelta(p) => p.y as f32 / 60.0,

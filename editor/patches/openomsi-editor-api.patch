@@ -1,7 +1,7 @@
 From 6a28afa52f391b1e21dd812a7f86f94221f673a7 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 16:01:32 +0200
-Subject: [PATCH 1/3] editor-api: oeffentliche Viewer-Schnittstelle, OpenXR zur
+Subject: [PATCH 1/4] editor-api: oeffentliche Viewer-Schnittstelle, OpenXR zur
  Laufzeit laden
 
 ---
@@ -210,7 +210,7 @@ index 0000000..f57565c
 From cc51e3c693d2333dc4ee49c47f6e37c20ab516e8 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 16:22:56 +0200
-Subject: [PATCH 2/3] editor-api: Hintergrund-Streaming und Kartenwechsel mit
+Subject: [PATCH 2/4] editor-api: Hintergrund-Streaming und Kartenwechsel mit
  demselben Renderer
 
 ---
@@ -316,7 +316,7 @@ index f57565c..ebd8833 100644
 From 596e460251b086f739871a8134343aea3f22e5e0 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 16:35:56 +0200
-Subject: [PATCH 3/3] editor-api: Objekte bearbeiten und Kacheln schreiben
+Subject: [PATCH 3/4] editor-api: Objekte bearbeiten und Kacheln schreiben
  ueber den Viewer
 
 ---
@@ -382,6 +382,63 @@ index ebd8833..e926a15 100644
 +    /// global.cfg relative to the OMSI folder (maps/<name>/global.cfg).
 +    pub fn save_edits(&self, editor: &Editor, map_rel: &str, staging: &Path) -> std::result::Result<Vec<PathBuf>, String> {
 +        editor.save(&self.world, map_rel, staging, &self.root)
++    }
+ }
+-- 
+2.55.0.windows.5
+
+
+From 0cb9086cbb9faad1472cd454cb3fd12000216701 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 6 Oct 2026 16:54:59 +0200
+Subject: [PATCH 4/4] editor-api: freie Objekte setzen, naechste freie ID,
+ Kacheldatei
+
+---
+ crates/omsi-app/src/viewer.rs | 27 ++++++++++++++++++++++++++-
+ 1 file changed, 26 insertions(+), 1 deletion(-)
+
+diff --git a/crates/omsi-app/src/viewer.rs b/crates/omsi-app/src/viewer.rs
+index e926a15..61f58bb 100644
+--- a/crates/omsi-app/src/viewer.rs
++++ b/crates/omsi-app/src/viewer.rs
+@@ -11,7 +11,7 @@ use hashbrown::HashSet;
+ use std::time::Duration;
+ 
+ pub use crate::editor::{Action, Editor};
+-pub use crate::scene::{EditObject, ObjectEdit, World};
++pub use crate::scene::{EditObject, ObjectEdit, TileGpu, World};
+ pub use omsi_render::{Camera, Lighting, RenderOptions, Renderer, Scene, SurfaceState};
+ 
+ /// The graphics instance the game uses (the native API of the system).
+@@ -230,4 +230,29 @@ impl Viewer {
+     pub fn save_edits(&self, editor: &Editor, map_rel: &str, staging: &Path) -> std::result::Result<Vec<PathBuf>, String> {
+         editor.save(&self.world, map_rel, staging, &self.root)
+     }
++
++    // ------------------------------------------------------------ new objects (placed by the editor)
++
++    /// Draw scenery object `rel` (a .sco, relative to the OMSI folder or absolute) at `pos`
++    /// turned to `heading` (degrees clockwise), outside any tile. None when it cannot be read.
++    pub fn add_object(&mut self, rel: &str, pos: DVec3, heading: f64) -> Option<TileGpu> {
++        self.world.add_helper_object(&self.renderer, &mut self.scene, rel, pos, heading, &[])
++    }
++
++    /// Take away an object `add_object` put down.
++    pub fn remove_object(&mut self, tg: TileGpu) {
++        self.world.remove_helper_object(&self.renderer, &mut self.scene, tg);
++    }
++
++    /// The first id no object or spline of the map uses (global.cfg [NextIDCode] or above).
++    pub fn next_object_id(&self) -> i64 {
++        let index = self.world.index();
++        let max = index.objects.keys().chain(index.splines.keys()).copied().max().unwrap_or(0);
++        (max + 1).max(self.world.global.next_id_code)
++    }
++
++    /// The file of tile (tx, ty) as the game reads it, None when the map has no such tile.
++    pub fn tile_file(&self, tx: i32, ty: i32) -> Option<PathBuf> {
++        self.world.tile_source(tx, ty)
 +    }
  }
 -- 
