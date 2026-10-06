@@ -14,6 +14,8 @@ from .geom import rvec, dvec
 
 SIGNAL = 'Sceneryobjects\\Verkehrszeichen_MC\\Ampel_Kfz_1.sco'
 MAST = 'Sceneryobjects\\Streetobjects_RUE\\whip_beam.sco'
+OBEN = 'Sceneryobjects\\Verkehrszeichen_MC\\Ampel_Kfz_Oh_1.sco'   # haengt am Ausleger des Masts (Anhaengepunkt 0)
+OBEN_DREHUNG = 2.98373405277684                                     # wie in Grundorf
 SIGNAL_HOEHE, MAST_HOEHE, MAST_VERSATZ = 2.8, 0.25, 0.46     # gemessen an Grundorf
 ROT_GELB, GELB, RAEUMEN = 2.0, 3.0, 3.0
 UMLAUF_2, UMLAUF_PRO_PHASE = 70.0, 15.0                     # Umlauf: 70 s bei 2 Phasen, +15 s je weitere
@@ -93,7 +95,8 @@ def sco_block(plan):
 
 def signale(arms, plan, sdb):
     """Signalmasten je Zufahrt mit ankommenden Fahrspuren: rechts der Zufahrt am Bordstein, Blick nach aussen.
-    -> Liste dict(datei, x, z, hoehe, rot, gruppe) (Welt) - Mast und Signal"""
+    -> Liste dict(art, datei, ...): 'signal' und 'mast' mit x, z, hoehe, rot (Welt); 'oben' = Signal am Ausleger
+    (eltern = Index des Masts in der Liste, anhang = Anhaengepunkt)"""
     out = []
     for i, a in enumerate(arms):
         p = sdb[a['spl']]
@@ -106,7 +109,9 @@ def signale(arms, plan, sdb):
         rv, dv = rvec(a['h']), dvec(a['h'])
         sx, sz = a['pos'][0] + off * rv[0], a['pos'][1] + off * rv[1]
         rot = a['h'] % 360
-        out.append(dict(datei=SIGNAL, x=sx, z=sz, hoehe=SIGNAL_HOEHE, rot=rot, gruppe=plan['phase'][i]))
-        out.append(dict(datei=MAST, x=sx - MAST_VERSATZ * dv[0], z=sz - MAST_VERSATZ * dv[1], hoehe=MAST_HOEHE,
-                        rot=(rot + 180) % 360, gruppe=None))
+        g = plan['phase'][i]
+        out.append(dict(art='signal', datei=SIGNAL, x=sx, z=sz, hoehe=SIGNAL_HOEHE, rot=rot, gruppe=g))
+        out.append(dict(art='mast', datei=MAST, x=sx - MAST_VERSATZ * dv[0], z=sz - MAST_VERSATZ * dv[1],
+                        hoehe=MAST_HOEHE, rot=(rot + 180) % 360, gruppe=None))
+        out.append(dict(art='oben', datei=OBEN, eltern=len(out) - 1, anhang=0, rot=OBEN_DREHUNG, gruppe=g))
     return out

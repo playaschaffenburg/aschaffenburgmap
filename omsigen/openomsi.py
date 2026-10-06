@@ -23,6 +23,8 @@ PATTERNS = {
     'fehlend': r'(\d+) unresolved',
     'vorfahrt': r'(\d+) with a \[rule\] priority',
     'ampeln': r'(\d+) light programs, (\d+) lamps',
+    'ki_typen': r'(\d+) AI vehicle types in (\d+) groups',
+    'ki_fahrzeuge': r'traffic: (\d+) vehicles \((\d+) of them buses\)',
 }
 
 
@@ -33,7 +35,7 @@ def find_exe(base=DEFAULT_OPENOMSI):
     return hits[-1] if hits else None
 
 
-def render(map_name, png, omsi=DEFAULT_OMSI, exe=None, cam=None, size=None, timeout=600):
+def render(map_name, png, omsi=DEFAULT_OMSI, exe=None, cam=None, size=None, timeout=600, verkehr=0, sekunden=0):
     """-> dict(ok, png, werte, warnungen, log). map_name = Ordnername unter <OMSI>/maps"""
     exe = exe or find_exe()
     if not exe:
@@ -44,6 +46,10 @@ def render(map_name, png, omsi=DEFAULT_OMSI, exe=None, cam=None, size=None, time
         args += ['--cam', cam]
     if size:
         args += ['--size', size]
+    if verkehr:
+        args += ['--traffic', str(verkehr)]
+    if sekunden:
+        args += ['--drive', str(sekunden)]
     p = subprocess.run(args, cwd=os.path.dirname(exe), capture_output=True, text=True, encoding='utf-8',
                        errors='replace', timeout=timeout)
     log = p.stdout + p.stderr
@@ -64,8 +70,10 @@ def main(argv=None):
     ap.add_argument('--omsi', default=DEFAULT_OMSI)
     ap.add_argument('--openomsi', default=DEFAULT_OPENOMSI, help='openomsi.exe oder Ordner, in dem sie liegt')
     ap.add_argument('--log', help='vollstaendiges openOMSI-Log hierhin schreiben')
+    ap.add_argument('--verkehr', type=int, default=0, help='so viele KI-Fahrzeuge einsetzen')
+    ap.add_argument('--sekunden', type=float, default=0, help='Simulation so lange laufen lassen (s)')
     a = ap.parse_args(argv)
-    r = render(a.karte, a.png, a.omsi, find_exe(a.openomsi), a.cam)
+    r = render(a.karte, a.png, a.omsi, find_exe(a.openomsi), a.cam, verkehr=a.verkehr, sekunden=a.sekunden)
     w = r['werte']
     if 'kacheln' in w:
         print(f"openOMSI: {w['kacheln'][0]} Kacheln ({w['kacheln'][1]} unlesbar), {w['kacheln'][2]} Splines, "
@@ -79,6 +87,10 @@ def main(argv=None):
         print(f"  Spuren mit Vorfahrtsregel ([rule] priority): {w['vorfahrt'][0]}")
     if 'ampeln' in w:
         print(f"  Ampelprogramme: {w['ampeln'][0]}, Signale: {w['ampeln'][1]}")
+    if 'ki_typen' in w:
+        print(f"  KI-Fahrzeugtypen: {w['ki_typen'][0]} in {w['ki_typen'][1]} Gruppen")
+    if 'ki_fahrzeuge' in w:
+        print(f"  KI-Fahrzeuge unterwegs: {w['ki_fahrzeuge'][0]}")
     if 'sackgassen' in w:
         print(f"  Fahrspuren, die in <= 500 m in einer Sackgasse enden: {w['sackgassen'][0]}")
     for l in r['warnungen'][:10]:

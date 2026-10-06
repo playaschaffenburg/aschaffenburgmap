@@ -6,7 +6,7 @@ from .network import proj_point
 from .custom_splines import SPLINES as CUSTOM, TEXTURE_FILES
 
 TILE = 300.0
-TEMPLATE_FILES = ['ailists.cfg', 'drivers.txt', 'gras1.bmp', 'Holidays.txt', 'Holidays_DEU.txt', 'Holidays_ENG.txt',
+TEMPLATE_FILES = ['drivers.txt', 'gras1.bmp', 'Holidays.txt', 'Holidays_DEU.txt', 'Holidays_ENG.txt',
                   'Holidays_FRA.txt', 'Holidays_POL.txt', 'humans.txt', 'parklist_p.txt', 'registrations.txt',
                   'signalroutes.cfg', 'unsched_trafficdens.txt', 'unsched_vehgroups.txt',
                   'texture/water.tga', 'texture/water_bump.bmp', 'texture/water_envmap.bmp']
@@ -37,6 +37,29 @@ def place_stops(stops, road_chains, sdb, maxdist=25):
     return out
 
 
+# Tagesganglinie des Strassenverkehrs (Stunde, Faktor) wie in Grundorf
+DENS_ROAD = ((0, .1), (4, 0), (6, 1), (7, 1.5), (8, 1), (10, .5), (15, .6), (16, 1), (17, 1.5), (20, .4), (24, .1))
+# KI-Fahrzeuge (Pfad unter Vehicles, Gewicht) - die Gruppen erwartet unsched_vehgroups.txt der Vorlage
+AI_GROUPS = {
+    'NormalCars': [('VW_Golf_2\\AI_VW_Golf_2.bus', 70), ('MB_W123_230E\\AI_mb_w123_230e.bus', 50),
+                   ('MB_W123_230E\\AI_mb_w123_230e_cab.bus', 10), ('VW_T3\\VW_T3_Van.ovh', 10),
+                   ('VW_T3\\VW_T3_Transporter.ovh', 10), ('Opel_Manta_B\\ai_opel_manta_b.ovh', 10),
+                   ('Citr_BX\\BX.ovh', 40), ('MB_T1\\ai_mb_t1_kasten.ovh', 10)],
+    'Trucks': [('MAN_F90\\AI_MAN_F90_Wechselbruecke.bus', 30)],
+}
+
+
+def ailists_cfg(omsi_dir=None):
+    """ailists.cfg im Format der Standardkarten ([aigroup_2] Name, Hof-Datei (leer), Fahrzeug<TAB>Anzahl, [end]);
+    nur Fahrzeuge, die in der OMSI-Installation vorhanden sind"""
+    L = ['Erzeugt mit omsigen', '']
+    for name, veh in AI_GROUPS.items():
+        ok = [(v, n) for v, n in veh
+              if not omsi_dir or os.path.exists(os.path.join(omsi_dir, 'Vehicles', *v.split('\\')))]
+        L += ['[aigroup_2]', name, ''] + [f'vehicles\\{v}\t{n}' for v, n in ok] + ['[end]', '', '']
+    return '\r\n'.join(L)
+
+
 def global_cfg(name, friendly, description, next_id, tiles, cam):
     tx, tz, cx, cz = cam
     L = ['File created with omsigen', '', '[name]', name, '', '[friendlyname]', friendly, '',
@@ -52,6 +75,8 @@ def global_cfg(name, friendly, description, next_id, tiles, cam):
         L += ['[addseason]', str(code), str(a), str(b), '']
     for h, v in ((0, .2), (4, 0), (6, 1), (7, 1.2), (8, 1), (10, .6), (15, .8), (16, 1.2), (17, 1.2), (20, .8), (24, .2)):
         L += ['[trafficdensity_passenger]', f'{h:.3f}', f'{v:.3f}', '']
+    for h, v in DENS_ROAD:
+        L += ['[trafficdensity_road]', f'{h:.3f}', f'{v:.3f}', '']
     for (x, z) in sorted(tiles):
         L += ['[map]', str(x), str(z), f'tile_{x}_{z}.map', '']
     return '\r\n'.join(L) + '\r\n'
@@ -110,14 +135,21 @@ def write_map(out_maps_dir, name, chains, stops, omsi_dir=None, friendly=None, d
         objs[t].append(blk)
         jid = nid
         nid += 1
+        ids = []
         for sg in j.get('signale', ()):         # Ampel: Signal (Text = Signalgruppe, [varparent] = Kreuzung) und Mast
-            sx, sz = sg['x'] - ox - TILE * t[0], sg['z'] - oz - TILE * t[1]      # in der Kachel der Kreuzung
-            blk = ['[object]', '0', sg['datei'], str(nid), fmt(sx), fmt(sz), fmt(sg['hoehe']), fmt(sg['rot']), '0', '0']
+            if sg['art'] == 'oben':             # am Mast eingehaengt; muss nach dem Mast in der Kachel stehen
+                blk = ['[attachObj]', '0', sg['datei'], str(nid), str(ids[sg['eltern']]), '0', str(sg['anhang']),
+                       fmt(sg['rot']), '0', '0']
+            else:
+                sx, sz = sg['x'] - ox - TILE * t[0], sg['z'] - oz - TILE * t[1]      # in der Kachel der Kreuzung
+                blk = ['[object]', '0', sg['datei'], str(nid), fmt(sx), fmt(sz), fmt(sg['hoehe']), fmt(sg['rot']),
+                       '0', '0']
             if sg['gruppe'] is None:
                 blk += ['0', '']
             else:
                 blk += ['1', str(sg['gruppe']), '', '[varparent]', str(jid), '']
             objs[t].append(blk)
+            ids.append(nid)
             nid += 1
     # Nachbarkacheln mit anlegen, damit rundherum Gelaende ist
     used = set(tiles) | set(objs)
@@ -145,6 +177,8 @@ def write_map(out_maps_dir, name, chains, stops, omsi_dir=None, friendly=None, d
             src = os.path.join(tpl, *f.split('/'))
             if os.path.exists(src):
                 shutil.copy(src, os.path.join(D, *f.split('/')))
+    with open(os.path.join(D, 'ailists.cfg'), 'w', encoding='cp1252', newline='') as f:
+        f.write(ailists_cfg(omsi_dir))
     cx, cz = (cam_xz[0] - ox, cam_xz[1] - oz) if cam_xz else (150.0, 150.0)
     cam = (int(cx // TILE), int(cz // TILE), cx % TILE, cz % TILE)
     write_utf16(os.path.join(D, 'global.cfg'),
