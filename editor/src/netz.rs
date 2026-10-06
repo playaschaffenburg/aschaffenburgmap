@@ -188,6 +188,33 @@ pub fn mit_hoehe(stuecke: &[Stueck], za: f64, ga: f64, zb: f64, gb: f64) -> Vec<
         .collect()
 }
 
+/// Hoehe im Element nach s Metern (kubisch aus Hoehe und Steigungen an den Enden, wie [spline_h])
+pub fn element_z(x: &Element, s: f64) -> f64 {
+    let l = x.stueck.laenge.max(1e-9);
+    let t = (s / l).clamp(0.0, 1.0);
+    let (ga, gb) = (x.stg_a / 100.0 * l, x.stg_e / 100.0 * l);
+    x.z * (2.0 * t.powi(3) - 3.0 * t * t + 1.0) + ga * (t.powi(3) - 2.0 * t * t + t)
+        + (x.z + x.dh) * (-2.0 * t.powi(3) + 3.0 * t * t) + gb * (t.powi(3) - t * t)
+}
+
+/// Punkte alle ~`schritt` Meter mit Hoehe: (Punkt, Meter ab Anfang)
+pub fn abtasten(el: &[Element], schritt: f64) -> Vec<(DVec3, f64)> {
+    let mut out = Vec::new();
+    let mut s0 = 0.0;
+    for x in el {
+        let n = (x.stueck.laenge / schritt).ceil().max(1.0) as usize;
+        for i in 0..n {
+            let s = x.stueck.laenge * i as f64 / n as f64;
+            out.push((x.stueck.bei(s).0.extend(element_z(x, s)), s0 + s));
+        }
+        s0 += x.stueck.laenge;
+    }
+    if let Some(x) = el.last() {
+        out.push((x.stueck.ende().0.extend(x.z + x.dh), s0));
+    }
+    out
+}
+
 /// Punkt und Richtung bei s Metern auf einer Folge von Stuecken
 pub fn punkt_auf(stuecke: &[Stueck], s: f64) -> Option<(DVec2, f64)> {
     let mut s0 = 0.0;
@@ -208,6 +235,38 @@ pub struct Knoten {
     pub pos: DVec3,
     /// Anschluss an eine vorhandene Strasse der Karte: (Richtung weg von ihr, Steigung in dieser Richtung)
     pub anschluss: Option<(f64, f64)>,
+    /// Enden vorhandener Strassen, die an diesem Knoten (einer Kreuzung) aufgeschnitten wurden
+    pub kartenarme: Vec<Kartenarm>,
+}
+
+/// Ende einer vorhandenen Strasse der Karte an einer Kreuzung des Netzes (dort aufgeschnitten): liegt fest
+#[derive(Clone, Debug, PartialEq)]
+pub struct Kartenarm {
+    pub pos: DVec3,
+    /// Richtung von der Kreuzung weg
+    pub richtung: f64,
+    pub sli: String,
+    /// zeigt die Splinerichtung (bei gespiegelten die umgekehrte) von der Kreuzung weg?
+    pub weg: bool,
+    pub halb: f64,
+}
+
+/// Kuerzungen der Arme einer Kreuzung (Richtung von ihr weg, halbe Breite): jeder Arm endet so weit vor der Mitte,
+/// dass er an den Nachbararmen vorbeikommt (wie kreuzung::masse, Winkel ab MIN_WINKEL); fast gegenueberliegende
+/// Arme (ueber 160 Grad) stoeren sich nicht
+pub fn kuerzungen(arme: &[(f64, f64)]) -> Vec<f64> {
+    arme.iter().enumerate().map(|(i, &(h, w))| {
+        let mut d = crate::kreuzung::ECKENRAUM;
+        for (j, &(h2, w2)) in arme.iter().enumerate() {
+            let winkel = norm180(h2 - h).abs();
+            if i == j || winkel > 160.0 {
+                continue;
+            }
+            let t = winkel.max(crate::kreuzung::MIN_WINKEL).to_radians();
+            d = d.max(w2 / t.sin() + w * t.cos() / t.sin() + crate::kreuzung::ECKENRAUM);
+        }
+        d
+    }).collect()
 }
 
 #[derive(Clone, Debug, PartialEq)]
@@ -220,6 +279,8 @@ pub struct Kante {
     /// Richtung beim Verlassen von a und beim Ankommen in b
     pub ha: f64,
     pub hb: f64,
+    /// Teil eines Kreisverkehrs (hat an seinen Kreuzungen Vorfahrt)
+    pub ring: bool,
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -234,7 +295,10 @@ pub struct Netz {
 /// ein Arm einer Kreuzung des Netzes (Knoten mit 3 und mehr Kanten)
 #[derive(Clone, Debug)]
 pub struct NetzArm {
+    /// Kante des Netzes (0: Kartenarm)
     pub kante: u32,
+    /// das Ende einer vorhandenen Strasse (statt einer Kante)
+    pub karte: Option<Kartenarm>,
     /// beginnt die Kante an der Kreuzung (sonst endet sie dort)
     pub weg: bool,
     /// Richtung von der Kreuzung weg
@@ -274,20 +338,20 @@ impl Netz {
 
     pub fn knoten_neu(&mut self, pos: DVec3) -> u32 {
         let id = self.neue_id();
-        self.knoten.push(Knoten { id, pos, anschluss: None });
+        self.knoten.push(Knoten { id, pos, anschluss: None, kartenarme: vec![] });
         id
     }
 
     /// Knoten am Ende einer vorhandenen Strasse: neue Kanten muessen ihn in `richtung` verlassen
     pub fn anschluss_neu(&mut self, pos: DVec3, richtung: f64, steigung: f64) -> u32 {
         let id = self.neue_id();
-        self.knoten.push(Knoten { id, pos, anschluss: Some((richtung, steigung)) });
+        self.knoten.push(Knoten { id, pos, anschluss: Some((richtung, steigung)), kartenarme: vec![] });
         id
     }
 
     pub fn kante_neu(&mut self, a: u32, b: u32, sli: &str, ha: f64, hb: f64) -> u32 {
         let id = self.neue_id();
-        self.kanten.push(Kante { id, a, b, sli: sli.to_string(), ha, hb });
+        self.kanten.push(Kante { id, a, b, sli: sli.to_string(), ha, hb, ring: false });
         id
     }
 
@@ -299,6 +363,9 @@ impl Netz {
     /// Richtung, in der eine neue Kante den Knoten verlassen muss, damit sie an die eine vorhandene Kante
     /// anschliesst (None: freies Ende ohne Kante oder Kreuzung)
     pub fn weiter_richtung(&self, k: u32) -> Option<f64> {
+        if self.knoten(k).is_some_and(|x| !x.kartenarme.is_empty()) {
+            return None;
+        }
         let an = self.an(k);
         let anschluss = self.knoten(k).and_then(|x| x.anschluss);
         if an.len() + anschluss.is_some() as usize != 1 {
@@ -358,9 +425,16 @@ impl Netz {
         mit_hoehe(&st, a.pos.z, ga, b.pos.z, gb)
     }
 
-    /// ist der Knoten eine Kreuzung (3 und mehr Kanten)?
+    /// ist der Knoten eine Kreuzung (3 und mehr Arme: Kanten und aufgeschnittene vorhandene Strassen)?
     pub fn ist_kreuzung(&self, k: u32) -> bool {
-        self.an(k).len() >= 3
+        self.an(k).len() + self.knoten(k).map(|x| x.kartenarme.len()).unwrap_or(0) >= 3
+    }
+
+    /// Knoten mit Kartenarmen (Kreuzung an einer vorhandenen Strasse)
+    pub fn knoten_mit_kartenarmen(&mut self, pos: DVec3, arme: Vec<Kartenarm>) -> u32 {
+        let id = self.knoten_neu(pos);
+        self.knoten.last_mut().unwrap().kartenarme = arme;
+        id
     }
 
     fn halb(&self, sli: &str) -> f64 {
@@ -374,23 +448,28 @@ impl Netz {
         if !self.ist_kreuzung(k) {
             return vec![];
         }
-        let roh: Vec<(u32, bool, f64, f64)> = self.an(k).into_iter().map(|e| {
+        let mut arme: Vec<NetzArm> = self.an(k).into_iter().map(|e| {
             let weg = e.a == k;
             let h = if weg { e.ha } else { (e.hb + 180.0).rem_euclid(360.0) };
-            (e.id, weg, h, self.halb(&e.sli))
+            NetzArm { kante: e.id, karte: None, weg, richtung: h, kuerzung: 0.0 }
         }).collect();
-        roh.iter().map(|&(id, weg, h, w)| {
-            let mut d = crate::kreuzung::ECKENRAUM;
-            for &(id2, _, h2, w2) in &roh {
-                let winkel = norm180(h2 - h).abs();
-                if id2 == id || winkel > 160.0 {
-                    continue;
-                }
-                let t = winkel.max(crate::kreuzung::MIN_WINKEL).to_radians();
-                d = d.max(w2 / t.sin() + w * t.cos() / t.sin() + crate::kreuzung::ECKENRAUM);
+        let knoten = self.knoten(k).unwrap();
+        for ka in &knoten.kartenarme {
+            let d = (ka.pos.truncate() - knoten.pos.truncate()).length();
+            arme.push(NetzArm { kante: 0, karte: Some(ka.clone()), weg: ka.weg, richtung: ka.richtung, kuerzung: d });
+        }
+        let roh: Vec<(f64, f64)> = arme.iter().map(|a| (a.richtung, match &a.karte {
+            Some(ka) => ka.halb,
+            None => self.halb(&self.kante(a.kante).unwrap().sli),
+        })).collect();
+        let d = kuerzungen(&roh);
+        for (a, d) in arme.iter_mut().zip(d) {
+            // Kartenarme liegen fest (beim Aufschneiden so bemessen)
+            if a.karte.is_none() {
+                a.kuerzung = d;
             }
-            NetzArm { kante: id, weg, richtung: h, kuerzung: d }
-        }).collect()
+        }
+        arme
     }
 
     /// Kuerzung der Kante `kante` am Knoten k (0: keine Kreuzung)
@@ -399,6 +478,12 @@ impl Netz {
             return 0.0;
         }
         self.arme(k).into_iter().find(|a| a.kante == kante).map(|a| a.kuerzung).unwrap_or(0.0)
+    }
+
+    /// Punkte der Kante ohne Kuerzung (alle ~`schritt` Meter, mit Hoehe)
+    pub fn punkte(&self, e: &Kante, schritt: f64) -> Vec<(DVec3, f64)> {
+        let (Some(a), Some(b)) = (self.knoten(e.a), self.knoten(e.b)) else { return vec![] };
+        abtasten(&mit_hoehe(&self.lage(e), a.pos.z, self.steigung(e, e.a), b.pos.z, self.steigung(e, e.b)), schritt)
     }
 
     /// Stelle auf einer Kante (ohne Kuerzung) nahe p (bis zur halben Breite): (Kante, Meter ab a, Punkt, Richtung)
@@ -452,7 +537,9 @@ impl Netz {
         let m = self.knoten_neu(q.extend(z));
         self.kanten.retain(|k| k.id != id);
         self.kante_neu(e.a, m, &e.sli, e.ha, h);
+        self.kanten.last_mut().unwrap().ring = e.ring;
         self.kante_neu(m, e.b, &e.sli, h, e.hb);
+        self.kanten.last_mut().unwrap().ring = e.ring;
         Some(m)
     }
 
@@ -460,7 +547,7 @@ impl Netz {
     pub fn kante_loeschen(&mut self, id: u32) {
         self.kanten.retain(|e| e.id != id);
         let benutzt: std::collections::HashSet<u32> = self.kanten.iter().flat_map(|e| [e.a, e.b]).collect();
-        self.knoten.retain(|k| benutzt.contains(&k.id));
+        self.knoten.retain(|k| benutzt.contains(&k.id) || !k.kartenarme.is_empty());
     }
 
     /// Knoten verschieben: die Kanten folgen; an Verbindungsknoten bleibt die Richtung durchgehend

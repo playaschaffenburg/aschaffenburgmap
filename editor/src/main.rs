@@ -156,6 +156,7 @@ enum UiAktion {
     SplineSpiegeln,
     SplineLoeschen,
     StrassenModus(strasse::Modus),
+    KreiselQuerschnitt(String),
     StrassenHoehe(f64),
     ZugBeenden,
 }
@@ -360,6 +361,9 @@ impl App {
             if let Ok(q) = self.qs_job.take().unwrap().join() {
                 if self.strasse.sli.is_none() {
                     self.strasse.sli = q.iter().find(|q| q.name == "str_2spur_10m_Grunewaldstr").or(q.first()).map(|q| q.rel.clone());
+                }
+                if self.strasse.kreisel_sli.is_none() {
+                    self.strasse.kreisel_sli = strasse::kreisel_vorschlag(&q);
                 }
                 self.querschnitte = Some(q);
             }
@@ -655,7 +659,7 @@ impl App {
                 egui::Panel::right("strasse").default_size(360.0).show(ctx, |ui| {
                     ui.heading("Strasse bauen");
                     ui.horizontal(|ui| {
-                        for (m, t) in [(strasse::Modus::Gerade, "Gerade (G)"), (strasse::Modus::Kurve, "Kurve (K)")] {
+                        for (m, t) in [(strasse::Modus::Gerade, "Gerade (G)"), (strasse::Modus::Kurve, "Kurve (K)"), (strasse::Modus::Kreisel, "Kreisverkehr (V)")] {
                             if ui.selectable_label(self.strasse.modus == m, t).clicked() {
                                 aktionen.push(UiAktion::StrassenModus(m));
                             }
@@ -680,9 +684,21 @@ impl App {
                     let frei = self.anschluesse.liste.iter().filter(|a| a.frei).count();
                     ui.label(egui::RichText::new(format!("{} Knoten, {} Strassenstuecke | {} freie Enden vorhandener Strassen (blau)", self.strasse.netz.knoten.len(), self.strasse.netz.kanten.len(), frei)).small().weak());
                     ui.separator();
-                    ui.label("Querschnitt");
-                    if let Some(rel) = self.qs_raster(ui, self.strasse.sli.clone()) {
-                        aktionen.push(UiAktion::Querschnitt(rel));
+                    if self.strasse.modus == strasse::Modus::Kreisel {
+                        ui.label("Querschnitt des Rings (Einbahn, gegen den Uhrzeigersinn befahren)");
+                        let einbahn = self.querschnitte.as_ref().and_then(|q| q.iter().find(|q| Some(&q.rel) == self.strasse.kreisel_sli.as_ref())).map(|q| q.zurueck == 0 && q.vor >= 1);
+                        if einbahn == Some(false) {
+                            ui.colored_label(egui::Color32::from_rgb(255, 140, 90), "kein Einbahn-Querschnitt - im Kreisverkehr fuehren Spuren falsch herum");
+                        }
+                        ui.label(egui::RichText::new("Klick setzt die Mitte, die Maus die Groesse (Durchmesser 24 bis 120 m), Klick baut. Danach Zufahrten auf den Ring ziehen: dort entstehen T-Kreuzungen, der Ring hat Vorfahrt.").small().weak());
+                        if let Some(rel) = self.qs_raster(ui, self.strasse.kreisel_sli.clone()) {
+                            aktionen.push(UiAktion::KreiselQuerschnitt(rel));
+                        }
+                    } else {
+                        ui.label("Querschnitt");
+                        if let Some(rel) = self.qs_raster(ui, self.strasse.sli.clone()) {
+                            aktionen.push(UiAktion::Querschnitt(rel));
+                        }
                     }
                     ui.separator();
                     ui.label(egui::RichText::new("Klick: Start / naechster Punkt (rastet an Knoten ein, gruen = freies Ende: tangential weiter). Bild auf/ab: Hoehe. Entf: Strasse unter der Maus loeschen.").small().weak());
@@ -824,7 +840,7 @@ impl App {
                         t += &format!("   R {:.0} m", plan.min_radius);
                     }
                     t += &format!("   {:+.1} %", plan.steigung);
-                    if plan.ziel.is_some() || plan.ziel_anschluss.is_some() {
+                    if plan.angeschlossen {
                         t += "   Anschluss";
                     }
                     if !plan.kreuzungen.is_empty() {
@@ -973,7 +989,15 @@ impl App {
                 }
             }
             UiAktion::Querschnitt(rel) => self.strasse.sli = Some(rel),
-            UiAktion::StrassenModus(m) => self.strasse.modus = m,
+            UiAktion::StrassenModus(m) => {
+                if m != self.strasse.modus {
+                    if let Some(v) = self.viewer.as_mut() {
+                        self.strasse.beenden(v);
+                    }
+                }
+                self.strasse.modus = m;
+            }
+            UiAktion::KreiselQuerschnitt(rel) => self.strasse.kreisel_sli = Some(rel),
             UiAktion::StrassenHoehe(d) => self.strasse.hoehe = (self.strasse.hoehe + d).clamp(-30.0, 40.0),
             UiAktion::ZugBeenden => {
                 if let Some(v) = self.viewer.as_mut() {
@@ -1131,6 +1155,7 @@ impl App {
             KeyCode::Home if self.bearb.werkzeug == Werkzeug::Strasse => Some(UiAktion::StrassenHoehe(-self.strasse.hoehe)),
             KeyCode::KeyG if self.bearb.werkzeug == Werkzeug::Strasse => Some(UiAktion::StrassenModus(strasse::Modus::Gerade)),
             KeyCode::KeyK if self.bearb.werkzeug == Werkzeug::Strasse => Some(UiAktion::StrassenModus(strasse::Modus::Kurve)),
+            KeyCode::KeyV if self.bearb.werkzeug == Werkzeug::Strasse => Some(UiAktion::StrassenModus(strasse::Modus::Kreisel)),
             KeyCode::Delete if self.bearb.werkzeug == Werkzeug::Strasse => {
                 let (bw, bh) = self.bildgroesse();
                 let fang = 12.0 * self.kam.m_pro_px(bh).max(0.02);

@@ -8,7 +8,7 @@
 //! der neuen Karte.
 
 use crate::aendern::{eintrag_ende, eintrag_finden, Aendern, KartenSpline};
-use crate::netz::{self, norm180};
+use crate::netz::norm180;
 use anyhow::{bail, Context, Result};
 use glam::{DVec2, DVec3};
 use openomsi_game::viewer::Viewer;
@@ -134,24 +134,34 @@ impl Aendern {
                        sli: s.sli.clone(), halb: l.max(r) as f64 })
     }
 
-    /// Abzweig so verschieben, dass die Kreuzung (Schnitt je Seite fuer einen Arm Richtung `richtung` mit halber
-    /// Breite `halb_arm`) auf die Strasse passt: nahe einem Ende rueckt sie in die Strasse hinein. Fehler nur, wenn
-    /// die Strasse (die lueckenlose Kette) zu kurz ist.
-    pub fn abzweig_einpassen(&self, ab: &Abzweig, richtung: f64, halb_arm: f64) -> Result<Abzweig> {
-        let h = arm_richtung(ab.richtung, richtung);
-        let (d, _) = masse(ab.richtung, h, ab.halb, halb_arm);
-        let kette = self.kette_um(ab.spline_id, 2.0 * d + 20.0);
+    /// Schnitt vor und hinter der Kreuzungsmitte (Meter entlang der Strasse) fuer zusaetzliche Arme (Richtung von der
+    /// Kreuzung weg, halbe Breite): wie die Kuerzung der Arme im Netz
+    pub fn schnitte(ab: &Abzweig, weitere: &[(f64, f64)]) -> (f64, f64) {
+        let mut roh = vec![((ab.richtung + 180.0).rem_euclid(360.0), ab.halb), (ab.richtung, ab.halb)];
+        roh.extend_from_slice(weitere);
+        let d = crate::netz::kuerzungen(&roh);
+        (d[0], d[1])
+    }
+
+    /// Abzweig so verschieben, dass die Kreuzung (Schnitt `vor` davor, `nach` dahinter) auf die Strasse passt: nahe
+    /// einem Ende rueckt sie in die Strasse hinein. Fehler nur, wenn die Strasse (die lueckenlose Kette) zu kurz ist.
+    pub fn abzweig_einpassen(&self, ab: &Abzweig, vor: f64, nach: f64) -> Result<Abzweig> {
+        let kette = self.kette_um(ab.spline_id, vor + nach + 20.0);
         let g = kette.iter().find(|g| g.s.id == ab.spline_id).context("Spline nicht geladen")?;
-        let anfang = kette.first().map(|g| g.von).unwrap_or(0.0) + d + MIN_REST + 0.5;
-        let ende = kette.last().map(|g| g.bis()).unwrap_or(0.0) - d - MIN_REST - 0.5;
+        let anfang = kette.first().map(|g| g.von).unwrap_or(0.0) + vor + MIN_REST + 0.5;
+        let ende = kette.last().map(|g| g.bis()).unwrap_or(0.0) - nach - MIN_REST - 0.5;
         if ende < anfang {
-            bail!("die Strasse ist hier zu kurz fuer eine Kreuzung (braucht {:.0} m bis zum naechsten Ende/zur naechsten Kreuzung)", 2.0 * (d + MIN_REST));
+            bail!("die Strasse ist hier zu kurz fuer eine Kreuzung (braucht {:.0} m bis zum naechsten Ende/zur naechsten Kreuzung)", vor + nach + 2.0 * MIN_REST);
         }
         let mitte = (g.von + ab.s).clamp(anfang, ende);
-        let g = kette.iter().find(|g| mitte >= g.von && mitte <= g.bis()).unwrap_or(g);
+        Ok(self.abzweig_in_kette(&kette, mitte, ab.halb).unwrap_or_else(|| ab.clone()))
+    }
+
+    fn abzweig_in_kette(&self, kette: &[Glied], mitte: f64, halb: f64) -> Option<Abzweig> {
+        let g = kette.iter().find(|g| mitte >= g.von - 1e-9 && mitte <= g.bis() + 1e-9)?;
         let s = (mitte - g.von).clamp(0.0, g.s.kurve.length);
-        Ok(Abzweig { spline_id: g.s.id, s, pos: g.s.kurve.point_at(s), richtung: g.s.kurve.heading_at(s).rem_euclid(360.0),
-                     sli: g.s.sli.clone(), halb: ab.halb })
+        Some(Abzweig { spline_id: g.s.id, s, pos: g.s.kurve.point_at(s), richtung: g.s.kurve.heading_at(s).rem_euclid(360.0),
+                       sli: g.s.sli.clone(), halb })
     }
 
     /// Splines (IDs) der lueckenlosen Kette um `id` bis `weit` Meter zu jeder Seite
@@ -199,27 +209,23 @@ impl Aendern {
         out
     }
 
-    /// Kreuzung an der Abzweig-Stelle bauen: Strasse aufschneiden, Kreuzungsobjekt setzen. Der neue Arm zeigt in
-    /// `richtung` (wird auf MIN_WINKEL begrenzt) und bekommt Querschnitt `sli`; `weg`: die neue Strasse beginnt
-    /// an der Kreuzung (sonst endet sie dort). -> der neue Arm (Lage, Richtung von der Kreuzung weg; eben)
-    pub fn kreuzung_bauen(&mut self, v: &mut Viewer, ab: &Abzweig, richtung: f64, sli: &str, weg: bool) -> Result<(Arm, Objekt)> {
-        let (l, r) = v.spline_lanes(sli).map(|x| x.1).context("Querschnitt unbekannt")?;
-        let halb_neu = l.max(r) as f64;
-        let ab = &self.abzweig_einpassen(ab, richtung, halb_neu)?;
-        let richtung = arm_richtung(ab.richtung, richtung);
-        let (d, d_arm) = masse(ab.richtung, richtung, ab.halb, halb_neu);
+    /// Vorhandene Strasse an der Abzweig-Stelle fuer eine Kreuzung aufschneiden: `vor` Meter davor bis `nach` Meter
+    /// dahinter faellt weg (auch ueber mehrere verknuepfte Splines; das Stueck dahinter bekommt eine neue ID, die
+    /// Nachbarn werden umgehaengt), die Enden laufen eben auf Kreuzungshoehe ein. Ein Rueckgaengig-Schritt.
+    /// -> die zwei Enden als Arme der Kreuzung (das Kreuzungsobjekt setzt das Netz, strasse.rs)
+    pub fn aufschneiden(&mut self, v: &mut Viewer, ab: &Abzweig, vor: f64, nach: f64) -> Result<Vec<crate::netz::Kartenarm>> {
         let t0 = std::time::Instant::now();
-        log::info!("Kreuzung bauen: Spline {} bei {:.1} m ({}), Arm {:.1} Grad, Schnitt {:.1} m je Seite, Arm {:.1} m", ab.spline_id, ab.s, ab.sli, richtung, d, d_arm);
-        crate::protokoll::aktion(&format!("Kreuzung bauen: Kette um Spline {}", ab.spline_id));
-        let kette = self.kette_um(ab.spline_id, d + 5.0);
-        log::info!("  Kette: {} Splines {:?} ({} ms)", kette.len(), kette.iter().map(|g| g.s.id).collect::<Vec<_>>(), t0.elapsed().as_millis());
+        log::info!("Strasse aufschneiden: Spline {} bei {:.1} m ({}), {:.1} m davor, {:.1} m dahinter", ab.spline_id, ab.s, ab.sli, vor, nach);
+        crate::protokoll::aktion(&format!("Strasse aufschneiden: Spline {}", ab.spline_id));
+        let kette = self.kette_um(ab.spline_id, vor.max(nach) + 5.0);
+        log::info!("  Kette: {} Splines {:?}", kette.len(), kette.iter().map(|g| g.s.id).collect::<Vec<_>>());
         let g = kette.iter().find(|g| g.s.id == ab.spline_id).context("Spline nicht geladen")?;
         let mitte = g.von + ab.s;
-        let (mut lo, mut hi) = (mitte - d, mitte + d);
+        let (mut lo, mut hi) = (mitte - vor, mitte + nach);
         let anfang = kette.first().map(|g| g.von).unwrap_or(0.0);
         let ende = kette.last().map(|g| g.bis()).unwrap_or(0.0);
         if lo < anfang + MIN_REST || hi > ende - MIN_REST {
-            bail!("zu nah am Ende der Strasse oder an einer Kreuzung - etwas weiter in der Mitte abzweigen");
+            bail!("zu nah am Ende der Strasse oder an einer Kreuzung");
         }
         // Reste unter MIN_REST fallen weg
         for g in &kette {
@@ -239,9 +245,7 @@ impl Aendern {
         };
         let (p_lo, h_lo, g_lo) = punkt(lo);
         let (p_hi, h_hi, g_hi) = punkt(hi);
-        crate::protokoll::aktion("Kreuzung bauen: naechste freie ID (Kartenindex)");
         let mut ids = v.next_object_id();
-        log::info!("  naechste ID {ids} ({} ms)", t0.elapsed().as_millis());
         let mut neue_id = || {
             ids += 1;
             ids - 1
@@ -264,21 +268,11 @@ impl Aendern {
             };
             schnitte.push((g.s.clone(), s));
         }
-        // Arme: die zwei Enden der Strasse und der neue
-        let c = ab.pos.truncate();
-        let arm_pos = c + netz::dir(richtung) * d_arm;
+        let halb = ab.halb;
         let arme = vec![
-            Arm { pos: p_lo, richtung: (h_lo + 180.0).rem_euclid(360.0), sli: g_lo.s.sli.clone(), weg: g_lo.s.gespiegelt, rolle: Rolle::Haupt },
-            Arm { pos: p_hi, richtung: h_hi.rem_euclid(360.0), sli: g_hi.s.sli.clone(), weg: !g_hi.s.gespiegelt, rolle: Rolle::Haupt },
-            Arm { pos: arm_pos.extend(hoehe), richtung, sli: sli.to_string(), weg, rolle: Rolle::Neben },
+            crate::netz::Kartenarm { pos: p_lo.truncate().extend(hoehe), richtung: (h_lo + 180.0).rem_euclid(360.0), sli: g_lo.s.sli.clone(), weg: g_lo.s.gespiegelt, halb },
+            crate::netz::Kartenarm { pos: p_hi.truncate().extend(hoehe), richtung: h_hi.rem_euclid(360.0), sli: g_hi.s.sli.clone(), weg: !g_hi.s.gespiegelt, halb },
         ];
-        let (ordner, _) = self.kreuzungs_ordner();
-        let rel_ordner = format!("Sceneryobjects\\Aschaffenburg_KI\\{}", self.tag);
-        let name = freier_name(&ordner);
-        crate::protokoll::aktion("Kreuzung bauen: omsigen erzeugt das Kreuzungsobjekt");
-        let obj = erzeugen(&v.root, &ordner, &rel_ordner, &name, &arme)?;
-        log::info!("  Objekt {} bei {:?}: {} Abbiegespuren, {} Regeln ({} ms)", obj.rel, obj.ursprung, obj.spuren, obj.rules.len(), t0.elapsed().as_millis());
-        let obj_id = neue_id();
         // Kacheln umschreiben
         let ts = omsi_map::tile_size();
         let kachel_von = |p: DVec2| ((p.x / ts).floor() as i32, (p.y / ts).floor() as i32);
@@ -310,15 +304,6 @@ impl Aendern {
                 }
             }
         }
-        // Kreuzungsobjekt ([absheight]: Hoehe absolut) mit den Vorfahrtregeln seiner Pfade
-        let ko = kachel_von(obj.ursprung);
-        let mut z = vec!["[object]".to_string(), "0".into(), obj.rel.clone(), obj_id.to_string(),
-                         zahl(obj.ursprung.x - ko.0 as f64 * ts), zahl(obj.ursprung.y - ko.1 as f64 * ts), zahl(hoehe),
-                         "0".into(), "0".into(), "0".into(), "0".into()];
-        for (pfad, wert) in &obj.rules {
-            z.extend(["".into(), "[rule]".into(), pfad.to_string(), "priority".into(), wert.to_string(), "0".into()]);
-        }
-        anhaengen.entry(ko).or_default().push(z);
         // Nachbarn, deren prev auf den geteilten Spline zeigte
         let mut prev_neu: BTreeMap<(i32, i32), Vec<(i64, i64)>> = BTreeMap::new();
         for (id, neu) in verweise {
@@ -328,7 +313,7 @@ impl Aendern {
         let mut kacheln: Vec<(i32, i32)> = aendern.keys().chain(anhaengen.keys()).chain(prev_neu.keys()).copied().collect();
         kacheln.sort();
         kacheln.dedup();
-        crate::protokoll::aktion(&format!("Kreuzung bauen: Kacheln {kacheln:?} umschreiben und neu laden"));
+        crate::protokoll::aktion(&format!("Strasse aufschneiden: Kacheln {kacheln:?} umschreiben und neu laden"));
         self.kacheln_aendern(v, &kacheln, |k, zeilen| {
             if !zeilen.iter().take(20).position(|l| l.trim().eq_ignore_ascii_case("[version]"))
                 .and_then(|i| zeilen.get(i + 1)).and_then(|l| l.trim().parse::<i32>().ok()).is_some_and(|x| x >= 11) {
@@ -370,9 +355,71 @@ impl Aendern {
         })?;
         log::info!("  Kacheln {kacheln:?} umgeschrieben ({} ms)", t0.elapsed().as_millis());
         crate::protokoll::aktion("");
-        let arm = arme[2].clone();
-        Ok((Arm { pos: arm_pos.extend(hoehe), ..arm }, obj))
+        Ok(arme)
     }
+
+    /// Kreuzungsstellen der Kurve `punkte` (alle ~1 m: Lage mit Hoehe, Meter ab Anfang) mit vorhandenen Strassen
+    /// (Splines mit Fahrspuren) auf gleicher Hoehe (bis 3 m; darueber: Bruecke/Tunnel, keine Kreuzung)
+    /// -> (Meter auf der Kurve, Abzweig auf der vorhandenen Strasse), nach Lage sortiert
+    pub fn kreuzungen_mit(&mut self, v: &Viewer, punkte: &[(DVec3, f64)]) -> Vec<(f64, Abzweig)> {
+        if punkte.len() < 2 {
+            return vec![];
+        }
+        let (lo, hi) = punkte.iter().fold((DVec2::splat(f64::INFINITY), DVec2::splat(f64::NEG_INFINITY)), |(a, b), (p, _)| (a.min(p.truncate()), b.max(p.truncate())));
+        let kandidaten: Vec<KartenSpline> = self.kacheln.values().flatten()
+            .filter(|s| {
+                let r = s.kurve.length + 20.0;
+                let p = s.kurve.start.truncate();
+                p.x > lo.x - r && p.x < hi.x + r && p.y > lo.y - r && p.y < hi.y + r
+            })
+            .cloned().collect();
+        let mut out: Vec<(f64, Abzweig)> = Vec::new();
+        for sp in kandidaten {
+            let Some((spuren, _)) = v.spline_lanes(&sp.sli) else { continue };
+            if !spuren.iter().any(|x| x.0 == 0) {
+                continue;
+            }
+            let k = &sp.kurve;
+            let n = (k.length / 1.0).ceil().max(1.0) as usize;
+            let q: Vec<(DVec3, f64)> = (0..=n).map(|i| {
+                let s = k.length * i as f64 / n as f64;
+                (k.point_at(s), s)
+            }).collect();
+            for w in punkte.windows(2) {
+                for u in q.windows(2) {
+                    let Some((t, r)) = schnitt_strecken(w[0].0.truncate(), w[1].0.truncate(), u[0].0.truncate(), u[1].0.truncate()) else { continue };
+                    let z1 = w[0].0.z + (w[1].0.z - w[0].0.z) * t;
+                    let z2 = u[0].0.z + (u[1].0.z - u[0].0.z) * r;
+                    if (z1 - z2).abs() > 3.0 {
+                        continue;
+                    }
+                    let s_neu = w[0].1 + (w[1].1 - w[0].1) * t;
+                    let s_alt = u[0].1 + (u[1].1 - u[0].1) * r;
+                    if out.iter().any(|(x, _)| (x - s_neu).abs() < 1.0) {
+                        continue;
+                    }
+                    let (l, rr) = self.breite(v, &sp.sli);
+                    out.push((s_neu, Abzweig { spline_id: sp.id, s: s_alt, pos: k.point_at(s_alt), richtung: k.heading_at(s_alt).rem_euclid(360.0),
+                                               sli: sp.sli.clone(), halb: l.max(rr) as f64 }));
+                }
+            }
+        }
+        out.sort_by(|a, b| a.0.total_cmp(&b.0));
+        out
+    }
+}
+
+/// Schnittpunkt der Strecken a-b und c-d -> (Anteil auf a-b, Anteil auf c-d)
+pub fn schnitt_strecken(a: DVec2, b: DVec2, c: DVec2, d: DVec2) -> Option<(f64, f64)> {
+    let r = b - a;
+    let s = d - c;
+    let n = r.perp_dot(s);
+    if n.abs() < 1e-12 {
+        return None;
+    }
+    let t = (c - a).perp_dot(s) / n;
+    let u = (c - a).perp_dot(r) / n;
+    ((0.0..1.0).contains(&t) && (0.0..1.0).contains(&u)).then_some((t, u))
 }
 
 /// beginnt mit dieser Zeile ein neuer Eintrag der Kachel (Spline, Objekt, ...)?
@@ -470,6 +517,7 @@ pub fn erzeugen(root: &Path, ordner: &Path, rel_ordner: &str, name: &str, arme: 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::netz;
 
     #[test]
     fn richtung_und_masse() {
@@ -501,6 +549,50 @@ mod tests {
         assert!(!o.rules.is_empty() && d.join("K_E0001.sco").exists() && d.join("model").join("K_E0001.x").exists());
         assert_eq!(freier_name(&d), "K_E0002");
         let _ = std::fs::remove_dir_all(&d);
+    }
+
+    /// Ursprung o, so dass die Strecken o+(a..b) (Liste) keine vorhandene Strasse kreuzen (Grundorf, ganze Karte geladen)
+    pub fn freie_flaeche(v: &Viewer, a: &mut Aendern, strecken: &[((f64, f64), (f64, f64))]) -> DVec2 {
+        a.aktualisieren(v);
+        // Kandidaten innerhalb der Kacheln (100 m vom Rand), von der Mitte nach aussen
+        let ts = omsi_map::tile_size();
+        let k = v.map_tiles();
+        let (x0, x1) = (k.iter().map(|t| t.0).min().unwrap() as f64 * ts + 100.0, (k.iter().map(|t| t.0).max().unwrap() + 1) as f64 * ts - 100.0);
+        let (y0, y1) = (k.iter().map(|t| t.1).min().unwrap() as f64 * ts + 100.0, (k.iter().map(|t| t.1).max().unwrap() + 1) as f64 * ts - 100.0);
+        let mitte = DVec2::new((x0 + x1) / 2.0, (y0 + y1) / 2.0);
+        let mut kandidaten: Vec<DVec2> = Vec::new();
+        let mut x = x0;
+        while x <= x1 {
+            let mut y = y0;
+            while y <= y1 {
+                kandidaten.push(DVec2::new(x, y));
+                y += 25.0;
+            }
+            x += 25.0;
+        }
+        kandidaten.sort_by(|a, b| (*a - mitte).length().total_cmp(&(*b - mitte).length()));
+        for o in kandidaten {
+            {
+                let frei = strecken.iter().all(|&((x0, y0), (x1, y1))| {
+                    let (p, q) = (o + DVec2::new(x0, y0), o + DVec2::new(x1, y1));
+                    let n = ((q - p).length() / 2.0).ceil() as usize;
+                    let punkte: Vec<(DVec3, f64)> = (0..=n).map(|k| {
+                        let t = k as f64 / n as f64;
+                        let r = p + (q - p) * t;
+                        (r.extend(v.terrain_height(r.x, r.y).unwrap_or(f64::NAN)), (q - p).length() * t)
+                    }).collect();
+                    // Gelaende ueberall da und eben (hoechstens 3 m Unterschied), keine vorhandene Strasse naeher als 25 m
+                    let (zmin, zmax) = punkte.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), x| (a.min(x.0.z), b.max(x.0.z)));
+                    zmax - zmin < 3.0 && punkte.iter().all(|x| x.0.z.is_finite() && a.abzweig_bei(v, x.0.truncate()).is_none()
+                        && [-25.0, 25.0].iter().all(|d| a.abzweig_bei(v, x.0.truncate() + crate::netz::rechts(crate::netz::richtung(p, q)) * *d).is_none()))
+                        && a.kreuzungen_mit(v, &punkte).is_empty()
+                });
+                if frei {
+                    return o;
+                }
+            }
+        }
+        panic!("keine freie Flaeche gefunden");
     }
 
     /// eine lange Strasse mitten in Grundorf: (Abzweig in ihrer Mitte)
@@ -550,8 +642,10 @@ mod tests {
             let px = v.render_image(1280, 800, &k.camera()).unwrap();
             image::save_buffer(bild, &px, 1280, 800, image::ColorType::Rgba8).unwrap();
         }
-        let e = &s.netz.kanten[0];
-        let start = s.netz.knoten(e.a).unwrap().pos;
+        // die neue Strasse beginnt am Arm der Kreuzung (gekuerzt)
+        let e = s.netz.kanten.iter().find(|e| s.netz.ist_kreuzung(e.a)).expect("Kante an der Kreuzung");
+        let el0 = s.netz.elemente(e)[0];
+        let start = el0.stueck.start.extend(el0.z);
         // speichern in einen Test-OMSI-Ordner
         let test_root = std::env::temp_dir().join(format!("omsi-editor-kreuzung-speichern-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&test_root);
@@ -695,7 +789,7 @@ mod tests {
                 let plan = s.plan.as_ref().map(|p| format!("Plan {:.1} m, {} Kreuzung(en)", p.laenge, p.kreuzungen.len()));
                 let m = s.klick(&mut v, ab.pos, 2.0, &ans, Some(&mut a));
                 println!("{fall} {modus:?}: {plan:?} -> {m:?}");
-                let ok = m.as_deref().is_some_and(|m| m.contains("Kreuzung ("));
+                let ok = m.as_deref().is_some_and(|m| m.contains("Kreuzung"));
                 s.beenden(&mut v);
                 while s.kann_rueckgaengig() {
                     s.rueckgaengig(&mut v, Some(&mut a));
@@ -758,7 +852,9 @@ mod tests {
         let mut a = Aendern::neu(&v);
         a.aktualisieren(&v);
         let ans = Anschluesse::default();
-        let boden = |v: &Viewer, x: f64, y: f64| DVec3::new(x, y, v.terrain_height(x, y).unwrap());
+        let o = freie_flaeche(&v, &mut a, &[((0.0, 0.0), (0.0, 130.0)), ((0.0, 40.0), (70.0, 40.0)), ((-70.0, 100.0), (0.0, 100.0))]);
+        println!("freie Flaeche bei {o:?}");
+        let boden = move |v: &Viewer, x: f64, y: f64| DVec3::new(o.x + x - 120.0, o.y + y - 100.0, v.terrain_height(o.x + x - 120.0, o.y + y - 100.0).unwrap());
         let mut s = Strassenbau::neu(Some("Splines\\Marcel\\str_2spur_10m_Grunewaldstr.sli".into()), Modus::Gerade);
         let bauen = |s: &mut Strassenbau, v: &mut Viewer, a: &mut Aendern, punkte: &[(f64, f64)]| -> String {
             let mut m = String::new();
@@ -786,7 +882,7 @@ mod tests {
         assert_eq!(s.gesetzte_kreuzungen().len(), 2, "{:?}", s.kreuzung_fehler);
         assert!(s.netz.kanten.iter().all(|e| !s.netz.elemente(e).is_empty()));
         if let Some(bild) = std::env::var_os("OMSI_BILD") {
-            let k = crate::kamera::Kamera { ziel: DVec3::new(120.0, 170.0, boden(&v, 120.0, 170.0).z), gier: 200.0, neigung: -55.0, abstand: 150.0, fov: 50.0 };
+            let k = crate::kamera::Kamera { ziel: boden(&v, 120.0, 170.0), gier: 200.0, neigung: -55.0, abstand: 150.0, fov: 50.0 };
             let px = v.render_image(1280, 800, &k.camera()).unwrap();
             image::save_buffer(bild, &px, 1280, 800, image::ColorType::Rgba8).unwrap();
         }
@@ -829,7 +925,7 @@ mod tests {
             for am_ende in [false, true] {
                 let p = if am_ende { k.end_point() } else { k.start };
                 let innen = neue.iter().any(|(i, m)| i != id && ((if am_ende { m.start } else { m.end_point() }) - p).length() < 0.01);
-                let rand = [(120.0, 100.0), (120.0, 230.0), (190.0, 140.0), (50.0, 200.0)].iter().any(|q| (p.truncate() - DVec2::new(q.0, q.1)).length() < 0.5);
+                let rand = [(120.0, 100.0), (120.0, 230.0), (190.0, 140.0), (50.0, 200.0)].iter().any(|q| (p.truncate() - boden(&v2, q.0, q.1).truncate()).length() < 0.5);
                 if !innen && !rand {
                     an_kreuzung += 1;
                     assert_eq!(v2.spline_end_free(*id, am_ende), Some(false), "Spline {id} {} haengt nicht an der Kreuzung", if am_ende { "Ende" } else { "Anfang" });
@@ -838,6 +934,198 @@ mod tests {
         }
         assert_eq!(an_kreuzung, 6, "2 Kreuzungen mit je 3 Armen");
         std::fs::remove_dir_all(&test_root).ok();
+    }
+
+    /// als neue Karte speichern und laden: jedes Ende eines neuen Splines, das an keinem anderen neuen Spline
+    /// anschliesst und kein Zugende (`rand`) ist, haengt laut Spurnetz an einer Kreuzung; ebenso die Enden der
+    /// aufgeschnittenen vorhandenen Strassen (`karten`). -> Anzahl der Enden an Kreuzungen
+    fn speichern_laden_pruefen(v: Viewer, s: &crate::strasse::Strassenbau, a: Aendern, name: &str, rand: &[DVec2], karten: &[DVec2]) -> usize {
+        use crate::bearbeiten::{Bearbeiten, Werkzeug};
+        let root = Path::new(crate::bearbeiten::tests::OMSI);
+        let test_root = std::env::temp_dir().join(format!("omsi-editor-{name}-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&test_root);
+        fn kopieren(a: &Path, b: &Path) {
+            std::fs::create_dir_all(b).unwrap();
+            for e in std::fs::read_dir(a).unwrap().flatten() {
+                if e.file_type().unwrap().is_dir() { kopieren(&e.path(), &b.join(e.file_name())) } else { std::fs::copy(e.path(), b.join(e.file_name())).unwrap(); }
+            }
+        }
+        kopieren(&root.join("maps/Grundorf"), &test_root.join("maps/Grundorf"));
+        let start_id = v.next_object_id();
+        let paket = crate::speichern::vorbereiten(&v, &Bearbeiten::neu(Werkzeug::Strasse), &s.netz, &s.gesetzte_kreuzungen(), &a.kopien("Grundorf"), Some(a.kreuzungs_ordner()), "Grundorf").unwrap();
+        let karte = crate::speichern::karte_anlegen(&test_root, "Grundorf", name, &paket).unwrap();
+        drop(a);
+        drop(v);
+        let (mut v2, _) = Viewer::open(&openomsi_game::viewer::instance(), None, root, &karte.join("global.cfg")).unwrap();
+        v2.session_overlay(&test_root);
+        v2.tiles_around(DVec3::new(150.0, 150.0, 0.0), 8).unwrap();
+        let mut neue: Vec<(i64, omsi_geometry::SplineCurve)> = Vec::new();
+        for e in std::fs::read_dir(&karte).unwrap().flatten() {
+            let n = e.file_name().to_string_lossy().to_string();
+            let Some(rest) = n.strip_prefix("tile_").and_then(|r| r.strip_suffix(".map")) else { continue };
+            let mut it = rest.split('_').map(|x| x.parse::<i32>().unwrap());
+            let (tx, ty) = (it.next().unwrap(), it.next().unwrap());
+            for sp in omsi_map::Tile::load(&e.path()).unwrap().splines.iter().filter(|sp| sp.id >= start_id) {
+                neue.push((sp.id, omsi_geometry::SplineCurve::from_map(sp, DVec2::new(tx as f64 * 300.0, ty as f64 * 300.0))));
+            }
+        }
+        let mut an_kreuzung = 0;
+        for (id, k) in &neue {
+            for am_ende in [false, true] {
+                let p = if am_ende { k.end_point() } else { k.start };
+                let innen = neue.iter().any(|(i, m)| i != id && ((if am_ende { m.start } else { m.end_point() }) - p).length() < 0.01);
+                let zugende = rand.iter().any(|q| (p.truncate() - *q).length() < 0.5);
+                if !innen && !zugende {
+                    an_kreuzung += 1;
+                    assert_eq!(v2.spline_end_free(*id, am_ende), Some(false), "Spline {id} {} haengt nicht an der Kreuzung", if am_ende { "Ende" } else { "Anfang" });
+                }
+            }
+        }
+        let mut ans = crate::anschluss::Anschluesse::default();
+        ans.aktualisieren(&v2);
+        for q in karten {
+            assert!(!ans.liste.iter().any(|x| x.frei && (x.pos.truncate() - *q).length() < 1.0), "aufgeschnittene Strasse bei {q:?} endet frei");
+        }
+        std::fs::remove_dir_all(&test_root).ok();
+        an_kreuzung
+    }
+
+    #[test]
+    fn vorfahrt_vermuten() {
+        use crate::strasse::rollen_vermuten;
+        let arm = |h: f64, sli: &str| Arm { pos: DVec3::ZERO, richtung: h, sli: sli.into(), weg: true, rolle: Rolle::Gleich };
+        // T: durchgehende Strasse hat Vorfahrt
+        let t = [arm(0.0, "a"), arm(180.0, "a"), arm(90.0, "b")];
+        assert_eq!(rollen_vermuten(&t, &[(5.0, false, false); 3]), vec![Rolle::Haupt, Rolle::Haupt, Rolle::Neben]);
+        // Kreuzung zweier gleicher Strassen: rechts vor links
+        let x = [arm(0.0, "a"), arm(180.0, "a"), arm(90.0, "a"), arm(270.0, "a")];
+        assert_eq!(rollen_vermuten(&x, &[(5.0, false, false); 4]), vec![Rolle::Gleich; 4]);
+        // ueber eine vorhandene Strasse: die vorhandene hat Vorfahrt
+        let i = [(5.0, true, false), (5.0, true, false), (5.0, false, false), (5.0, false, false)];
+        assert_eq!(rollen_vermuten(&x, &i), vec![Rolle::Haupt, Rolle::Haupt, Rolle::Neben, Rolle::Neben]);
+        // breitere Strasse hat Vorfahrt
+        let i = [(7.0, false, false), (7.0, false, false), (5.0, false, false), (5.0, false, false)];
+        assert_eq!(rollen_vermuten(&x, &i), vec![Rolle::Haupt, Rolle::Haupt, Rolle::Neben, Rolle::Neben]);
+        // Kreisverkehr: Ring hat Vorfahrt
+        let k = [arm(270.0, "r"), arm(90.0, "r"), arm(0.0, "z")];
+        assert_eq!(rollen_vermuten(&k, &[(4.0, false, true), (4.0, false, true), (5.0, false, false)]), vec![Rolle::Haupt, Rolle::Haupt, Rolle::Neben]);
+        // Stern ohne gegenueberliegende Arme: rechts vor links
+        let y = [arm(0.0, "a"), arm(120.0, "a"), arm(240.0, "a")];
+        assert_eq!(rollen_vermuten(&y, &[(5.0, false, false); 3]), vec![Rolle::Gleich; 3]);
+    }
+
+    /// Kreuzen: eine neue Strasse ueber eine eigene und ueber eine vorhandene Strasse -> zwei Kreuzungen mit 4 Armen
+    #[test]
+    #[ignore]
+    fn kreuzen_eigene_und_vorhandene() {
+        let _sperre = crate::bearbeiten::tests::sperre();
+        use crate::anschluss::Anschluesse;
+        use crate::strasse::{Modus, Strassenbau};
+        let mut v = crate::bearbeiten::tests::grundorf();
+        v.tiles_around(DVec3::new(150.0, 150.0, 0.0), 8).unwrap();
+        let mut a = Aendern::neu(&v);
+        let ans = Anschluesse::default();
+        // vorhandene lange Strasse: quer dazu eine neue, 70 m zu jeder Seite
+        let ab = abzweig_suchen(&v, &mut a);
+        let r = crate::netz::rechts(ab.richtung);
+        let d = crate::netz::dir(ab.richtung);
+        let c = ab.pos.truncate();
+        let boden = |v: &Viewer, p: DVec2| p.extend(v.terrain_height(p.x, p.y).unwrap());
+        let mut s = Strassenbau::neu(Some("Splines\\Marcel\\str_2spur_8m_altonaer1.sli".into()), Modus::Gerade);
+        let bauen = |s: &mut Strassenbau, v: &mut Viewer, a: &mut Aendern, punkte: &[DVec2]| -> String {
+            let mut m = String::new();
+            for q in punkte {
+                let g = boden(v, *q);
+                s.maus(v, g, 2.0, &ans, Some(a));
+                m = s.klick(v, g, 2.0, &ans, Some(a)).unwrap_or_default();
+            }
+            s.beenden(v);
+            m
+        };
+        // eigene Strasse E parallel zur vorhandenen, 45 m daneben
+        let e0 = c + r * 45.0 - d * 50.0;
+        let e1 = c + r * 45.0 + d * 50.0;
+        bauen(&mut s, &mut v, &mut a, &[e0, e1]);
+        assert_eq!(s.netz.kanten.len(), 1);
+        // neue Strasse quer ueber beide: von links der vorhandenen bis rechts von E
+        let q0 = c - r * 40.0;
+        let q1 = c + r * 90.0;
+        let g0 = boden(&v, q0);
+        s.klick(&mut v, g0, 2.0, &ans, Some(&mut a));
+        let g1 = boden(&v, q1);
+        s.maus(&mut v, g1, 2.0, &ans, Some(&mut a));
+        let plan = s.plan.clone().unwrap();
+        println!("Plan: {} Kreuzungen, blockiert {:?}", plan.kreuzungen.len(), plan.blockiert);
+        assert_eq!(plan.kreuzungen.len(), 2, "zwei Querungen erwartet");
+        let m = s.klick(&mut v, g1, 2.0, &ans, Some(&mut a)).unwrap();
+        s.beenden(&mut v);
+        println!("{m}");
+        assert!(m.contains("2 Kreuzung"), "{m}");
+        assert_eq!(s.gesetzte_kreuzungen().len(), 2, "{:?}", s.kreuzung_fehler);
+        // beide Knoten mit 4 Armen; an der vorhandenen Strasse hat diese Vorfahrt (siehe vorfahrt_vermuten)
+        let vier: Vec<u32> = s.netz.knoten.iter().map(|k| k.id).filter(|k| s.netz.arme(*k).len() == 4).collect();
+        assert_eq!(vier.len(), 2);
+        let karte = s.netz.knoten.iter().find(|k| k.kartenarme.len() == 2).expect("Knoten an der vorhandenen Strasse");
+        let karten: Vec<DVec2> = karte.kartenarme.iter().map(|x| x.pos.truncate()).collect();
+        if let Some(bild) = std::env::var_os("OMSI_BILD") {
+            let k = crate::kamera::Kamera { ziel: (c + r * 25.0).extend(ab.pos.z), gier: (ab.richtung + 160.0) as f32, neigung: -52.0, abstand: 130.0, fov: 50.0 };
+            let px = v.render_image(1280, 800, &k.camera()).unwrap();
+            image::save_buffer(bild, &px, 1280, 800, image::ColorType::Rgba8).unwrap();
+        }
+        let n = speichern_laden_pruefen(v, &s, a, "Grundorf_kreuzen", &[e0, e1, q0, q1], &karten);
+        // 4-Arm-Kreuzung an E: 4 neue Enden; an der vorhandenen: 2 neue Enden
+        assert_eq!(n, 6);
+    }
+
+    /// Kreisverkehr mit drei Zufahrten: T-Kreuzungen am Ring, Ring hat Vorfahrt
+    #[test]
+    #[ignore]
+    fn kreisverkehr_mit_zufahrten() {
+        let _sperre = crate::bearbeiten::tests::sperre();
+        use crate::anschluss::Anschluesse;
+        use crate::strasse::{Modus, Strassenbau};
+        let mut v = crate::bearbeiten::tests::grundorf();
+        v.tiles_around(DVec3::new(150.0, 150.0, 0.0), 8).unwrap();
+        let mut a = Aendern::neu(&v);
+        let ans = Anschluesse::default();
+        let o = freie_flaeche(&v, &mut a, &[((-90.0, 0.0), (90.0, 0.0)), ((0.0, -90.0), (0.0, 90.0))]);
+        println!("freie Flaeche bei {o:?}");
+        let boden = |v: &Viewer, p: DVec2| p.extend(v.terrain_height(p.x, p.y).unwrap());
+        let mut s = Strassenbau::neu(Some("Splines\\Marcel\\str_2spur_8m_altonaer1.sli".into()), Modus::Kreisel);
+        s.kreisel_sli = crate::strasse::kreisel_vorschlag(&crate::strasse::querschnitte(Path::new(crate::bearbeiten::tests::OMSI)));
+        println!("Ring: {:?}", s.kreisel_sli);
+        let mitte = boden(&v, o);
+        let m = s.klick(&mut v, mitte, 2.0, &ans, Some(&mut a)).unwrap();
+        assert!(m.starts_with("Kreisverkehr"), "{m}");
+        let rand = boden(&v, o + DVec2::new(22.0, 0.0));
+        s.maus(&mut v, rand, 2.0, &ans, Some(&mut a));
+        let m = s.klick(&mut v, rand, 2.0, &ans, Some(&mut a)).unwrap();
+        println!("{m}");
+        assert_eq!(s.netz.kanten.iter().filter(|e| e.ring).count(), 4);
+        // Zufahrten von Westen, Sueden, Nordosten auf den Ring
+        s.modus = Modus::Gerade;
+        let mut zufahrten = Vec::new();
+        for (w, n) in [(270.0, "West"), (180.0, "Sued"), (45.0, "Nordost")] {
+            let aussen = o + crate::netz::dir(w) * 85.0;
+            let am_ring = o + crate::netz::dir(w) * 22.0;
+            let ga = boden(&v, aussen);
+            s.klick(&mut v, ga, 2.0, &ans, Some(&mut a));
+            let gb = boden(&v, am_ring);
+            s.maus(&mut v, gb, 2.0, &ans, Some(&mut a));
+            let m = s.klick(&mut v, gb, 2.0, &ans, Some(&mut a)).unwrap_or_default();
+            s.beenden(&mut v);
+            println!("Zufahrt {n}: {m}");
+            assert!(m.contains("Kreuzung"), "Zufahrt {n}: {m}");
+            zufahrten.push(aussen);
+        }
+        assert_eq!(s.gesetzte_kreuzungen().len(), 3, "{:?}", s.kreuzung_fehler);
+        if let Some(bild) = std::env::var_os("OMSI_BILD") {
+            let k = crate::kamera::Kamera { ziel: boden(&v, o), gier: 200.0, neigung: -60.0, abstand: 120.0, fov: 50.0 };
+            let px = v.render_image(1280, 800, &k.camera()).unwrap();
+            image::save_buffer(bild, &px, 1280, 800, image::ColorType::Rgba8).unwrap();
+        }
+        let n = speichern_laden_pruefen(v, &s, a, "Grundorf_kreisel", &zufahrten, &[]);
+        assert_eq!(n, 9, "3 Kreuzungen mit je 3 Armen");
     }
 
     #[test]
@@ -850,11 +1138,12 @@ mod tests {
         let ab = abzweig_suchen(&v, &mut a);
         let alt = a.spline(ab.spline_id).unwrap().clone();
         println!("Abzweig von Spline {} ({}, {:.1} m) bei {:.1} m", ab.spline_id, ab.sli, alt.kurve.length, ab.s);
-        let sli = "Splines\\Marcel\\str_2spur_8m_altonaer1.sli";
-        let (arm, obj) = a.kreuzung_bauen(&mut v, &ab, ab.richtung + 90.0, sli, true).unwrap();
-        println!("Kreuzung {} bei {:?}: {} Abbiegespuren, {} Regeln; Arm bei {:?} Richtung {:.1}", obj.rel, obj.ursprung, obj.spuren, obj.rules.len(), arm.pos, arm.richtung);
-        assert_eq!(obj.fehlgeschlagen, 0);
-        assert!(norm180(arm.richtung - ab.richtung - 90.0).abs() < 1e-6);
+        // Schnitte wie fuer einen Arm quer zur Strasse (halbe Breite 5 m)
+        let (vor, nach) = Aendern::schnitte(&ab, &[(ab.richtung + 90.0, 5.0)]);
+        let arme = a.aufschneiden(&mut v, &ab, vor, nach).unwrap();
+        assert_eq!(arme.len(), 2);
+        assert!(((arme[0].pos.truncate() - ab.pos.truncate()).length() - vor).abs() < 0.5 && ((arme[1].pos.truncate() - ab.pos.truncate()).length() - nach).abs() < 0.5);
+        assert!(norm180(arme[1].richtung - ab.richtung).abs() < 15.0 && norm180(arme[0].richtung - ab.richtung - 180.0).abs() < 15.0);
         a.aktualisieren(&v);
         // der alte Spline ist gekuerzt (gleiche ID), das Stueck hinter der Kreuzung hat eine neue ID
         let vorn = a.spline(ab.spline_id).expect("vorderes Stueck").clone();
@@ -865,10 +1154,7 @@ mod tests {
         // Hoehen: an der Kreuzung eben auf ihrer Hoehe, am anderen Ende wie vorher
         assert!((vorn.kurve.end_point().z - ab.pos.z).abs() < 0.01 && (hinten.kurve.start.z - ab.pos.z).abs() < 0.01);
         assert!((hinten.kurve.end_point().z - alt.kurve.end_point().z).abs() < 0.01);
-        // das Kreuzungsobjekt steht in der Karte, und laut Spurnetz fuehren beide Strassenenden in seine Pfade
-        // (v.objects() kennt nur am Boden stehende Objekte; die Kreuzung hat [absheight])
-        assert_eq!(v.spline_end_free(vorn.id, true), Some(false), "vorderes Stueck endet frei");
-        assert_eq!(v.spline_end_free(hinten.id, false), Some(false), "hinteres Stueck beginnt frei");
+        // (ob die Enden an der Kreuzung haengen, prueft abzweig_bauen_speichern_laden nach dem Speichern)
         // OMSI_BILD=pfad.png: Bild der Kreuzung (von oben schraeg)
         if let Some(bild) = std::env::var_os("OMSI_BILD") {
             let k = crate::kamera::Kamera { ziel: ab.pos, gier: (ab.richtung + 200.0) as f32, neigung: -50.0, abstand: 70.0, fov: 50.0 };
