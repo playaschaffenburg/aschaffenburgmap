@@ -12,7 +12,7 @@ use crate::netz::norm180;
 use anyhow::{bail, Context, Result};
 use glam::{DVec2, DVec3};
 use openomsi_game::viewer::Viewer;
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
 
 /// Platz fuer die Bordsteinecken zusaetzlich zu den Strassenbreiten (wie omsigen network.CORNER_ROOM)
@@ -35,6 +35,17 @@ pub struct Abzweig {
     pub sli: String,
     /// halbe Breite der Strasse (aussen, groessere Seite)
     pub halb: f64,
+}
+
+/// vorhandenes Kreuzungsobjekt der Karte (z. B. eine Standardkreuzung): wird beim Anschliessen einer neuen Strasse
+/// durch eine eigene Kreuzung ersetzt, deren Arme die vorhandenen Strassenenden sind
+#[derive(Clone, Debug)]
+pub struct Vorhanden {
+    pub objekt: i64,
+    pub kachel: (i32, i32),
+    /// Mitte (zwischen den Armen)
+    pub pos: DVec3,
+    pub arme: Vec<crate::netz::Kartenarm>,
 }
 
 /// Vorfahrt eines Arms (wie omsigen vorfahrt.HAUPT/NEBEN/GLEICH)
@@ -119,6 +130,151 @@ impl Aendern {
     /// Ordner der Kreuzungsobjekte dieser Sitzung und sein Name unter Sceneryobjects/Aschaffenburg_KI
     pub fn kreuzungs_ordner(&self) -> (PathBuf, String) {
         (self.sitzung.join("Sceneryobjects").join("Aschaffenburg_KI").join(&self.tag), self.tag.clone())
+    }
+
+    /// vorhandenes Kreuzungsobjekt unter dem Bodenpunkt: ein Objekt mit Fahrpfaden, an dem Strassen haengen; seine
+    /// Arme sind die Enden der Splines, deren Spuren in seine Pfade fuehren (laut openOMSIs Spurnetz)
+    pub fn kreuzungsobjekt_bei(&mut self, v: &Viewer, p: DVec2) -> Option<Vorhanden> {
+        let net = &v.lanes;
+        let ist_objekt = |i: usize| {
+            let l = &net.lanes[i];
+            l.kind == omsi_sim_lanekind_strasse() && !l.name.to_ascii_lowercase().ends_with(".sli") && l.key.is_some()
+        };
+        // Objekte mit Fahrpfaden nahe p: (Abstand zur Mitte, Objekt, Kachel, Mitte)
+        let mut objekte: HashMap<i64, ((i32, i32), Vec<DVec3>, Vec<usize>)> = HashMap::new();
+        for i in 0..net.lanes.len() {
+            if !ist_objekt(i) {
+                continue;
+            }
+            let l = &net.lanes[i];
+            if !l.points.iter().any(|q| (q.truncate() - p).length() < 40.0) {
+                continue;
+            }
+            let k = l.key.unwrap();
+            let e = objekte.entry(k.id).or_insert((k.tile, vec![], vec![]));
+            e.1.extend(l.points.iter().copied());
+            e.2.push(i);
+        }
+        let mut best: Option<(f64, i64)> = None;
+        for (id, (_, punkte, _)) in &objekte {
+            let mitte = punkte.iter().map(|q| q.truncate()).sum::<DVec2>() / punkte.len() as f64;
+            let radius = punkte.iter().map(|q| (q.truncate() - mitte).length()).fold(0.0, f64::max);
+            let d = (p - mitte).length();
+            if d <= radius + 2.0 && best.map(|b| d < b.0).unwrap_or(true) {
+                best = Some((d, *id));
+            }
+        }
+        let (_, id) = best?;
+        let (kachel, _, spuren) = objekte.remove(&id)?;
+        // Spline-Enden, die in die Pfade fuehren bzw. aus ihnen kommen: (Spline, am Ende)
+        let mut enden: Vec<(i64, bool)> = Vec::new();
+        for &i in &spuren {
+            for &n in &net.lanes[i].next {
+                let m = &net.lanes[n];
+                if let (Some(k), true) = (m.key, m.name.to_ascii_lowercase().ends_with(".sli")) {
+                    enden.push((k.id, m.reversed));
+                }
+            }
+            for &q in net.prev.get(i).map(|x| x.as_slice()).unwrap_or(&[]) {
+                let m = &net.lanes[q];
+                if let (Some(k), true) = (m.key, m.name.to_ascii_lowercase().ends_with(".sli")) {
+                    enden.push((k.id, !m.reversed));
+                }
+            }
+        }
+        enden.sort();
+        enden.dedup();
+        let mut arme = Vec::new();
+        for (sid, am_ende) in enden {
+            let Some(sp) = self.spline(sid).cloned() else { continue };
+            let k = &sp.kurve;
+            // Richtung von der Kreuzung weg: am Spline-Anfang seine Richtung, am Ende die Gegenrichtung
+            let (pos, h) = if am_ende { (k.end_point(), k.heading_at(k.length) + 180.0) } else { (k.start, k.heading_deg) };
+            let (l, r) = self.breite(v, &sp.sli);
+            arme.push(crate::netz::Kartenarm { pos, richtung: h.rem_euclid(360.0), sli: sp.sli.clone(), weg: (!am_ende) != sp.gespiegelt, halb: l.max(r) as f64 });
+        }
+        if arme.len() < 2 {
+            return None;
+        }
+        let n = arme.len() as f64;
+        let pos = DVec3::new(arme.iter().map(|a| a.pos.x).sum::<f64>() / n, arme.iter().map(|a| a.pos.y).sum::<f64>() / n, arme.iter().map(|a| a.pos.z).sum::<f64>() / n);
+        // Mitte: Schnittpunkt der Armrichtungen waere genauer; der Mittelwert der Armenden reicht fuer den Knoten
+        Some(Vorhanden { objekt: id, kachel, pos, arme })
+    }
+
+    /// vorhandenes Kreuzungsobjekt aus seiner Kachel nehmen, mit allem, was an ihm haengt ([varparent]: Ampeln, ihre
+    /// Masten, daran haengende Objekte). Ein Rueckgaengig-Schritt.
+    pub fn objekt_entfernen(&mut self, v: &mut Viewer, kachel: (i32, i32), id: i64) -> Result<usize> {
+        log::info!("vorhandenes Kreuzungsobjekt {id} (Kachel {} {}) wird durch eine eigene Kreuzung ersetzt", kachel.0, kachel.1);
+        self.kacheln_aendern(v, &[kachel], |_, zeilen| {
+            // Eintraege: (Anfang inkl. "Object Nr."-Zeile, Ende, ID, Eltern ueber varparent/attachObj)
+            let mut eintraege: Vec<(usize, usize, i64, Vec<i64>)> = Vec::new();
+            let mut lagen: Vec<Option<(f64, f64)>> = Vec::new();
+            let mut i = 0;
+            while i < zeilen.len() {
+                let w = zeilen[i].trim().to_ascii_lowercase();
+                if w == "[object]" || w == "[attachobj]" {
+                    let anfang = if i > 0 && zeilen[i - 1].trim_start().starts_with("Object Nr.") { i - 1 } else { i };
+                    let mut j = i + 1;
+                    while j < zeilen.len() && !ist_eintrag(&zeilen[j]) {
+                        j += 1;
+                    }
+                    let oid = zeilen.get(i + 3).and_then(|z| z.trim().parse::<i64>().ok()).unwrap_or(-1);
+                    let mut eltern = Vec::new();
+                    if w == "[attachobj]" {
+                        if let Some(e) = zeilen.get(i + 4).and_then(|z| z.trim().parse::<i64>().ok()) {
+                            eltern.push(e);
+                        }
+                    }
+                    for k in i..j {
+                        if zeilen[k].trim().eq_ignore_ascii_case("[varparent]") {
+                            if let Some(e) = zeilen.get(k + 1).and_then(|z| z.trim().parse::<i64>().ok()) {
+                                eltern.push(e);
+                            }
+                        }
+                    }
+                    let x = zeilen.get(i + 4).and_then(|z| z.trim().parse::<f64>().ok());
+                    let y = zeilen.get(i + 5).and_then(|z| z.trim().parse::<f64>().ok());
+                    lagen.push(x.zip(y).filter(|_| w == "[object]"));
+                    eintraege.push((anfang, j, oid, eltern));
+                    i = j;
+                } else {
+                    i += 1;
+                }
+            }
+            let mut weg: std::collections::HashSet<i64> = [id].into();
+            loop {
+                let n = weg.len();
+                for e in &eintraege {
+                    if e.3.iter().any(|x| weg.contains(x)) {
+                        weg.insert(e.2);
+                    }
+                }
+                if weg.len() == n {
+                    break;
+                }
+            }
+            // Masten der entfernten Ampeln: eigene Objekte genau an deren Stelle (ohne Verknuepfung)
+            let ampeln: Vec<(f64, f64)> = eintraege.iter().zip(&lagen).filter(|(e, _)| e.2 != id && weg.contains(&e.2)).filter_map(|(_, l)| *l).collect();
+            for (e, l) in eintraege.iter().zip(&lagen) {
+                if let Some((x, y)) = l {
+                    if ampeln.iter().any(|(ax, ay)| (ax - x).hypot(ay - y) < 0.6) {
+                        weg.insert(e.2);
+                    }
+                }
+            }
+            if !eintraege.iter().any(|e| e.2 == id) {
+                bail!("Kreuzungsobjekt {id} nicht in seiner Kachel");
+            }
+            let mut bereiche: Vec<(usize, usize)> = eintraege.iter().filter(|e| weg.contains(&e.2)).map(|e| (e.0, e.1)).collect();
+            bereiche.sort();
+            bereiche.reverse();
+            for (a, b) in &bereiche {
+                zeilen.drain(*a..*b);
+            }
+            log::info!("  {} Eintraege entfernt (Objekt und Ampeln/Masten)", bereiche.len());
+            Ok(bereiche.len())
+        })
     }
 
     /// Abzweig-Stelle unter dem Bodenpunkt (mitten auf einer Strasse)
@@ -420,6 +576,10 @@ pub fn schnitt_strecken(a: DVec2, b: DVec2, c: DVec2, d: DVec2) -> Option<(f64, 
     let t = (c - a).perp_dot(s) / n;
     let u = (c - a).perp_dot(r) / n;
     ((0.0..1.0).contains(&t) && (0.0..1.0).contains(&u)).then_some((t, u))
+}
+
+fn omsi_sim_lanekind_strasse() -> openomsi_game::viewer::LaneKind {
+    openomsi_game::viewer::LaneKind::Street
 }
 
 /// beginnt mit dieser Zeile ein neuer Eintrag der Kachel (Spline, Objekt, ...)?
@@ -1126,6 +1286,106 @@ mod tests {
         }
         let n = speichern_laden_pruefen(v, &s, a, "Grundorf_kreisel", &zufahrten, &[]);
         assert_eq!(n, 9, "3 Kreuzungen mit je 3 Armen");
+    }
+
+    /// Fall des Nutzers (Screenshot 6.10.): neue Strasse an die Ampelkreuzung von Grundorf (x 412, y 223, 3 Arme)
+    /// anschliessen - sie wird durch eine eigene Kreuzung mit 4 Armen ersetzt
+    #[test]
+    #[ignore]
+    fn an_vorhandene_kreuzung_anschliessen() {
+        let _sperre = crate::bearbeiten::tests::sperre();
+        use crate::anschluss::Anschluesse;
+        use crate::strasse::{Modus, Strassenbau};
+        let mut v = crate::bearbeiten::tests::grundorf();
+        v.tiles_around(DVec3::new(150.0, 150.0, 0.0), 8).unwrap();
+        let mut a = Aendern::neu(&v);
+        a.aktualisieren(&v);
+        let k = a.kreuzungsobjekt_bei(&v, DVec2::new(414.0, 215.0)).expect("Kreuzungsobjekt bei 414/215");
+        println!("Kreuzung {} mit {} Armen bei {:?}: {:?}", k.objekt, k.arme.len(), k.pos, k.arme.iter().map(|x| x.richtung.round()).collect::<Vec<_>>());
+        assert_eq!(k.arme.len(), 3);
+        // freie Richtung: am weitesten von allen Armen
+        let frei = (0..360).map(|g| g as f64).max_by(|x, y| {
+            let m = |h: f64| k.arme.iter().map(|a| norm180(a.richtung - h).abs()).fold(f64::INFINITY, f64::min);
+            m(*x).total_cmp(&m(*y))
+        }).unwrap();
+        let aussen = k.pos.truncate() + crate::netz::dir(frei) * 70.0;
+        let ans = Anschluesse::default();
+        let mut s = Strassenbau::neu(Some("Splines\\Marcel\\str_2spur_11m_SeeburgerStr1.sli".into()), Modus::Gerade);
+        let g = aussen.extend(v.terrain_height(aussen.x, aussen.y).unwrap());
+        s.klick(&mut v, g, 2.0, &ans, Some(&mut a));
+        let z = DVec3::new(414.0, 215.0, 0.0);
+        s.maus(&mut v, z, 2.0, &ans, Some(&mut a));
+        println!("Plan: {:?}", s.plan.as_ref().map(|p| (p.laenge, p.blockiert.clone(), p.kreuzungen.len())));
+        let m = s.klick(&mut v, z, 2.0, &ans, Some(&mut a)).unwrap();
+        s.beenden(&mut v);
+        println!("{m}");
+        assert!(m.contains("Kreuzung") && m.contains("angeschlossen"), "{m}");
+        let knoten = s.netz.knoten.iter().find(|x| x.kartenarme.len() == 3).expect("Knoten mit den 3 vorhandenen Armen");
+        assert_eq!(s.netz.arme(knoten.id).len(), 4);
+        for (rel, pos, _) in s.gesetzte_kreuzungen() {
+            println!("  Kreuzung {rel} bei {:.1} {:.1}", pos.x, pos.y);
+        }
+        for kn in &s.netz.knoten {
+            println!("  Knoten {} bei {:.1} {:.1}: {} Kanten, {} Kartenarme", kn.id, kn.pos.x, kn.pos.y, s.netz.an(kn.id).len(), kn.kartenarme.len());
+        }
+        assert_eq!(s.gesetzte_kreuzungen().len(), 1, "{:?}", s.kreuzung_fehler);
+        let karten: Vec<DVec2> = knoten.kartenarme.iter().map(|x| x.pos.truncate()).collect();
+        if let Some(bild) = std::env::var_os("OMSI_BILD") {
+            let kam = crate::kamera::Kamera { ziel: k.pos, gier: (frei + 180.0) as f32, neigung: -50.0, abstand: 90.0, fov: 50.0 };
+            let px = v.render_image(1280, 800, &kam.camera()).unwrap();
+            image::save_buffer(bild, &px, 1280, 800, image::ColorType::Rgba8).unwrap();
+        }
+        let n = speichern_laden_pruefen(v, &s, a, "Grundorf_vorhanden", &[aussen], &karten);
+        assert_eq!(n, 1, "das Ende der neuen Strasse an der Kreuzung");
+    }
+
+    /// eigene Strasse aendern (umkehren, Querschnitt) und loeschen: die aufgeschnittene vorhandene Strasse wird wieder
+    /// geschlossen; nach dem Speichern haengt das Flickstueck an beiden Enden
+    #[test]
+    #[ignore]
+    fn eigene_strasse_aendern_und_heilen() {
+        let _sperre = crate::bearbeiten::tests::sperre();
+        use crate::anschluss::Anschluesse;
+        use crate::strasse::{KantenAenderung, Modus, Strassenbau};
+        let mut v = crate::bearbeiten::tests::grundorf();
+        v.tiles_around(DVec3::new(150.0, 150.0, 0.0), 8).unwrap();
+        let mut a = Aendern::neu(&v);
+        let ab = abzweig_suchen(&v, &mut a);
+        let ans = Anschluesse::default();
+        let mut s = Strassenbau::neu(Some("Splines\\Marcel\\str_2spur_8m_altonaer1.sli".into()), Modus::Gerade);
+        let aussen = ab.pos.truncate() + crate::netz::rechts(ab.richtung) * 60.0;
+        let g = aussen.extend(v.terrain_height(aussen.x, aussen.y).unwrap());
+        s.klick(&mut v, g, 2.0, &ans, Some(&mut a));
+        s.maus(&mut v, ab.pos, 2.0, &ans, Some(&mut a));
+        let m = s.klick(&mut v, ab.pos, 2.0, &ans, Some(&mut a)).unwrap();
+        s.beenden(&mut v);
+        assert!(m.contains("Kreuzung"), "{m}");
+        let neu = s.netz.kanten[0].id;
+        // auswaehlen wie im Werkzeug: unter einem Punkt der Strasse
+        let mitte = s.kante_umriss(neu).unwrap().0[3].0;
+        assert_eq!(s.kante_unter(mitte.truncate()), Some(neu));
+        let m = s.kanten_aendern(&mut v, &[neu], &KantenAenderung::Umkehren);
+        assert!(m.contains("umgekehrt"), "{m}");
+        let e = s.netz.kante(neu).unwrap().clone();
+        assert!(s.netz.knoten(e.a).unwrap().kartenarme.len() == 2, "nach dem Umkehren beginnt die Strasse an der Kreuzung");
+        let m = s.kanten_aendern(&mut v, &[neu], &KantenAenderung::Querschnitt("Splines\\Marcel\\str_2spur_10m_Grunewaldstr.sli".into()));
+        assert!(m.contains("umgestellt") && s.netz.kante(neu).unwrap().sli.contains("Grunewald"), "{m}");
+        assert_eq!(s.gesetzte_kreuzungen().len(), 1);
+        let m = s.kanten_aendern(&mut v, &[neu], &KantenAenderung::Loeschen);
+        println!("{m}");
+        assert!(m.contains("wieder geschlossen"), "{m}");
+        assert_eq!(s.netz.kanten.len(), 1, "das Flickstueck");
+        assert!(s.gesetzte_kreuzungen().is_empty());
+        let flick = s.netz.kanten[0].clone();
+        assert_eq!(flick.sli, ab.sli);
+        let enden: Vec<DVec2> = [flick.a, flick.b].iter().map(|k| s.netz.knoten(*k).unwrap().pos.truncate()).collect();
+        // Rueckgaengig bringt die Kreuzung wieder (3 Schritte zurueck: loeschen, Querschnitt, umkehren)
+        assert!(s.rueckgaengig(&mut v, Some(&mut a)));
+        assert_eq!(s.gesetzte_kreuzungen().len(), 1);
+        assert!(s.wiederholen(&mut v, Some(&mut a)));
+        assert!(s.gesetzte_kreuzungen().is_empty());
+        let n = speichern_laden_pruefen(v, &s, a, "Grundorf_heilen", &[], &enden);
+        assert_eq!(n, 2, "beide Enden des Flickstuecks haengen an der vorhandenen Strasse");
     }
 
     #[test]

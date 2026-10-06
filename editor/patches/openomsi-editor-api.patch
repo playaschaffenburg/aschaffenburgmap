@@ -1,7 +1,7 @@
 From 6a28afa52f391b1e21dd812a7f86f94221f673a7 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 16:01:32 +0200
-Subject: [PATCH 01/10] editor-api: oeffentliche Viewer-Schnittstelle, OpenXR
+Subject: [PATCH 01/11] editor-api: oeffentliche Viewer-Schnittstelle, OpenXR
  zur Laufzeit laden
 
 ---
@@ -210,7 +210,7 @@ index 0000000..f57565c
 From cc51e3c693d2333dc4ee49c47f6e37c20ab516e8 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 16:22:56 +0200
-Subject: [PATCH 02/10] editor-api: Hintergrund-Streaming und Kartenwechsel mit
+Subject: [PATCH 02/11] editor-api: Hintergrund-Streaming und Kartenwechsel mit
  demselben Renderer
 
 ---
@@ -316,7 +316,7 @@ index f57565c..ebd8833 100644
 From 596e460251b086f739871a8134343aea3f22e5e0 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 16:35:56 +0200
-Subject: [PATCH 03/10] editor-api: Objekte bearbeiten und Kacheln schreiben
+Subject: [PATCH 03/11] editor-api: Objekte bearbeiten und Kacheln schreiben
  ueber den Viewer
 
 ---
@@ -391,7 +391,7 @@ index ebd8833..e926a15 100644
 From 0cb9086cbb9faad1472cd454cb3fd12000216701 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 16:54:59 +0200
-Subject: [PATCH 04/10] editor-api: freie Objekte setzen, naechste freie ID,
+Subject: [PATCH 04/11] editor-api: freie Objekte setzen, naechste freie ID,
  Kacheldatei
 
 ---
@@ -448,7 +448,7 @@ index e926a15..61f58bb 100644
 From 237ec37d6957dab1787c4d67d58d7803945fd3f5 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 17:10:18 +0200
-Subject: [PATCH 05/10] editor-api: Objektausmasse und Vorschaubilder
+Subject: [PATCH 05/11] editor-api: Objektausmasse und Vorschaubilder
 
 ---
  crates/omsi-app/src/viewer.rs | 34 ++++++++++++++++++++++++++++++++++
@@ -504,7 +504,7 @@ index 61f58bb..e92c3f2 100644
 From 9988917031be8d360dab043f72364f777791de76 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 17:24:46 +0200
-Subject: [PATCH 06/10] editor-api: Splines frei zeichnen (Live-Vorschau),
+Subject: [PATCH 06/11] editor-api: Splines frei zeichnen (Live-Vorschau),
  Spuren einer .sli
 
 ---
@@ -614,7 +614,7 @@ index e92c3f2..d50c032 100644
 From d35054e68c9b423943fb69c23c58cdc2d8efbd2b Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 17:43:57 +0200
-Subject: [PATCH 07/10] editor-api: Vorschaubild fuer Strassen-Splines
+Subject: [PATCH 07/11] editor-api: Vorschaubild fuer Strassen-Splines
 
 ---
  crates/omsi-app/src/viewer.rs | 23 +++++++++++++++++++++++
@@ -659,7 +659,7 @@ index d50c032..95495df 100644
 From 75a2e1b33f1c31ba93373732ec3a2bea0cca2a96 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 17:59:02 +0200
-Subject: [PATCH 08/10] editor-api: Spurnetz der geladenen Kacheln, freie
+Subject: [PATCH 08/11] editor-api: Spurnetz der geladenen Kacheln, freie
  Spline-Enden
 
 ---
@@ -767,7 +767,7 @@ index 95495df..39d3a19 100644
 From 1f9802294094922bdb9a50fdec716db6f2ac445b Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 18:19:59 +0200
-Subject: [PATCH 09/10] editor-api: Sitzungsebene fuer geaenderte Kacheln,
+Subject: [PATCH 09/11] editor-api: Sitzungsebene fuer geaenderte Kacheln,
  Kacheln neu laden
 
 ---
@@ -865,7 +865,7 @@ index 39d3a19..0dab235 100644
 From 19d1a75a1fe8c3035a4da58ecacc0944c1bf59e0 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 18:36:54 +0200
-Subject: [PATCH 10/10] editor-api: Kacheln neu laden auch beim Streaming
+Subject: [PATCH 10/11] editor-api: Kacheln neu laden auch beim Streaming
  (Pfade, Zwischenspeicher, Spuren)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -935,6 +935,182 @@ index 0dab235..27eeea0 100644
              s.reload(&self.renderer, &mut self.scene, Some(keys), None);
              return Ok(());
          }
+-- 
+2.55.0.windows.5
+
+
+From 46577556082be58a6a5e4121521161d75fbadc0d Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Tue, 6 Oct 2026 23:21:40 +0200
+Subject: [PATCH 11/11] editor-api: offene Objektarme, LaneKind,
+ Streaming-Neuladen ohne Wettlauf
+
+- object_free_lane_ends: Spuren von Objekten, die nirgends hinfuehren
+- Streamer: Kacheln, die beim Neuladen unterwegs sind, werden verworfen
+  und neu angefordert; streaming_idle()
+- collect_lanes: neu geladene Kacheln ersetzen ihre alten Spuren
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ crates/omsi-app/src/tiles.rs  | 28 +++++++++++++++++++-
+ crates/omsi-app/src/viewer.rs | 49 +++++++++++++++++++++++++++++++----
+ 2 files changed, 71 insertions(+), 6 deletions(-)
+
+diff --git a/crates/omsi-app/src/tiles.rs b/crates/omsi-app/src/tiles.rs
+index 86b4215..c39e453 100644
+--- a/crates/omsi-app/src/tiles.rs
++++ b/crates/omsi-app/src/tiles.rs
+@@ -851,6 +851,9 @@ pub struct Streamer {
+     requested: hashbrown::HashSet<(i32, i32)>,
+     /// Tiles that could not be made (a damaged file): not asked for again.
+     failed: hashbrown::HashSet<(i32, i32)>,
++    /// editor-api: tiles read again while they were in flight - what the worker made of them is
++    /// from the old file and is dropped (they are asked for again).
++    stale: hashbrown::HashSet<(i32, i32)>,
+     /// The first area around the start: (tiles, of which uploaded).
+     initial: Option<(hashbrown::HashSet<(i32, i32)>, usize)>,
+     pub stats: crate::scene::LoadStats,
+@@ -900,6 +903,7 @@ impl Streamer {
+             queue: Default::default(),
+             requested: Default::default(),
+             failed: Default::default(),
++            stale: Default::default(),
+             initial: None,
+             stats: Default::default(),
+             loaded_total: 0,
+@@ -953,6 +957,8 @@ impl Streamer {
+             self.failed.remove(k);
+             if !self.requested.contains(k) {
+                 freed |= self.world.unload_tile(renderer, scene, *k, audio);
++            } else {
++                self.stale.insert(*k);
+             }
+         }
+         if freed {
+@@ -973,6 +979,11 @@ impl Streamer {
+         }
+     }
+ 
++    /// editor-api: nothing in flight, nothing waiting for upload
++    pub(crate) fn idle(&self) -> bool {
++        !self.inflight && self.queue.is_empty() && self.requested.is_empty()
++    }
++
+     /// (uploaded, total) of the first area while it is still loading.
+     pub fn initial_progress(&self) -> Option<(usize, usize)> {
+         self.initial.as_ref().filter(|(set, done)| *done < set.len()).map(|(set, done)| (*done, set.len()))
+@@ -1021,7 +1032,15 @@ impl Streamer {
+             }
+             self.prepare_secs += secs;
+             self.stats.add_prepared(&stats);
+-            self.queue.extend(prepared.into_iter().map(|p| self.world.begin_upload(p)));
++            // made from a file that changed meanwhile: dropped, asked for again
++            let (frisch, alt): (Vec<_>, Vec<_>) = prepared.into_iter().partition(|p| !self.stale.contains(&(p.tx, p.ty)));
++            for p in alt {
++                let k = (p.tx, p.ty);
++                self.stale.remove(&k);
++                self.requested.remove(&k);
++                self.world.tile_files_changed(&[k]);
++            }
++            self.queue.extend(frisch.into_iter().map(|p| self.world.begin_upload(p)));
+         }
+         let t0 = std::time::Instant::now();
+         let mut uploaded = 0usize;
+@@ -1029,6 +1048,13 @@ impl Streamer {
+         let deadline = t0 + budget;
+         while let Some(mut p) = self.queue.pop_front() {
+             let key = p.key();
++            if self.stale.remove(&key) {
++                self.requested.remove(&key);
++                self.world.abandon_upload(renderer, scene, p, audio);
++                self.world.tile_files_changed(&[key]);
++                changed = true;
++                continue;
++            }
+             let initial = self.initial.as_ref().map(|(set, _)| set.contains(&key)).unwrap_or(false);
+             if initial && self.initial_upload.as_ref().map(|(k, _)| *k) != Some(key) {
+                 self.initial_upload = Some((key, std::time::Instant::now()));
+diff --git a/crates/omsi-app/src/viewer.rs b/crates/omsi-app/src/viewer.rs
+index 27eeea0..7b984af 100644
+--- a/crates/omsi-app/src/viewer.rs
++++ b/crates/omsi-app/src/viewer.rs
+@@ -13,6 +13,7 @@ use std::time::Duration;
+ pub use crate::editor::{Action, Editor};
+ pub use crate::scene::{EditObject, ObjectEdit, TileGpu, World};
+ pub use omsi_render::{Camera, Lighting, RenderOptions, Renderer, Scene, SurfaceState};
++pub use omsi_sim::traffic::LaneKind;
+ 
+ /// The graphics instance the game uses (the native API of the system).
+ pub fn instance() -> wgpu::Instance {
+@@ -164,6 +165,11 @@ impl Viewer {
+         changed
+     }
+ 
++    /// Streaming has nothing in flight and nothing waiting (the loaded tiles are complete).
++    pub fn streaming_idle(&self) -> bool {
++        self.streamer.as_ref().is_none_or(|s| s.idle())
++    }
++
+     /// (uploaded, total) of the first area while it is still loading.
+     pub fn first_area_progress(&self) -> Option<(usize, usize)> {
+         self.streamer.as_ref().and_then(|s| s.initial_progress())
+@@ -349,11 +355,23 @@ impl Viewer {
+         let new = std::mem::take(&mut *self.world.lanes.lock());
+         self.world.parked_cars.lock().clear();
+         self.world.lane_tiles.lock().clear();
+-        let new: Vec<_> = new
+-            .into_iter()
+-            .filter(|l| l.key.map(|k| self.lanes.find(k, Some(l.reversed)).is_none()).unwrap_or(true))
+-            .collect();
+-        if !new.is_empty() {
++        // the newest lanes of a tile win (see below); within this batch the last of a key counts
++        let mut seen: HashSet<(omsi_sim::traffic::LaneKey, bool)> = HashSet::new();
++        let mut new: Vec<_> = new.into_iter().rev().filter(|l| l.key.map(|k| seen.insert((k, l.reversed))).unwrap_or(true)).collect();
++        new.reverse();
++        if new.is_empty() {
++            return;
++        }
++        // a tile read again brings its lanes anew: the newest replace the old ones of that tile
++        // (a reload can overtake a load still in flight), the network is then built again
++        let tiles: HashSet<(i32, i32)> = new.iter().filter_map(|l| l.key.map(|k| k.tile)).collect();
++        let had = self.all_lanes.iter().any(|l| l.key.is_some_and(|k| tiles.contains(&k.tile)));
++        if had {
++            self.all_lanes.retain(|l| !l.key.is_some_and(|k| tiles.contains(&k.tile)));
++            self.all_lanes.extend(new);
++            self.lanes = Default::default();
++            self.lanes.extend(self.all_lanes.clone(), 1.5);
++        } else {
+             self.all_lanes.extend(new.iter().cloned());
+             self.lanes.extend(new, 1.5);
+         }
+@@ -422,6 +440,27 @@ impl Viewer {
+         any.then_some(free)
+     }
+ 
++    /// Street lane ends of scenery objects (junctions) that lead nowhere - the open arms of a
++    /// junction object: (object id, point, heading pointing away from the object, true when
++    /// traffic leaves the object there, lane width).
++    pub fn object_free_lane_ends(&self) -> Vec<(i64, DVec3, f64, bool, f32)> {
++        let mut out = Vec::new();
++        for (i, l) in self.lanes.lanes.iter().enumerate() {
++            // lanes of splines carry their .sli; those of objects no file name (or the .sco)
++            if l.kind != omsi_sim::traffic::LaneKind::Street || l.name.to_ascii_lowercase().ends_with(".sli") || l.points.len() < 2 {
++                continue;
++            }
++            let Some(id) = l.key.map(|k| k.id) else { continue };
++            if l.next.is_empty() {
++                out.push((id, *l.points.last().unwrap(), *l.headings.last().unwrap() as f64, true, l.width));
++            }
++            if self.lanes.prev.get(i).is_none_or(|p| p.is_empty()) {
++                out.push((id, l.points[0], (l.headings[0] as f64 + 180.0).rem_euclid(360.0), false, l.width));
++            }
++        }
++        out
++    }
++
+     /// The tiles loaded now.
+     pub fn loaded_tile_keys(&self) -> Vec<(i32, i32)> {
+         self.world.loaded_tiles()
 -- 
 2.55.0.windows.5
 

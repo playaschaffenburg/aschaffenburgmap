@@ -143,6 +143,8 @@ enum Ende {
     Abzweig(Abzweig),
     /// mitten auf einer eigenen Strasse: sie wird geteilt, der Knoten wird eine Kreuzung
     Kante(Kantenpunkt),
+    /// vorhandenes Kreuzungsobjekt: wird durch eine eigene Kreuzung mit dem neuen Arm ersetzt
+    Vorhanden(kreuzung::Vorhanden),
     Frei(DVec3),
 }
 
@@ -293,9 +295,23 @@ impl Strassenbau {
             return Ende::Anschluss(ans.liste[i].clone());
         }
         if let Some((kante, s, pos, richtung)) = self.netz.kante_bei(boden.truncate()) {
+            // nahe einem Ende dieser Strasse (freies Ende oder schon eine Kreuzung): dort einrasten
+            if let Some(e) = self.netz.kante(kante) {
+                for k in [e.a, e.b] {
+                    let Some(kn) = self.netz.knoten(k) else { continue };
+                    let n = self.netz.an(k).len() + kn.kartenarme.len();
+                    let nah = (kn.pos.truncate() - boden.truncate()).length() < if n == 1 { ENDE_FANG } else { self.netz.kuerzung(e.id, k) + 2.0 };
+                    if nah {
+                        return Ende::Knoten(k);
+                    }
+                }
+            }
             return Ende::Kante(Kantenpunkt { kante, s, pos, richtung });
         }
         if let Some(a) = ae {
+            if let Some(k) = a.kreuzungsobjekt_bei(v, boden.truncate()) {
+                return Ende::Vorhanden(k);
+            }
             if let Some(ab) = a.abzweig_bei(v, boden.truncate()) {
                 // nahe einem freien Ende derselben Strasse: dort anschliessen statt eine Kreuzung zu bauen
                 let kette = a.kette_ids(ab.spline_id, 40.0);
@@ -322,6 +338,7 @@ impl Strassenbau {
             Ende::Anschluss(a) => a.pos,
             Ende::Abzweig(ab) => ab.pos,
             Ende::Kante(kp) => kp.pos,
+            Ende::Vorhanden(k) => k.pos,
             Ende::Frei(p) => *p,
         }
     }
@@ -388,6 +405,30 @@ impl Strassenbau {
                 a.vorschau = Some(KreuzungsVorschau { mitte, strasse: hq, schnitt: d[0].max(d[1]), arm: (q + netz::dir(h) * d[2]).extend(mitte.z) });
                 a.ende = Ende::Kante(Kantenpunkt { kante: kp.kante, s, pos: mitte, richtung: hq });
             }
+            Ende::Vorhanden(k) => {
+                let h = richtung(k.pos.truncate(), gegen.truncate());
+                if let Some(x) = k.arme.iter().find(|x| norm180(x.richtung - h).abs() < kreuzung::MIN_WINKEL) {
+                    return Err(format!("die neue Strasse liegt zu nah an einem vorhandenen Arm ({:.0} Grad, mindestens {:.0})",
+                                       norm180(x.richtung - h).abs(), kreuzung::MIN_WINKEL));
+                }
+                let mut roh: Vec<(f64, f64)> = k.arme.iter().map(|x| (x.richtung, x.halb)).collect();
+                roh.push((h, halb_neu));
+                let d = netz::kuerzungen(&roh);
+                // die vorhandenen Strassen enden, wo sie enden: reicht der Platz fuer den neuen Arm?
+                for (x, dx) in k.arme.iter().zip(&d) {
+                    let ist = (x.pos.truncate() - k.pos.truncate()).length();
+                    // die Bordsteinecken duerfen enger werden (omsigen verkleinert die Radien): bis 2 m statt ECKENRAUM
+                    if *dx - kreuzung::ECKENRAUM + 2.0 > ist + 0.5 {
+                        return Err(format!("zu eng: eine vorhandene Strasse endet {ist:.0} m vor der Mitte, mit dem neuen Arm braeuchte sie {dx:.0} m"));
+                    }
+                }
+                let dn = *d.last().unwrap();
+                a.richtung = Some(um(h));
+                a.steigung = Some(0.0);
+                a.kuerzung = dn;
+                a.vorschau = Some(KreuzungsVorschau { mitte: k.pos, strasse: k.arme[0].richtung, schnitt: 0.0,
+                                                      arm: (k.pos.truncate() + netz::dir(h) * dn).extend(k.pos.z) });
+            }
             Ende::Frei(_) => a.richtung = fest,
         }
         Ok(a)
@@ -407,6 +448,9 @@ impl Strassenbau {
     /// in a.richtung: am Spline-Ende setzt sie ihn gleichlaeufig fort, am Anfang gegenlaeufig)
     fn passt(&mut self, v: &Viewer, sli: &str, a: &Anschluss) -> bool {
         let neu = self.spuren(v, sli);
+        if a.objekt.is_some() {
+            return spuren_passen(&neu, &a.spuren, true);
+        }
         let alt = self.spuren(v, &a.sli);
         spuren_passen(&neu, &alt, a.am_ende != a.gespiegelt)
     }
@@ -509,7 +553,12 @@ impl Strassenbau {
                 Ende::Anschluss(a) => {
                     // Querschnitt der vorhandenen Strasse uebernehmen, wenn der gewaehlte nicht passt
                     let sli = self.sli.clone().unwrap();
-                    if self.uebernehmen && !self.passt(v, &sli, a) {
+                    if a.objekt.is_some() && !self.passt(v, &sli, a) {
+                        meldung = format!("am offenen Arm einer Kreuzung angeschlossen - Spuren passen nicht zum Querschnitt (Arm: {})",
+                                          a.spuren.iter().map(|x| format!("{:+.2} m", x.0)).collect::<Vec<_>>().join(", "));
+                    } else if a.objekt.is_some() {
+                        meldung = "am offenen Arm einer Kreuzung angeschlossen".into();
+                    } else if self.uebernehmen && !self.passt(v, &sli, a) {
                         self.sli = Some(a.sli.clone());
                         meldung = format!("an vorhandene Strasse angeschlossen - Querschnitt uebernommen: {}", a.sli.rsplit('\\').next().unwrap_or(""));
                     } else {
@@ -517,6 +566,7 @@ impl Strassenbau {
                     }
                 }
                 Ende::Abzweig(_) | Ende::Kante(_) => meldung = "Abzweig: hier entsteht eine Kreuzung - Klick setzt das Ende des ersten Stuecks".into(),
+                Ende::Vorhanden(k) => meldung = format!("an die vorhandene Kreuzung ({} Arme): sie wird durch eine eigene mit dem neuen Arm ersetzt", k.arme.len()),
                 Ende::Frei(_) => {}
             }
             self.start = Some(Start { ende, richtung: None });
@@ -598,6 +648,11 @@ impl Strassenbau {
                 // die Kante kann inzwischen geteilt sein (zwei Enden auf derselben Strasse): an der Stelle neu suchen
                 let (id, s, _, _) = self.netz.kante_bei(kp.pos.truncate()).ok_or("Strasse nicht gefunden")?;
                 (self.netz.kante_teilen(id, s).ok_or("Strasse laesst sich nicht teilen")?, 0)
+            }
+            Ende::Vorhanden(k) => {
+                let ae = ae.ok_or("Aendern-Werkzeug nicht bereit")?;
+                ae.objekt_entfernen(v, k.kachel, k.objekt).map_err(|e| format!("{e:#}"))?;
+                (self.netz.knoten_mit_kartenarmen(k.pos, k.arme.clone()), 1)
             }
             Ende::Frei(p) => (self.netz.knoten_neu(*p), 0),
         })
@@ -690,11 +745,12 @@ impl Strassenbau {
         let Some(start) = self.start.clone() else {
             // noch kein Start: zeigen, wo eine Kreuzung entstuende
             self.zeiger = match &ziel_ende {
-                Ende::Abzweig(_) | Ende::Kante(_) => {
+                Ende::Abzweig(_) | Ende::Kante(_) | Ende::Vorhanden(_) => {
                     let p = self.ende_pos(&ziel_ende);
                     let r = match &ziel_ende {
                         Ende::Abzweig(ab) => ab.richtung,
                         Ende::Kante(kp) => kp.richtung,
+                        Ende::Vorhanden(k) => k.arme[0].richtung,
                         _ => 0.0,
                     };
                     let gegen = p + (netz::rechts(r) * 50.0).extend(0.0);
@@ -711,6 +767,7 @@ impl Strassenbau {
             (Ende::Anschluss(x), Ende::Anschluss(y)) => x.spline_id == y.spline_id && x.am_ende == y.am_ende,
             (Ende::Abzweig(x), Ende::Abzweig(y)) => x.spline_id == y.spline_id && (x.s - y.s).abs() < 40.0,
             (Ende::Kante(x), Ende::Kante(y)) => x.kante == y.kante && (x.s - y.s).abs() < 40.0,
+            (Ende::Vorhanden(x), Ende::Vorhanden(y)) => x.objekt == y.objekt,
             (Ende::Kante(x), Ende::Knoten(k)) => self.netz.kante(x.kante).is_some_and(|e| e.a == *k || e.b == *k) && (x.pos - self.ende_pos(&start.ende)).length() < 30.0,
             _ => false,
         };
@@ -779,7 +836,11 @@ impl Strassenbau {
         let min_radius = stuecke.iter().filter(|s| s.radius != 0.0).map(|s| s.radius.abs()).fold(f64::INFINITY, f64::min);
         let steigung = if laenge > 0.0 { (b.z - a.z) / laenge * 100.0 } else { 0.0 };
         let mut warnung = match &zb.ende {
-            Ende::Anschluss(x) if !self.passt(v, &sli, x) => Some("Spuren passen nicht zur vorhandenen Strasse".to_string()),
+            Ende::Anschluss(x) if !self.passt(v, &sli, x) => Some(if x.objekt.is_some() {
+                format!("Spuren passen nicht zum Arm der Kreuzung (dort {})", x.spuren.iter().map(|s| format!("{:+.2} m", s.0)).collect::<Vec<_>>().join(", "))
+            } else {
+                "Spuren passen nicht zur vorhandenen Strasse".to_string()
+            }),
             _ => None,
         };
         // Steigung an den Enden: vorgegeben (vorhandene Strasse, Kreuzung eben), an eigenen Knoten die der Kante dort
@@ -1067,10 +1128,135 @@ impl Strassenbau {
         Some(format!("Strasse {id} geloescht"))
     }
 
+    pub fn undo_len(&self) -> usize {
+        self.undo.len()
+    }
+
+    // ------------------------------------------------------------ eigene Strassen aendern (Werkzeug "Aendern")
+
+    /// eigene Strasse (Kante, wie gezeichnet) unter dem Bodenpunkt
+    pub fn kante_unter(&self, p: DVec2) -> Option<u32> {
+        let mut best: Option<(f64, u32)> = None;
+        for e in &self.netz.kanten {
+            let w = self.netz.breiten.get(&e.sli).copied().unwrap_or(5.0);
+            for el in self.netz.elemente(e) {
+                let n = (el.stueck.laenge / 1.0).ceil().max(1.0) as usize;
+                for i in 0..=n {
+                    let (q, _) = el.stueck.bei(el.stueck.laenge * i as f64 / n as f64);
+                    let d = (q - p).length();
+                    if d <= w && best.map(|b| d < b.0).unwrap_or(true) {
+                        best = Some((d, e.id));
+                    }
+                }
+            }
+        }
+        best.map(|b| b.1)
+    }
+
+    /// ganze Kette eigener Strassen ueber Knoten mit genau zwei Kanten
+    pub fn kette_eigen(&self, id: u32) -> Vec<u32> {
+        let mut out = vec![id];
+        let mut offen = vec![id];
+        while let Some(k) = offen.pop() {
+            let Some(e) = self.netz.kante(k) else { continue };
+            for n in [e.a, e.b] {
+                let an = self.netz.an(n);
+                if an.len() == 2 && self.netz.knoten(n).is_some_and(|x| x.kartenarme.is_empty()) {
+                    for x in an {
+                        if !out.contains(&x.id) {
+                            out.push(x.id);
+                            offen.push(x.id);
+                        }
+                    }
+                }
+            }
+        }
+        out
+    }
+
+    /// Mittellinie (Punkte mit Richtung) und halbe Breite einer eigenen Strasse, wie gezeichnet
+    pub fn kante_umriss(&self, id: u32) -> Option<(Vec<(DVec3, f64)>, f64)> {
+        let e = self.netz.kante(id)?;
+        let w = self.netz.breiten.get(&e.sli).copied().unwrap_or(5.0);
+        let mut punkte = Vec::new();
+        for el in self.netz.elemente(e) {
+            let n = (el.stueck.laenge / 2.0).ceil().max(1.0) as usize;
+            for i in 0..=n {
+                let s = el.stueck.laenge * i as f64 / n as f64;
+                let (q, h) = el.stueck.bei(s);
+                punkte.push((q.extend(netz::element_z(&el, s)), h));
+            }
+        }
+        Some((punkte, w))
+    }
+
+    /// eigene Strassen aendern (ein Rueckgaengig-Schritt) -> Meldung
+    pub fn kanten_aendern(&mut self, v: &mut Viewer, ids: &[u32], art: &KantenAenderung) -> String {
+        let ids: Vec<u32> = ids.iter().copied().filter(|id| self.netz.kante(*id).is_some()).collect();
+        if ids.is_empty() {
+            return String::new();
+        }
+        self.merken();
+        let text = match art {
+            KantenAenderung::Querschnitt(sli) => {
+                self.netz.breiten.insert(sli.clone(), self.halb(v, sli));
+                for e in self.netz.kanten.iter_mut().filter(|e| ids.contains(&e.id)) {
+                    e.sli = sli.clone();
+                }
+                format!("{} Strassenstueck(e) auf {} umgestellt", ids.len(), sli.rsplit('\\').next().unwrap_or(""))
+            }
+            KantenAenderung::Umkehren => {
+                for e in self.netz.kanten.iter_mut().filter(|e| ids.contains(&e.id)) {
+                    let (ha, hb) = (e.ha, e.hb);
+                    std::mem::swap(&mut e.a, &mut e.b);
+                    e.ha = (hb + 180.0).rem_euclid(360.0);
+                    e.hb = (ha + 180.0).rem_euclid(360.0);
+                }
+                format!("{} Strassenstueck(e) umgekehrt", ids.len())
+            }
+            KantenAenderung::Loeschen => {
+                for id in &ids {
+                    self.netz.kante_loeschen(*id);
+                }
+                let geheilt = self.heilen();
+                format!("{} Strassenstueck(e) geloescht{}", ids.len(),
+                        if geheilt > 0 { format!(", {geheilt} aufgeschnittene Strasse(n) wieder geschlossen") } else { String::new() })
+            }
+        };
+        self.zeichnen_alle(v);
+        text
+    }
+
+    /// Knoten, an denen nur noch zwei Enden einer aufgeschnittenen vorhandenen Strasse liegen (die Kreuzung ist weg):
+    /// die Luecke mit einem eigenen Stueck in deren Querschnitt schliessen -> Anzahl
+    fn heilen(&mut self) -> usize {
+        let knoten: Vec<u32> = self.netz.knoten.iter().filter(|k| k.kartenarme.len() == 2 && self.netz.an(k.id).is_empty()).map(|k| k.id).collect();
+        for k in &knoten {
+            let arme = self.netz.knoten(*k).unwrap().kartenarme.clone();
+            self.netz.knoten.retain(|x| x.id != *k);
+            // in Richtung des vorhandenen Splines: von dem Ende, an dem er in die Kreuzung lief, zum anderen
+            let (a, b) = if arme[0].weg { (&arme[1], &arme[0]) } else { (&arme[0], &arme[1]) };
+            let ha = (a.richtung + 180.0).rem_euclid(360.0);
+            let na = self.netz.anschluss_neu(a.pos, ha, 0.0);
+            let nb = self.netz.anschluss_neu(b.pos, (b.richtung + 180.0).rem_euclid(360.0), 0.0);
+            self.netz.breiten.insert(a.sli.clone(), a.halb);
+            self.netz.kante_neu(na, nb, &a.sli, ha, b.richtung.rem_euclid(360.0));
+        }
+        knoten.len()
+    }
+
     /// Hilfslinien: Knoten des Netzes (fuer die Markierung im Bild)
     pub fn knoten_punkte(&self) -> Vec<(u32, DVec3, bool)> {
         self.netz.knoten.iter().map(|k| (k.id, k.pos, self.netz.weiter_richtung(k.id).is_some())).collect()
     }
+}
+
+/// Aenderung an eigenen Strassen (Werkzeug "Aendern")
+#[derive(Clone, Debug)]
+pub enum KantenAenderung {
+    Querschnitt(String),
+    Umkehren,
+    Loeschen,
 }
 
 /// Vorfahrt an einer Kreuzung vermuten (spaeter per Klick aenderbar). `info` je Arm: (halbe Breite, vorhandene

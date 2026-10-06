@@ -90,6 +90,14 @@ struct App {
     filter: String,
     /// --absturztest / --haengertest: Bericht ausprobieren, sobald die Karte laeuft
     pruefung: Option<String>,
+    /// eigene Strassen im Werkzeug "Aendern": gewaehlt, unter der Maus
+    eigene_auswahl: Vec<u32>,
+    eigene_maus: Option<u32>,
+    /// gemeinsamer Verlauf fuer Rueckgaengig/Wiederholen ueber alle Werkzeuge, und die Laengen der Rueckgaengig-
+    /// Stapel der Werkzeuge (Objekte, Strassen, Aendern) beim letzten Blick
+    verlauf: Vec<Quelle>,
+    verlauf_redo: Vec<Quelle>,
+    stapel: (usize, usize, usize),
     /// Bericht der vorigen Sitzung, einmal in der Statuszeile melden
     bericht_melden: Option<Option<PathBuf>>,
     /// Testlauf: Strasse, an der spaeter eine Kreuzung gebaut wird
@@ -138,6 +146,14 @@ struct App {
     aendern_warnung: Option<String>,
 }
 
+/// welches Werkzeug einen Schritt im gemeinsamen Verlauf gemacht hat
+#[derive(Clone, Copy, Debug, PartialEq)]
+enum Quelle {
+    Objekte,
+    Strasse,
+    Aendern,
+}
+
 /// Was die Oberflaeche ausloesen will (nach dem Zeichnen ausgefuehrt)
 enum UiAktion {
     Karte(usize),
@@ -156,6 +172,7 @@ enum UiAktion {
     SplineSpiegeln,
     SplineLoeschen,
     StrassenModus(strasse::Modus),
+    EigeneAendern(strasse::KantenAenderung),
     KreiselQuerschnitt(String),
     StrassenHoehe(f64),
     ZugBeenden,
@@ -187,6 +204,11 @@ impl App {
             beenden_nach: None,
             testlauf_abzweig: None,
             bericht_melden: Some(protokoll::neuer_bericht()),
+            eigene_auswahl: vec![],
+            eigene_maus: None,
+            verlauf: vec![],
+            verlauf_redo: vec![],
+            stapel: (0, 0, 0),
             pruefung: None,
             gestartet: Instant::now(),
             bilder: 0,
@@ -463,11 +485,9 @@ impl App {
                     }
                     ui.add_enabled(false, egui::Button::new("Gelaende"));
                     ui.separator();
-                    let (kr, kw) = match self.bearb.werkzeug {
-                        Werkzeug::Strasse => (self.strasse.kann_rueckgaengig(), self.strasse.kann_wiederholen()),
-                        Werkzeug::Aendern => self.aendern.as_ref().map(|a| (a.kann_rueckgaengig(), a.kann_wiederholen())).unwrap_or((false, false)),
-                        _ => (self.bearb.kann_rueckgaengig(), self.bearb.kann_wiederholen()),
-                    };
+                    // ein Verlauf fuer alle Werkzeuge (neue Schritte kommen beim naechsten Bild dazu)
+                    let neu = self.stapel_jetzt() != self.stapel;
+                    let (kr, kw) = (!self.verlauf.is_empty() || neu, !self.verlauf_redo.is_empty() && !neu);
                     if ui.add_enabled(kr, egui::Button::new("Rueckgaengig")).on_hover_text("Strg+Z").clicked() {
                         aktionen.push(UiAktion::Rueckgaengig);
                     }
@@ -707,6 +727,32 @@ impl App {
             if self.bearb.werkzeug == Werkzeug::Aendern {
                 egui::Panel::right("aendern").default_size(360.0).show(ctx, |ui| {
                     ui.heading("Strassen aendern");
+                    if !self.eigene_auswahl.is_empty() {
+                        let n = self.eigene_auswahl.len();
+                        let e = self.strasse.netz.kante(self.eigene_auswahl[0]).cloned();
+                        ui.label(egui::RichText::new(if n > 1 { format!("{n} eigene Strassenstuecke gewaehlt") } else { "eigene Strasse".to_string() }).strong());
+                        if let Some(e) = &e {
+                            let laenge: f64 = self.eigene_auswahl.iter().filter_map(|id| self.strasse.netz.kante(*id))
+                                .map(|k| self.strasse.netz.elemente(k).iter().map(|x| x.stueck.laenge).sum::<f64>()).sum();
+                            ui.label(egui::RichText::new(e.sli.rsplit('\\').next().unwrap_or("").to_string()).strong());
+                            ui.label(egui::RichText::new(&e.sli).small().weak());
+                            ui.label(format!("Laenge {laenge:.1} m{}", if e.ring { "   Kreisverkehr" } else { "" }));
+                        }
+                        ui.horizontal(|ui| {
+                            if ui.button("Richtung umkehren").clicked() {
+                                aktionen.push(UiAktion::EigeneAendern(strasse::KantenAenderung::Umkehren));
+                            }
+                            if ui.button("Loeschen").on_hover_text("Entf").clicked() {
+                                aktionen.push(UiAktion::EigeneAendern(strasse::KantenAenderung::Loeschen));
+                            }
+                        });
+                        ui.separator();
+                        ui.label("Upgrade: neuer Querschnitt");
+                        if let Some(rel) = self.qs_raster(ui, e.map(|e| e.sli)) {
+                            aktionen.push(UiAktion::EigeneAendern(strasse::KantenAenderung::Querschnitt(rel)));
+                        }
+                        return;
+                    }
                     let info: Option<(usize, aendern::KartenSpline)> = self.aendern.as_ref().and_then(|a| {
                         a.auswahl.first().and_then(|id| a.spline(*id)).map(|s| (a.auswahl.len(), s.clone()))
                     });
@@ -775,6 +821,22 @@ impl App {
                 bearbeiten::markieren(&maler, &self.kam, o, bw, bh, egui::Color32::from_rgb(255, 60, 220), 3.0);
             }
             if self.bearb.werkzeug == Werkzeug::Aendern {
+                let mut eigene: Vec<(u32, egui::Color32, f32)> = self.eigene_auswahl.iter().map(|id| (*id, egui::Color32::from_rgb(255, 60, 220), 3.0)).collect();
+                if let Some(id) = self.eigene_maus.filter(|id| !self.eigene_auswahl.contains(id)) {
+                    eigene.push((id, egui::Color32::from_rgba_unmultiplied(255, 255, 255, 200), 2.0));
+                }
+                for (id, farbe, dick) in eigene {
+                    let Some((punkte, w)) = self.strasse.kante_umriss(id) else { continue };
+                    for seite in [-w, w] {
+                        let linie: Vec<egui::Pos2> = punkte.iter().filter_map(|(q, h)| {
+                            let p = *q + (crate::netz::rechts(*h) * seite).extend(0.2);
+                            bearbeiten::projizieren(&self.kam, p, bw, bh).map(|(x, y, _)| egui::pos2(x, y))
+                        }).collect();
+                        if linie.len() > 1 {
+                            maler.add(egui::Shape::line(linie, egui::Stroke::new(dick, farbe)));
+                        }
+                    }
+                }
                 if let (Some(a), Some(v)) = (self.aendern.as_mut(), self.viewer.as_ref()) {
                     let mut zeigen: Vec<(i64, egui::Color32, f32)> = a.auswahl.iter().map(|id| (*id, egui::Color32::from_rgb(255, 60, 220), 3.0)).collect();
                     if let Some(id) = a.unter_maus.filter(|id| !a.auswahl.contains(id)) {
@@ -998,6 +1060,16 @@ impl App {
                 self.strasse.modus = m;
             }
             UiAktion::KreiselQuerschnitt(rel) => self.strasse.kreisel_sli = Some(rel),
+            UiAktion::EigeneAendern(art) => {
+                if let Some(v) = self.viewer.as_mut() {
+                    let ids = self.eigene_auswahl.clone();
+                    self.meldung = self.strasse.kanten_aendern(v, &ids, &art);
+                    if matches!(art, strasse::KantenAenderung::Loeschen) {
+                        self.eigene_auswahl.clear();
+                    }
+                    self.anschluesse.vergessen();
+                }
+            }
             UiAktion::StrassenHoehe(d) => self.strasse.hoehe = (self.strasse.hoehe + d).clamp(-30.0, 40.0),
             UiAktion::ZugBeenden => {
                 if let Some(v) = self.viewer.as_mut() {
@@ -1041,56 +1113,8 @@ impl App {
                     }
                 }
             }
-            UiAktion::Rueckgaengig if self.bearb.werkzeug == Werkzeug::Aendern => {
-                if let (Some(v), Some(a)) = (self.viewer.as_mut(), self.aendern.as_mut()) {
-                    match a.rueckgaengig(v) {
-                        Ok(true) => self.meldung = "rueckgaengig".into(),
-                        Ok(false) => {}
-                        Err(e) => self.meldung = format!("Rueckgaengig fehlgeschlagen: {e:#}"),
-                    }
-                    self.anschluesse.vergessen();
-                }
-            }
-            UiAktion::Wiederholen if self.bearb.werkzeug == Werkzeug::Aendern => {
-                if let (Some(v), Some(a)) = (self.viewer.as_mut(), self.aendern.as_mut()) {
-                    match a.wiederholen(v) {
-                        Ok(true) => self.meldung = "wiederholt".into(),
-                        Ok(false) => {}
-                        Err(e) => self.meldung = format!("Wiederholen fehlgeschlagen: {e:#}"),
-                    }
-                    self.anschluesse.vergessen();
-                }
-            }
-            UiAktion::Rueckgaengig if self.bearb.werkzeug == Werkzeug::Strasse => {
-                if let Some(v) = self.viewer.as_mut() {
-                    if self.strasse.rueckgaengig(v, self.aendern.as_mut()) {
-                        self.meldung = "rueckgaengig".into();
-                        self.anschluesse.vergessen();
-                    }
-                }
-            }
-            UiAktion::Wiederholen if self.bearb.werkzeug == Werkzeug::Strasse => {
-                if let Some(v) = self.viewer.as_mut() {
-                    if self.strasse.wiederholen(v, self.aendern.as_mut()) {
-                        self.meldung = "wiederholt".into();
-                        self.anschluesse.vergessen();
-                    }
-                }
-            }
-            UiAktion::Rueckgaengig => {
-                if let Some(v) = self.viewer.as_mut() {
-                    if let Some(m) = self.bearb.rueckgaengig(v) {
-                        self.meldung = m;
-                    }
-                }
-            }
-            UiAktion::Wiederholen => {
-                if let Some(v) = self.viewer.as_mut() {
-                    if let Some(m) = self.bearb.wiederholen(v) {
-                        self.meldung = m;
-                    }
-                }
-            }
+            UiAktion::Rueckgaengig => self.verlauf_schritt(true),
+            UiAktion::Wiederholen => self.verlauf_schritt(false),
             UiAktion::Abwaehlen => self.bearb.waehlen(None),
             UiAktion::SpeichernDialog => {
                 if let Some(k) = self.karte.as_deref() {
@@ -1115,9 +1139,82 @@ impl App {
     }
 
     /// Sitzungsordner der vorigen Karte abmelden und loeschen (temporaer, enthaelt nur Kopien)
+    /// neue Schritte der Werkzeuge in den gemeinsamen Verlauf (die Laengen ihrer Rueckgaengig-Stapel sind gewachsen;
+    /// baut das Strassenwerkzeug, gehoeren die gleichzeitig entstandenen Schritte des Aendern-Werkzeugs - aufgeschnittene
+    /// Strassen - zu seinem Schritt)
+    fn verlauf_pruefen(&mut self) {
+        let jetzt = self.stapel_jetzt();
+        let (b0, s0, a0) = self.stapel;
+        let mut neu = false;
+        if jetzt.1 > s0 {
+            for _ in s0..jetzt.1 {
+                self.verlauf.push(Quelle::Strasse);
+            }
+            neu = true;
+        } else if jetzt.2 > a0 {
+            for _ in a0..jetzt.2 {
+                self.verlauf.push(Quelle::Aendern);
+            }
+            neu = true;
+        }
+        if jetzt.0 > b0 {
+            for _ in b0..jetzt.0 {
+                self.verlauf.push(Quelle::Objekte);
+            }
+            neu = true;
+        }
+        if neu {
+            self.verlauf_redo.clear();
+        }
+        self.stapel = jetzt;
+    }
+
+    fn stapel_jetzt(&self) -> (usize, usize, usize) {
+        (self.bearb.undo_len(), self.strasse.undo_len(), self.aendern.as_ref().map(|a| a.undo_len()).unwrap_or(0))
+    }
+
+    /// letzten Schritt (welches Werkzeug auch immer) zuruecknehmen bzw. wiederholen
+    fn verlauf_schritt(&mut self, zurueck: bool) {
+        self.verlauf_pruefen();
+        let Some(q) = (if zurueck { self.verlauf.pop() } else { self.verlauf_redo.pop() }) else { return };
+        let Some(v) = self.viewer.as_mut() else { return };
+        let ok = match q {
+            Quelle::Objekte => {
+                let m = if zurueck { self.bearb.rueckgaengig(v) } else { self.bearb.wiederholen(v) };
+                if let Some(m) = m {
+                    self.meldung = m;
+                }
+                true
+            }
+            Quelle::Strasse => if zurueck { self.strasse.rueckgaengig(v, self.aendern.as_mut()) } else { self.strasse.wiederholen(v, self.aendern.as_mut()) },
+            Quelle::Aendern => match self.aendern.as_mut().map(|a| if zurueck { a.rueckgaengig(v) } else { a.wiederholen(v) }) {
+                Some(Ok(b)) => b,
+                Some(Err(e)) => {
+                    self.meldung = format!("{} fehlgeschlagen: {e:#}", if zurueck { "Rueckgaengig" } else { "Wiederholen" });
+                    false
+                }
+                None => false,
+            },
+        };
+        if ok {
+            if zurueck { self.verlauf_redo.push(q) } else { self.verlauf.push(q) }
+            if q != Quelle::Objekte {
+                self.meldung = format!("{} ({})", if zurueck { "rueckgaengig" } else { "wiederholt" },
+                                       match q { Quelle::Strasse => "Strasse bauen", Quelle::Aendern => "Aendern", Quelle::Objekte => "Objekte" });
+            }
+        }
+        self.anschluesse.vergessen();
+        self.eigene_auswahl.retain(|id| self.strasse.netz.kante(*id).is_some());
+        self.stapel = self.stapel_jetzt();
+    }
+
     fn sitzung_schliessen(&mut self) {
         // Aendern meldet seinen Sitzungsordner beim Verwerfen ab und loescht ihn
         self.aendern = None;
+        self.verlauf.clear();
+        self.verlauf_redo.clear();
+        self.eigene_auswahl.clear();
+        self.eigene_maus = None;
         self.aendern_warnung = None;
     }
 
@@ -1138,6 +1235,7 @@ impl App {
                 let w = if self.bearb.werkzeug == Werkzeug::Aendern { Werkzeug::Ansehen } else { Werkzeug::Aendern };
                 Some(UiAktion::Werkzeug(w))
             }
+            KeyCode::Delete if self.bearb.werkzeug == Werkzeug::Aendern && !self.eigene_auswahl.is_empty() => Some(UiAktion::EigeneAendern(strasse::KantenAenderung::Loeschen)),
             KeyCode::Delete if self.bearb.werkzeug == Werkzeug::Aendern => Some(UiAktion::SplineLoeschen),
             KeyCode::Escape if self.bearb.werkzeug == Werkzeug::Aendern => {
                 if let Some(a) = self.aendern.as_mut() {
@@ -1352,6 +1450,7 @@ impl ApplicationHandler for App {
             }
             WindowEvent::RedrawRequested => {
                 protokoll::puls();
+                self.verlauf_pruefen();
                 if self.bilder > 120 {
                     match self.pruefung.take().as_deref() {
                         Some("--absturztest") => panic!("Absturztest (--absturztest)"),
@@ -1491,8 +1590,12 @@ impl ApplicationHandler for App {
                             }
                         }
                         self.anschluesse.vergessen();
+                        // gemeinsamer Verlauf: im Werkzeug "Aendern" nimmt Strg+Z die gebaute Strasse samt Kreuzung zurueck
+                        self.ausfuehren(UiAktion::Werkzeug(Werkzeug::Aendern));
+                        let vorher = (self.strasse.netz.kanten.len(), self.strasse.gesetzte_kreuzungen().len());
                         self.ausfuehren(UiAktion::Rueckgaengig);
-                        println!("Testlauf Kreuzung: {} | nach Rueckgaengig: {}", m.join(" | "), self.meldung);
+                        let nachher = (self.strasse.netz.kanten.len(), self.strasse.gesetzte_kreuzungen().len());
+                        println!("Testlauf Kreuzung: {} | im Aendern-Werkzeug rueckgaengig: {} | Kanten/Kreuzungen {:?} -> {:?}", m.join(" | "), self.meldung, vorher, nachher);
                     } else if s > t * 0.4 {
                         // Kamera bewegen wie ein Nutzer: drehen, fahren, zoomen
                         self.kam.drehen(0.4, 0.0);
@@ -1550,8 +1653,10 @@ impl ApplicationHandler for App {
                         }
                     }
                     if self.bearb.werkzeug == Werkzeug::Aendern && !egui_will {
+                        // eigene Strassen liegen ueber den vorhandenen: zuerst
+                        self.eigene_maus = self.boden_unter_maus.and_then(|g| self.strasse.kante_unter(g.truncate()));
                         if let (Some(g), Some(v), Some(a)) = (self.boden_unter_maus, self.viewer.as_ref(), self.aendern.as_mut()) {
-                            a.unter_maus = a.suchen(v, g.truncate());
+                            a.unter_maus = if self.eigene_maus.is_some() { None } else { a.suchen(v, g.truncate()) };
                         }
                     }
                     if self.bearb.werkzeug == Werkzeug::Strasse {
@@ -1583,7 +1688,24 @@ impl ApplicationHandler for App {
                     if button == MouseButton::Right {
                         self.rechts_start = self.maus;
                     }
-                    if button == MouseButton::Left && self.bearb.werkzeug == Werkzeug::Aendern {
+                    if button == MouseButton::Left && self.bearb.werkzeug == Werkzeug::Aendern && self.eigene_maus.is_some() {
+                        let id = self.eigene_maus.unwrap();
+                        if self.umschalt {
+                            self.eigene_auswahl = self.strasse.kette_eigen(id);
+                        } else if self.strg {
+                            if let Some(p) = self.eigene_auswahl.iter().position(|x| *x == id) {
+                                self.eigene_auswahl.remove(p);
+                            } else {
+                                self.eigene_auswahl.push(id);
+                            }
+                        } else {
+                            self.eigene_auswahl = vec![id];
+                        }
+                        if let Some(a) = self.aendern.as_mut() {
+                            a.auswahl.clear();
+                        }
+                    } else if button == MouseButton::Left && self.bearb.werkzeug == Werkzeug::Aendern {
+                        self.eigene_auswahl.clear();
                         let umschalt = self.umschalt;
                         if let Some(a) = self.aendern.as_mut() {
                             match a.unter_maus {

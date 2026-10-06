@@ -333,6 +333,10 @@ impl Bearbeiten {
         Some("wiederholt".into())
     }
 
+    pub fn undo_len(&self) -> usize {
+        self.undo.len()
+    }
+
     pub fn kann_rueckgaengig(&self) -> bool {
         !self.undo.is_empty()
     }

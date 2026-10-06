@@ -304,6 +304,10 @@ impl Aendern {
         Ok(true)
     }
 
+    pub fn undo_len(&self) -> usize {
+        self.undo.len()
+    }
+
     pub fn kann_rueckgaengig(&self) -> bool {
         !self.undo.is_empty()
     }
@@ -390,7 +394,7 @@ mod tests {
         let t0 = std::time::Instant::now();
         let mut ruhig = 0;
         while t0.elapsed().as_secs() < 60 && ruhig < 60 {
-            if v.stream(mitte, 400.0, std::time::Duration::from_millis(50)) || v.first_area_progress().is_some() || v.loaded_tiles() < kacheln {
+            if v.stream(mitte, 400.0, std::time::Duration::from_millis(50)) || v.first_area_progress().is_some() || v.loaded_tiles() < kacheln || !v.streaming_idle() {
                 ruhig = 0;
             } else {
                 ruhig += 1;
@@ -410,9 +414,11 @@ mod tests {
         let n = streamen(&mut v, 1);
         let mut a = Aendern::neu(&v);
         a.aktualisieren(&v);
-        let id = a.kacheln.values().flatten()
-            .find(|s| v.spline_end_free(s.id, true).is_some())
-            .map(|s| s.id).expect("keine Strasse");
+        // OMSI_SPLINE=id: einen bestimmten Spline pruefen (4173 liegt in Kachel 1,-1 mit langsamem Neuladen)
+        let id = match std::env::var("OMSI_SPLINE").ok().and_then(|x| x.parse().ok()) {
+            Some(x) => x,
+            None => a.kacheln.values().flatten().find(|s| v.spline_end_free(s.id, true).is_some()).map(|s| s.id).expect("keine Strasse"),
+        };
         a.auswahl = vec![id];
         a.loeschen(&mut v).unwrap();
         streamen(&mut v, n);

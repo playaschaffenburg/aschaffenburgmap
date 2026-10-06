@@ -20,6 +20,47 @@ pub struct Anschluss {
     pub sli: String,
     pub gespiegelt: bool,
     pub frei: bool,
+    /// offener Arm eines Kreuzungsobjekts (Objekt-ID) statt eines Spline-Endes
+    pub objekt: Option<i64>,
+    /// beim Objektarm: seine Fahrspuren (Querlage zur Mitte, rechts positiv in `richtung`; 0 = fuehrt vom Objekt weg,
+    /// 1 = zum Objekt hin)
+    pub spuren: Vec<(f32, u8)>,
+}
+
+/// offene Arme der Kreuzungsobjekte (Spuren der Objektpfade, die nirgends hin- bzw. von nirgends herfuehren): je
+/// Arm Mitte, Richtung vom Objekt weg und Spuren
+pub fn objekt_arme(v: &Viewer) -> Vec<Anschluss> {
+    let enden = v.object_free_lane_ends();
+    let mut genommen = vec![false; enden.len()];
+    let mut out = Vec::new();
+    for i in 0..enden.len() {
+        if genommen[i] {
+            continue;
+        }
+        let (id, p0, h0, _, _) = enden[i];
+        // Enden desselben Objekts, gleiche Richtung, nebeneinander (quer bis 15 m, laengs bis 3 m)
+        let gruppe: Vec<usize> = (i..enden.len()).filter(|&j| {
+            let (id2, p, h, _, _) = enden[j];
+            let d = (p - p0).truncate();
+            !genommen[j] && id2 == id && crate::netz::norm180(h - h0).abs() < 25.0
+                && d.dot(crate::netz::dir(h0)).abs() < 3.0 && d.dot(crate::netz::rechts(h0)).abs() < 15.0
+        }).collect();
+        for &j in &gruppe {
+            genommen[j] = true;
+        }
+        let h = h0;
+        let quer: Vec<f64> = gruppe.iter().map(|&j| (enden[j].1 - p0).truncate().dot(crate::netz::rechts(h))).collect();
+        let (lo, hi) = quer.iter().fold((f64::INFINITY, f64::NEG_INFINITY), |(a, b), x| (a.min(*x), b.max(*x)));
+        let mitte_q = (lo + hi) / 2.0;
+        let laengs = gruppe.iter().map(|&j| (enden[j].1 - p0).truncate().dot(crate::netz::dir(h))).sum::<f64>() / gruppe.len() as f64;
+        let z = gruppe.iter().map(|&j| enden[j].1.z).sum::<f64>() / gruppe.len() as f64;
+        let pos = (p0.truncate() + crate::netz::rechts(h) * mitte_q + crate::netz::dir(h) * laengs).extend(z);
+        let mut spuren: Vec<(f32, u8)> = gruppe.iter().zip(&quer).map(|(&j, q)| ((q - mitte_q) as f32, if enden[j].3 { 0 } else { 1 })).collect();
+        spuren.sort_by(|a, b| a.0.total_cmp(&b.0));
+        out.push(Anschluss { spline_id: 0, am_ende: true, pos, richtung: h.rem_euclid(360.0), steigung: 0.0, sli: String::new(),
+                             gespiegelt: false, frei: true, objekt: Some(id), spuren });
+    }
+    out
 }
 
 /// Spline-Enden je Kachel (aus der Datei gelesen, zwischengespeichert)
@@ -43,10 +84,12 @@ fn kachel_lesen(v: &Viewer, tx: i32, ty: i32) -> Vec<Anschluss> {
         out.push(Anschluss {
             spline_id: sp.id, am_ende: false, pos: k.start, richtung: (k.heading_deg + 180.0).rem_euclid(360.0),
             steigung: -k.slope_at(0.0), sli: sp.file.trim().to_string(), gespiegelt: sp.mirror, frei: false,
+            objekt: None, spuren: vec![],
         });
         out.push(Anschluss {
             spline_id: sp.id, am_ende: true, pos: k.end_point(), richtung: k.heading_at(l).rem_euclid(360.0),
             steigung: k.slope_at(l), sli: sp.file.trim().to_string(), gespiegelt: sp.mirror, frei: false,
+            objekt: None, spuren: vec![],
         });
     }
     out
@@ -82,6 +125,12 @@ impl Anschluesse {
                     self.liste.push(Anschluss { frei: frei && !rand, ..a.clone() });
                 }
             }
+        }
+        // offene Arme der Kreuzungsobjekte (z. B. eine Ampelkreuzung, an deren einem Arm noch keine Strasse haengt)
+        for a in objekt_arme(v) {
+            let (tx, ty) = ((a.pos.x / ts).floor() as i32, (a.pos.y / ts).floor() as i32);
+            let rand = (-1..=1).any(|dx| (-1..=1).any(|dy| karte.contains(&(tx + dx, ty + dy)) && !geladen.contains(&(tx + dx, ty + dy))));
+            self.liste.push(Anschluss { frei: !rand, ..a });
         }
         self.stand = stand;
         true
@@ -142,5 +191,23 @@ mod tests {
         println!("Grundorf: {} Strassen-Enden, {frei} frei, {belegt} angeschlossen", a.liste.len());
         assert!(belegt > frei, "die meisten Enden sind angeschlossen");
         assert!(a.liste.len() > 20);
+    }
+
+    /// offene Arme von Kreuzungsobjekten (Fall des Nutzers: Ampelkreuzung in Grundorf bei x 412, y 223)
+    #[test]
+    #[ignore]
+    fn offene_objektarme() {
+        let _sperre = crate::bearbeiten::tests::sperre();
+        let mut v = crate::bearbeiten::tests::grundorf();
+        v.tiles_around(DVec3::new(150.0, 150.0, 0.0), 8).unwrap();
+        let arme = objekt_arme(&v);
+        println!("{} offene Objektarme", arme.len());
+        for a in arme.iter().filter(|a| (a.pos.truncate() - DVec2::new(412.0, 223.0)).length() < 80.0) {
+            println!("  Objekt {:?} bei {:.1} {:.1} {:.1}, Richtung {:.1}, Spuren {:?}", a.objekt, a.pos.x, a.pos.y, a.pos.z, a.richtung, a.spuren);
+        }
+        for a in &arme {
+            // jede Spur liegt quer zur Mitte, die Mitte zwischen den aeussersten
+            assert!(!a.spuren.is_empty());
+        }
     }
 }

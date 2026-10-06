@@ -74,6 +74,10 @@ laufen eben auf Kreuzungshöhe ein. Orange Markierungen zeigen in der Vorschau j
 - **Kreuzen (4 und mehr Arme):** läuft die neue Straße über eine andere (eigene oder vorhandene) auf gleicher Höhe,
   entsteht dort eine Kreuzung; bei mehr als 3 m Höhenunterschied nicht (Brücke/Tunnel). Zu flach (unter 30°), zu
   nah an einem Knoten oder Kreuzungen zu dicht hintereinander: steht in der Vorschau, es wird nicht gebaut.
+- **An vorhandene Kreuzungen anschließen:** Start oder Ziel auf einem vorhandenen Kreuzungsobjekt (z. B. einer
+  Standardkreuzung, auch mit einem Arm ohne Pfade): es wird in der Sitzungskopie entfernt – mit seinen Ampeln und
+  deren Masten – und durch eine eigene Kreuzung ersetzt, deren Arme die vorhandenen Straßenenden und die neue Straße
+  sind. Offene Arme von Kreuzungsobjekten (Pfade, die nirgends hinführen) sind außerdem normale Anschlusspunkte.
 - **Kreisverkehr (Modus V):** Klick setzt die Mitte, die Maus die Größe (Durchmesser 24–120 m), Klick baut einen Ring
   aus Einbahn-Straßen gegen den Uhrzeigersinn (Querschnitt rechts wählbar, Vorschlag: Einbahn mit Gehweg). Zufahrten
   auf den Ring ziehen: dort entstehen T-Kreuzungen. Straßen, die der Ring kreuzt, bekommen Kreuzungen.
@@ -83,11 +87,18 @@ laufen eben auf Kreuzungshöhe ein. Orange Markierungen zeigen in der Vorschau j
   Kreuzungsobjekte nach `Sceneryobjects\Aschaffenburg_KI\<neue Karte>\`. Python: `python` aus dem Pfad (oder
   `OMSIGEN_PYTHON`), omsigen aus diesem Repository (oder `OMSIGEN_DIR`).
 
+**Eigene Straßen ändern:** im Werkzeug „Ändern“ lassen sich auch die eigenen Straßen wählen (Umschalt+Klick: Kette)
+und umkehren, löschen oder auf einen anderen Querschnitt setzen. Wird eine Straße gelöscht, an der eine vorhandene
+aufgeschnitten war, schließt ein Stück in deren Querschnitt die Lücke wieder.
+
+**Rückgängig/Wiederholen** (Strg+Z / Strg+Y) gilt über alle Werkzeuge: der jeweils letzte Schritt, egal in welchem
+Werkzeug man gerade ist (eine gebaute Straße samt Kreuzungen und aufgeschnittenen Straßen ist ein Schritt).
+
 **Vorhandene Straßen ändern (Werkzeug „Ändern“, Taste U)** wie das Upgrade-Werkzeug in Transport Fever 2: die Straße
 unter der Maus wird umrissen, Klick wählt den Spline (Umschalt+Klick: ganze verknüpfte Kette, Strg+Klick: dazu/weg).
 Rechts: Daten des Splines, **Richtung umkehren** (`mirror`), **Löschen** (Entf) und **Upgrade** auf einen anderen
 Querschnitt (Raster mit Vorschaubildern; Warnung, wenn die Fahrspuren nicht mehr zu den Nachbar-Splines passen).
-Strg+Z / Strg+Y. Technik: die geänderte Kachel wird in einen Sitzungsordner geschrieben, den openOMSI vor der
+Technik: die geänderte Kachel wird in einen Sitzungsordner geschrieben, den openOMSI vor der
 Installation liest, und neu geladen – sofort sichtbar, die Originalkarte bleibt unverändert; beim Speichern als
 neue Karte kommen diese Kacheln mit.
 
