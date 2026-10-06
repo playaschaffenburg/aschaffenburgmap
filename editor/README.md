@@ -44,7 +44,7 @@ der Maus –, Klick in die Welt setzt es (beliebig oft), `,` `.` dreht (15°, Um
 lassen sich danach wie alle anderen bearbeiten.
 
 Vorschaubilder: jedes Objekt wird einmal allein mit openOMSI gerendert und als PNG in
-`%LOCALAPPDATA%\omsi-editororschau` gespeichert; erzeugt werden nur die gerade sichtbaren, höchstens ~8 ms je Bild.
+`%LOCALAPPDATA%\omsi-editor\vorschau` gespeichert; erzeugt werden nur die gerade sichtbaren, höchstens ~8 ms je Bild.
 
 **Strg+S: als neue Karte speichern** – der Kartenordner wird kopiert, geänderte Kacheln (UTF-16 bleibt) kommen
 darüber, neue Objekte stehen als `[object]`-Einträge mit eindeutigen IDs in ihrer Kachel, `global.cfg` bekommt den
