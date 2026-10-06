@@ -74,6 +74,14 @@ zurück. Zu nah am Ende einer Straße oder an einer anderen Kreuzung gibt es ein
 Pfad (oder `OMSIGEN_PYTHON`), omsigen aus diesem Repository (oder `OMSIGEN_DIR`). Die Objekte liegen während der
 Sitzung im Sitzungsordner und kommen beim Speichern nach `Sceneryobjects\Aschaffenburg_KI\<neue Karte>\`.
 
+**Kreuzungen im eigenen Netz:** ein Knoten mit drei und mehr eigenen Straßen ist eine Kreuzung – die Straßen enden
+davor (so weit, dass sie an den Nachbararmen vorbeikommen, wie oben, Winkel ab 35°) und laufen eben auf Knotenhöhe
+ein, omsigen erzeugt das Kreuzungsobjekt (durchgehende Straße gleichen Querschnitts hat Vorfahrt, sonst rechts vor
+links). Start oder Ziel mitten auf einer eigenen Straße teilt sie dort; ein Abzweig von einem Knick-Knoten macht ihn
+zur Kreuzung. Klickt man nahe an ein Straßenende, rückt die Kreuzung so weit in die Straße hinein, dass sie passt;
+nahe an einem freien Ende einer vorhandenen Straße wird dort angeschlossen. Geht eine Kreuzung nicht (Stück zu
+kurz), steht das schon in der Vorschau, und es wird nicht gebaut.
+
 **Vorhandene Straßen ändern (Werkzeug „Ändern“, Taste U)** wie das Upgrade-Werkzeug in Transport Fever 2: die Straße
 unter der Maus wird umrissen, Klick wählt den Spline (Umschalt+Klick: ganze verknüpfte Kette, Strg+Klick: dazu/weg).
 Rechts: Daten des Splines, **Richtung umkehren** (`mirror`), **Löschen** (Entf) und **Upgrade** auf einen anderen
@@ -104,6 +112,6 @@ Tests: `cargo test --release` (ohne OMSI), `cargo test --release -- --include-ig
    platzieren, Rückgängig, Speichern als neue Karte. Splines verschieben kommt mit dem Netz-Kern (Schritt 3) – das kann auch openOMSI selbst noch nicht
 3. **Straßen** (in Arbeit): Netz-Kern (Knoten, Kanten aus Geraden/Bögen, glatte Höhe), Werkzeug Gerade/Kurve mit
    Live-Vorschau und Einrasten, Speichern als Splines, Anschluss an freie Enden vorhandener Straßen, Ändern/Upgrade,
-   Kreuzungen beim Abzweig aus vorhandenen Straßen (fertig); Kreuzungen zwischen eigenen Straßen, Kreuzen (4 Arme),
-   Vorfahrt/Ampel per Klick, Knoten ziehen (offen)
+   Kreuzungen beim Abzweig aus vorhandenen und eigenen Straßen (fertig); Kreuzen (4 Arme, auch über vorhandene
+   Straßen), Vorfahrt/Ampel per Klick, Knoten ziehen (offen)
 4. omsigen-Funktionen: OSM-Import, Kreuzungsgenerator, DGM-Gelände, Luftbild

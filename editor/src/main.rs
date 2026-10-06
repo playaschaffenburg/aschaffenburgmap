@@ -1078,7 +1078,7 @@ impl App {
                 let (Some(v), Some(alt)) = (self.viewer.as_ref(), self.karte.clone()) else { return };
                 let kopien = self.aendern.as_ref().map(|a| a.kopien(&alt)).unwrap_or_default();
                 let kreuzungen = self.aendern.as_ref().map(|a| a.kreuzungs_ordner());
-                match speichern::vorbereiten(v, &self.bearb, &self.strasse.netz, &kopien, kreuzungen, &alt) {
+                match speichern::vorbereiten(v, &self.bearb, &self.strasse.netz, &self.strasse.gesetzte_kreuzungen(), &kopien, kreuzungen, &alt) {
                     Ok(paket) => {
                         let root = self.root.clone();
                         self.meldung = format!("speichere {neu} ({} geaenderte Dateien, {} neue Objekte, {} neue Splines) ...", paket.dateien.len(), paket.neue_objekte, paket.neue_splines);

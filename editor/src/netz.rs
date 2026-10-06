@@ -188,6 +188,18 @@ pub fn mit_hoehe(stuecke: &[Stueck], za: f64, ga: f64, zb: f64, gb: f64) -> Vec<
         .collect()
 }
 
+/// Punkt und Richtung bei s Metern auf einer Folge von Stuecken
+pub fn punkt_auf(stuecke: &[Stueck], s: f64) -> Option<(DVec2, f64)> {
+    let mut s0 = 0.0;
+    for st in stuecke {
+        if s <= s0 + st.laenge + 1e-9 {
+            return Some(st.bei((s - s0).clamp(0.0, st.laenge)));
+        }
+        s0 += st.laenge;
+    }
+    stuecke.last().map(|st| st.ende())
+}
+
 // ---------------------------------------------------------------------- Netz
 
 #[derive(Clone, Debug, PartialEq)]
@@ -215,6 +227,35 @@ pub struct Netz {
     pub knoten: Vec<Knoten>,
     pub kanten: Vec<Kante>,
     naechste: u32,
+    /// halbe Breite (aussen, groessere Seite) je Querschnitt - fuer die Kuerzung an Kreuzungen
+    pub breiten: std::collections::BTreeMap<String, f64>,
+}
+
+/// ein Arm einer Kreuzung des Netzes (Knoten mit 3 und mehr Kanten)
+#[derive(Clone, Debug)]
+pub struct NetzArm {
+    pub kante: u32,
+    /// beginnt die Kante an der Kreuzung (sonst endet sie dort)
+    pub weg: bool,
+    /// Richtung von der Kreuzung weg
+    pub richtung: f64,
+    /// so weit vor dem Knoten endet die Kante
+    pub kuerzung: f64,
+}
+
+/// Stuecke auf [von, bis] (Meter ab Anfang) zuschneiden
+pub fn schneiden(stuecke: &[Stueck], von: f64, bis: f64) -> Vec<Stueck> {
+    let mut out = Vec::new();
+    let mut s0: f64 = 0.0;
+    for st in stuecke {
+        let (a, b) = (s0.max(von), (s0 + st.laenge).min(bis));
+        if b - a > 1e-6 {
+            let (p, h) = st.bei(a - s0);
+            out.push(Stueck { start: p, richtung: h, laenge: b - a, radius: st.radius });
+        }
+        s0 += st.laenge;
+    }
+    out
 }
 
 impl Netz {
@@ -227,7 +268,6 @@ impl Netz {
         self.knoten.iter().find(|k| k.id == id)
     }
 
-    #[allow(dead_code)]
     pub fn kante(&self, id: u32) -> Option<&Kante> {
         self.kanten.iter().find(|k| k.id == id)
     }
@@ -293,11 +333,127 @@ impl Netz {
         sehne(e)
     }
 
-    /// Elemente einer Kante (Lage aus ha/hb, Hoehe glatt)
+    /// Lage einer Kante von Knoten zu Knoten (ohne Kuerzung an Kreuzungen)
+    pub fn lage(&self, e: &Kante) -> Vec<Stueck> {
+        let (Some(a), Some(b)) = (self.knoten(e.a), self.knoten(e.b)) else { return vec![] };
+        verbinden(a.pos.truncate(), e.ha, b.pos.truncate(), e.hb)
+    }
+
+    /// Elemente einer Kante (Lage aus ha/hb, Hoehe glatt); an Kreuzungen endet sie vor dem Knoten, eben auf
+    /// Knotenhoehe. Leer, wenn die Kreuzungen an beiden Enden die ganze Kante brauchen.
     pub fn elemente(&self, e: &Kante) -> Vec<Element> {
         let (Some(a), Some(b)) = (self.knoten(e.a), self.knoten(e.b)) else { return vec![] };
-        let st = verbinden(a.pos.truncate(), e.ha, b.pos.truncate(), e.hb);
-        mit_hoehe(&st, a.pos.z, self.steigung(e, e.a), b.pos.z, self.steigung(e, e.b))
+        let st = self.lage(e);
+        let laenge: f64 = st.iter().map(|s| s.laenge).sum();
+        let (ka, kb) = (self.kuerzung(e.id, e.a), self.kuerzung(e.id, e.b));
+        if ka == 0.0 && kb == 0.0 {
+            return mit_hoehe(&st, a.pos.z, self.steigung(e, e.a), b.pos.z, self.steigung(e, e.b));
+        }
+        if ka + kb > laenge - 1.0 {
+            return vec![];
+        }
+        let st = schneiden(&st, ka, laenge - kb);
+        let ga = if ka > 0.0 { 0.0 } else { self.steigung(e, e.a) };
+        let gb = if kb > 0.0 { 0.0 } else { self.steigung(e, e.b) };
+        mit_hoehe(&st, a.pos.z, ga, b.pos.z, gb)
+    }
+
+    /// ist der Knoten eine Kreuzung (3 und mehr Kanten)?
+    pub fn ist_kreuzung(&self, k: u32) -> bool {
+        self.an(k).len() >= 3
+    }
+
+    fn halb(&self, sli: &str) -> f64 {
+        self.breiten.get(sli).copied().unwrap_or(5.0)
+    }
+
+    /// Arme der Kreuzung am Knoten k mit ihren Kuerzungen (leer, wenn k keine Kreuzung ist). Jeder Arm endet so
+    /// weit vor dem Knoten, dass er an den Nachbararmen vorbeikommt (wie kreuzung::masse, Winkel ab 35 Grad;
+    /// fast gegenueberliegende Arme stoeren sich nicht).
+    pub fn arme(&self, k: u32) -> Vec<NetzArm> {
+        if !self.ist_kreuzung(k) {
+            return vec![];
+        }
+        let roh: Vec<(u32, bool, f64, f64)> = self.an(k).into_iter().map(|e| {
+            let weg = e.a == k;
+            let h = if weg { e.ha } else { (e.hb + 180.0).rem_euclid(360.0) };
+            (e.id, weg, h, self.halb(&e.sli))
+        }).collect();
+        roh.iter().map(|&(id, weg, h, w)| {
+            let mut d = crate::kreuzung::ECKENRAUM;
+            for &(id2, _, h2, w2) in &roh {
+                let winkel = norm180(h2 - h).abs();
+                if id2 == id || winkel > 160.0 {
+                    continue;
+                }
+                let t = winkel.max(crate::kreuzung::MIN_WINKEL).to_radians();
+                d = d.max(w2 / t.sin() + w * t.cos() / t.sin() + crate::kreuzung::ECKENRAUM);
+            }
+            NetzArm { kante: id, weg, richtung: h, kuerzung: d }
+        }).collect()
+    }
+
+    /// Kuerzung der Kante `kante` am Knoten k (0: keine Kreuzung)
+    pub fn kuerzung(&self, kante: u32, k: u32) -> f64 {
+        if !self.ist_kreuzung(k) {
+            return 0.0;
+        }
+        self.arme(k).into_iter().find(|a| a.kante == kante).map(|a| a.kuerzung).unwrap_or(0.0)
+    }
+
+    /// Stelle auf einer Kante (ohne Kuerzung) nahe p (bis zur halben Breite): (Kante, Meter ab a, Punkt, Richtung)
+    pub fn kante_bei(&self, p: DVec2) -> Option<(u32, f64, DVec3, f64)> {
+        let mut best: Option<(f64, (u32, f64, DVec3, f64))> = None;
+        for e in &self.kanten {
+            let st = self.lage(e);
+            let laenge: f64 = st.iter().map(|s| s.laenge).sum();
+            if laenge <= 0.0 {
+                continue;
+            }
+            let w = self.halb(&e.sli);
+            let n = (laenge / 0.5).ceil() as usize;
+            for i in 0..=n {
+                let s = laenge * i as f64 / n as f64;
+                let Some((q, h)) = punkt_auf(&st, s) else { continue };
+                let d = (q - p).length();
+                if d <= w && best.as_ref().map(|b| d < b.0).unwrap_or(true) {
+                    best = Some((d, (e.id, s, q.extend(self.hoehe_bei(e, s)), h)));
+                }
+            }
+        }
+        best.map(|b| b.1)
+    }
+
+    /// Hoehe der Kante (ohne Kuerzung) bei s Metern ab a
+    pub fn hoehe_bei(&self, e: &Kante, s: f64) -> f64 {
+        let (Some(a), Some(b)) = (self.knoten(e.a), self.knoten(e.b)) else { return 0.0 };
+        let el = mit_hoehe(&self.lage(e), a.pos.z, self.steigung(e, e.a), b.pos.z, self.steigung(e, e.b));
+        let mut s0 = 0.0;
+        for x in &el {
+            if s <= s0 + x.stueck.laenge + 1e-9 {
+                // kubisch im Element (Hoehe, Steigungen an den Enden)
+                let l = x.stueck.laenge.max(1e-9);
+                let t = ((s - s0) / l).clamp(0.0, 1.0);
+                let (ga, gb) = (x.stg_a / 100.0 * l, x.stg_e / 100.0 * l);
+                return x.z * (2.0 * t.powi(3) - 3.0 * t * t + 1.0) + ga * (t.powi(3) - 2.0 * t * t + t)
+                    + (x.z + x.dh) * (-2.0 * t.powi(3) + 3.0 * t * t) + gb * (t.powi(3) - t * t);
+            }
+            s0 += x.stueck.laenge;
+        }
+        b.pos.z
+    }
+
+    /// Kante `id` bei s Metern ab a teilen: neuer Knoten dort, zwei Kanten mit derselben Richtung im Knoten
+    pub fn kante_teilen(&mut self, id: u32, s: f64) -> Option<u32> {
+        let e = self.kante(id)?.clone();
+        let st = self.lage(&e);
+        let (q, h) = punkt_auf(&st, s)?;
+        let z = self.hoehe_bei(&e, s);
+        let m = self.knoten_neu(q.extend(z));
+        self.kanten.retain(|k| k.id != id);
+        self.kante_neu(e.a, m, &e.sli, e.ha, h);
+        self.kante_neu(m, e.b, &e.sli, h, e.hb);
+        Some(m)
     }
 
     /// Kante loeschen; Knoten ohne Kanten verschwinden mit
@@ -407,6 +563,44 @@ mod tests {
             let (q, _) = e.stueck.ende();
             assert!((p - q).length() < 1e-6, "openOMSI {p:?}, wir {q:?} (Radius {})", e.stueck.radius);
         }
+    }
+
+    #[test]
+    fn kreuzung_im_netz_kuerzt_die_arme() {
+        let mut n = Netz::default();
+        n.breiten.insert("haupt".into(), 7.0);
+        n.breiten.insert("neben".into(), 5.0);
+        let a = n.knoten_neu(DVec3::new(0.0, 0.0, 10.0));
+        let b = n.knoten_neu(DVec3::new(0.0, 100.0, 10.0));
+        let e = n.kante_neu(a, b, "haupt", 0.0, 0.0);
+        // teilen bei 40 m: zwei Kanten, gleiche Richtung, Knoten auf der Strasse
+        let m = n.kante_teilen(e, 40.0).unwrap();
+        assert!((n.knoten(m).unwrap().pos - DVec3::new(0.0, 40.0, 10.0)).length() < 1e-9);
+        assert_eq!(n.kanten.len(), 2);
+        assert!(!n.ist_kreuzung(m));
+        // Abzweig nach Osten: T-Kreuzung
+        let c = n.knoten_neu(DVec3::new(60.0, 40.0, 10.0));
+        let z = n.kante_neu(m, c, "neben", 90.0, 90.0);
+        assert!(n.ist_kreuzung(m));
+        let arme = n.arme(m);
+        assert_eq!(arme.len(), 3);
+        // Hauptstrasse: halbe Breite des Abzweigs + Eckenraum; Abzweig: halbe Breite der Hauptstrasse + Eckenraum
+        for arm in &arme {
+            let soll = if arm.kante == z { 7.0 } else { 5.0 } + crate::kreuzung::ECKENRAUM;
+            assert!((arm.kuerzung - soll).abs() < 1e-6, "{arm:?}");
+        }
+        // die Kanten enden dort, eben auf Knotenhoehe
+        let el = n.elemente(n.kante(z).unwrap());
+        let start = el[0].stueck.start;
+        assert!((start - DVec2::new(13.0, 40.0)).length() < 1e-6 && el[0].stg_a == 0.0 && (el[0].z - 10.0).abs() < 1e-9);
+        let laenge: f64 = el.iter().map(|x| x.stueck.laenge).sum();
+        assert!((laenge - 47.0).abs() < 1e-6);
+        let vor = n.kanten.iter().find(|k| k.b == m).unwrap().clone();
+        let el = n.elemente(&vor);
+        assert!((el.last().unwrap().stueck.ende().0 - DVec2::new(0.0, 29.0)).length() < 1e-6);
+        // die Stelle auf einer Kante finden
+        let (id, s, p, h) = n.kante_bei(DVec2::new(1.0, 70.0)).unwrap();
+        assert!(n.kante(id).unwrap().b == b && (s - 30.0).abs() < 0.3 && (p.y - 70.0).abs() < 0.3 && h.abs() < 1e-6);
     }
 
     #[test]

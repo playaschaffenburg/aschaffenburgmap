@@ -98,7 +98,7 @@ pub fn starten() -> Option<PathBuf> {
     let datei = std::fs::File::create(&pfad).ok();
     *ZUSTAND.lock().unwrap() = Some(Zustand { datei, letzte: VecDeque::new(), aktion: String::new(), lang: false });
     let filter = env_filter::Builder::new()
-        .parse(&std::env::var("RUST_LOG").unwrap_or_else(|_| "warn,omsi_editor=info".into()))
+        .parse(&std::env::var("RUST_LOG").unwrap_or_else(|_| "warn,omsi_sim::anim=error,omsi_editor=info".into()))
         .build();
     let stufe = filter.filter();
     if log::set_boxed_logger(Box::new(Logger { filter })).is_ok() {

@@ -69,8 +69,9 @@ enum Eintrag {
 }
 
 /// Teil 1 komplett: Aenderungen der Kartenobjekte (openOMSI) und neue Objekte in die Kacheln schreiben
-pub fn vorbereiten(v: &Viewer, b: &Bearbeiten, netz: &crate::netz::Netz, kopien: &[PathBuf], kreuzungen: Option<(PathBuf, String)>,
-                   alt: &str) -> Result<Paket> {
+#[allow(clippy::too_many_arguments)]
+pub fn vorbereiten(v: &Viewer, b: &Bearbeiten, netz: &crate::netz::Netz, netz_kreuzungen: &[(String, glam::DVec3, Vec<(usize, i32)>)],
+                   kopien: &[PathBuf], kreuzungen: Option<(PathBuf, String)>, alt: &str) -> Result<Paket> {
     let (staging, mut dateien) = kacheln_schreiben(v, &b.ed, alt)?;
     let ordner = staging.join("maps").join(alt);
     std::fs::create_dir_all(&ordner)?;
@@ -99,6 +100,20 @@ pub fn vorbereiten(v: &Viewer, b: &Bearbeiten, netz: &crate::netz::Netz, kopien:
             zahl(n.z.pos.x - tx as f64 * groesse), zahl(n.z.pos.y - ty as f64 * groesse), zahl(hoehe),
             zahl(n.z.richtung.rem_euclid(360.0)), "0".into(), "0".into(), "0".into(),
         ];
+        je_kachel.entry((tx, ty)).or_default().push(Eintrag::Objekt(felder));
+        id += 1;
+        neue_objekte += 1;
+    }
+    // Kreuzungsobjekte des eigenen Netzes ([absheight]: Hoehe absolut) mit den Vorfahrtregeln ihrer Pfade
+    for (rel, pos, rules) in netz_kreuzungen {
+        let (tx, ty) = kachel(pos.x, pos.y);
+        let mut felder = vec![
+            "[object]".to_string(), "0".into(), rel.clone(), id.to_string(),
+            zahl(pos.x - tx as f64 * groesse), zahl(pos.y - ty as f64 * groesse), zahl(pos.z), "0".into(), "0".into(), "0".into(), "0".into(),
+        ];
+        for (pfad, wert) in rules {
+            felder.extend(["".to_string(), "[rule]".into(), pfad.to_string(), "priority".into(), wert.to_string(), "0".into()]);
+        }
         je_kachel.entry((tx, ty)).or_default().push(Eintrag::Objekt(felder));
         id += 1;
         neue_objekte += 1;
@@ -157,7 +172,7 @@ pub fn vorbereiten(v: &Viewer, b: &Bearbeiten, netz: &crate::netz::Netz, kopien:
 /// alles in einem Schritt (Tests)
 #[cfg(test)]
 pub fn alles_speichern(v: &Viewer, b: &Bearbeiten, netz: &crate::netz::Netz, alt: &str, neu: &str, root: &Path) -> Result<PathBuf> {
-    let p = vorbereiten(v, b, netz, &[], None, alt)?;
+    let p = vorbereiten(v, b, netz, &[], &[], None, alt)?;
     karte_anlegen(root, alt, neu, &p)
 }
 
