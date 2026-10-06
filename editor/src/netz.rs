@@ -11,6 +11,7 @@
 use glam::{DVec2, DVec3};
 
 pub const MAX_ELEMENT: f64 = 50.0; // laengere Elemente werden geteilt (Hoehenverlauf)
+pub const MAX_PLAN: f64 = 5000.0; // laengere Stuecke sind entartete Planungen (Ziel hinter der Fahrtrichtung)
 
 /// Richtungsvektor (waagerecht) fuer eine Richtung in Grad
 pub fn dir(h: f64) -> DVec2 {
@@ -97,6 +98,10 @@ pub fn verbinden(a: DVec2, ha: f64, b: DVec2, hb: f64) -> Vec<Stueck> {
     } else {
         (-v.dot(t) + (v.dot(t).powi(2) + k * v.dot(v)).sqrt()) / k
     };
+    // parallel mit dem Ziel quer dazu (oder sonst entartet): kein Bogenpaar
+    if !d.is_finite() || d <= 0.0 {
+        return vec![];
+    }
     let m = (a + t1 * d + b - t2 * d) * 0.5;
     let s1 = bogen_durch(a, ha, m);
     let (m2, hm) = s1.ende();
@@ -141,6 +146,10 @@ impl Element {
 /// zb (Steigung gb), Steigungen als Verhaeltnis (0.05 = 5 %)
 pub fn mit_hoehe(stuecke: &[Stueck], za: f64, ga: f64, zb: f64, gb: f64) -> Vec<Element> {
     let mut teile = Vec::new();
+    // entartete Planung (Ziel genau hinter der Fahrtrichtung: Bogen mit riesigem Radius) nie zerlegen
+    if stuecke.iter().any(|s| !s.laenge.is_finite() || s.laenge > MAX_PLAN) {
+        return vec![];
+    }
     for s in stuecke {
         let n = (s.laenge / MAX_ELEMENT).ceil().max(1.0) as usize;
         let l = s.laenge / n as f64;

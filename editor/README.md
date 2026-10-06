@@ -86,6 +86,13 @@ neue Karte kommen diese Kacheln mit.
 darüber, neue Objekte stehen als `[object]`-Einträge mit eindeutigen IDs in ihrer Kachel, `global.cfg` bekommt den
 neuen Namen und `[NextIDCode]`; die Originalkarte bleibt unverändert.
 
+**Protokoll und Berichte** (Knopf „Protokolle“ oben öffnet den Ordner `%LOCALAPPDATA%\omsi-editor\logs`): jede
+Sitzung schreibt eine Logdatei (die letzten 10 bleiben; Stufe über `RUST_LOG`, Standard `warn,omsi_editor=info`),
+beim Kreuzungsbau jeden Schritt mit Zeit. Absturz: `absturz-<Zeit>.txt` mit Stelle, Backtrace und den letzten
+Protokollzeilen. Hänger: ein Wächter merkt, wenn das Fenster 8 s kein Bild zeichnet (beim Kartenöffnen 60 s), und
+schreibt `haenger-<Zeit>.txt` mit der laufenden Aktion. Beim nächsten Start meldet die Statuszeile den Bericht.
+Ausprobieren: `omsi-editor.exe Grundorf --absturztest` bzw. `--haengertest`.
+
 Tests: `cargo test --release` (ohne OMSI), `cargo test --release -- --include-ignored` (mit OMSI und Grafikkarte;
 `dxcompiler.dll`/`dxil.dll` auch nach `target\release\deps`).
 

@@ -182,7 +182,11 @@ impl Aendern {
         let halb_neu = l.max(r) as f64;
         let richtung = arm_richtung(ab.richtung, richtung);
         let (d, d_arm) = masse(ab.richtung, richtung, ab.halb, halb_neu);
+        let t0 = std::time::Instant::now();
+        log::info!("Kreuzung bauen: Spline {} bei {:.1} m ({}), Arm {:.1} Grad, Schnitt {:.1} m je Seite, Arm {:.1} m", ab.spline_id, ab.s, ab.sli, richtung, d, d_arm);
+        crate::protokoll::aktion(&format!("Kreuzung bauen: Kette um Spline {}", ab.spline_id));
         let kette = self.kette_um(ab.spline_id, d + 5.0);
+        log::info!("  Kette: {} Splines {:?} ({} ms)", kette.len(), kette.iter().map(|g| g.s.id).collect::<Vec<_>>(), t0.elapsed().as_millis());
         let g = kette.iter().find(|g| g.s.id == ab.spline_id).context("Spline nicht geladen")?;
         let mitte = g.von + ab.s;
         let (mut lo, mut hi) = (mitte - d, mitte + d);
@@ -209,7 +213,9 @@ impl Aendern {
         };
         let (p_lo, h_lo, g_lo) = punkt(lo);
         let (p_hi, h_hi, g_hi) = punkt(hi);
+        crate::protokoll::aktion("Kreuzung bauen: naechste freie ID (Kartenindex)");
         let mut ids = v.next_object_id();
+        log::info!("  naechste ID {ids} ({} ms)", t0.elapsed().as_millis());
         let mut neue_id = || {
             ids += 1;
             ids - 1
@@ -243,7 +249,9 @@ impl Aendern {
         let (ordner, _) = self.kreuzungs_ordner();
         let rel_ordner = format!("Sceneryobjects\\Aschaffenburg_KI\\{}", self.tag);
         let name = freier_name(&ordner);
+        crate::protokoll::aktion("Kreuzung bauen: omsigen erzeugt das Kreuzungsobjekt");
         let obj = erzeugen(&v.root, &ordner, &rel_ordner, &name, &arme)?;
+        log::info!("  Objekt {} bei {:?}: {} Abbiegespuren, {} Regeln ({} ms)", obj.rel, obj.ursprung, obj.spuren, obj.rules.len(), t0.elapsed().as_millis());
         let obj_id = neue_id();
         // Kacheln umschreiben
         let ts = omsi_map::tile_size();
@@ -294,6 +302,7 @@ impl Aendern {
         let mut kacheln: Vec<(i32, i32)> = aendern.keys().chain(anhaengen.keys()).chain(prev_neu.keys()).copied().collect();
         kacheln.sort();
         kacheln.dedup();
+        crate::protokoll::aktion(&format!("Kreuzung bauen: Kacheln {kacheln:?} umschreiben und neu laden"));
         self.kacheln_aendern(v, &kacheln, |k, zeilen| {
             if !zeilen.iter().take(20).position(|l| l.trim().eq_ignore_ascii_case("[version]"))
                 .and_then(|i| zeilen.get(i + 1)).and_then(|l| l.trim().parse::<i32>().ok()).is_some_and(|x| x >= 11) {
@@ -333,6 +342,8 @@ impl Aendern {
             zeilen.push(String::new());
             Ok(1)
         })?;
+        log::info!("  Kacheln {kacheln:?} umgeschrieben ({} ms)", t0.elapsed().as_millis());
+        crate::protokoll::aktion("");
         let arm = arme[2].clone();
         Ok((Arm { pos: arm_pos.extend(hoehe), ..arm }, obj))
     }
@@ -411,6 +422,9 @@ pub fn erzeugen(root: &Path, ordner: &Path, rel_ordner: &str, name: &str, arme: 
         .with_context(|| format!("{python} starten (omsigen erzeugt die Kreuzung)"))?;
     kind.stdin.take().unwrap().write_all(auftrag.to_string().as_bytes())?;
     let aus = kind.wait_with_output()?;
+    if !aus.stderr.is_empty() {
+        log::info!("omsigen (stderr): {}", String::from_utf8_lossy(&aus.stderr).trim());
+    }
     let erg: serde_json::Value = serde_json::from_slice(&aus.stdout)
         .with_context(|| format!("omsigen: keine Antwort ({})", String::from_utf8_lossy(&aus.stderr).lines().last().unwrap_or("")))?;
     if let Some(f) = erg.get("fehler").and_then(|f| f.as_str()) {
@@ -553,6 +567,73 @@ mod tests {
         assert_eq!(v2.spline_end_free(ab.spline_id, true), Some(false), "Strasse vor der Kreuzung endet frei");
         assert_eq!(v2.spline_end_free(neu_id, false), Some(false), "neue Strasse beginnt frei statt an der Kreuzung");
         std::fs::remove_dir_all(&test_root).ok();
+    }
+
+    /// Start auf einer Strasse, dann die Maus ueber ein Raster von Punkten (auch ueber dieselbe und andere
+    /// Strassen): jede Vorschau muss schnell und endlich sein
+    #[test]
+    #[ignore]
+    fn abzweig_vorschau_ueberall() {
+        let _sperre = crate::bearbeiten::tests::sperre();
+        use crate::anschluss::Anschluesse;
+        use crate::strasse::{Modus, Strassenbau};
+        let mut v = crate::bearbeiten::tests::grundorf();
+        v.tiles_around(DVec3::new(150.0, 150.0, 0.0), 8).unwrap();
+        let mut a = Aendern::neu(&v);
+        let ab = abzweig_suchen(&v, &mut a);
+        let mut ans = Anschluesse::default();
+        ans.aktualisieren(&v);
+        for modus in [Modus::Kurve, Modus::Gerade] {
+            let mut s = Strassenbau::neu(Some("Splines\\Marcel\\str_2spur_8m_altonaer1.sli".into()), modus);
+            s.klick(&mut v, ab.pos, 2.0, &ans, Some(&mut a)).unwrap();
+            let mut langsam = Vec::new();
+            for i in -40..=40 {
+                for j in -40..=40 {
+                    let p = ab.pos.truncate() + DVec2::new(i as f64 * 4.0, j as f64 * 4.0);
+                    let g = p.extend(v.terrain_height(p.x, p.y).unwrap_or(ab.pos.z));
+                    let t = std::time::Instant::now();
+                    s.maus(&mut v, g, 2.0, &ans, Some(&mut a));
+                    let ms = t.elapsed().as_millis();
+                    if let Some(pl) = s.plan.as_ref() {
+                        assert!(pl.laenge.is_finite() && pl.laenge < 5000.0, "Vorschau zu {p:?}: Laenge {}", pl.laenge);
+                    }
+                    if ms > 100 {
+                        langsam.push((p, ms));
+                    }
+                }
+            }
+            s.beenden(&mut v);
+            assert!(langsam.is_empty(), "{modus:?}: langsame Vorschauen {:?}", &langsam[..langsam.len().min(10)]);
+        }
+        // an einem groeberen Raster wirklich bauen (Kreuzung, auch ein Ziel auf einer Strasse) und zuruecknehmen
+        let mut gebaut = 0;
+        let mut meldungen = std::collections::BTreeMap::<String, usize>::new();
+        for i in -3..=3 {
+            for j in -3..=3 {
+                let mut s = Strassenbau::neu(Some("Splines\\Marcel\\str_2spur_8m_altonaer1.sli".into()), Modus::Kurve);
+                a.aktualisieren(&v);
+                ans.vergessen();
+                ans.aktualisieren(&v);
+                s.klick(&mut v, ab.pos, 2.0, &ans, Some(&mut a)).unwrap();
+                let p = ab.pos.truncate() + DVec2::new(i as f64 * 25.0, j as f64 * 25.0);
+                let g = p.extend(v.terrain_height(p.x, p.y).unwrap_or(ab.pos.z));
+                s.maus(&mut v, g, 2.0, &ans, Some(&mut a));
+                if s.plan.is_none() {
+                    continue;
+                }
+                let t = std::time::Instant::now();
+                let m = s.klick(&mut v, g, 2.0, &ans, Some(&mut a)).unwrap_or_default();
+                assert!(t.elapsed().as_secs() < 10, "Bauen zu {p:?} dauerte {:?}", t.elapsed());
+                *meldungen.entry(m.split(':').next().unwrap_or("").to_string()).or_default() += 1;
+                s.beenden(&mut v);
+                if s.kann_rueckgaengig() {
+                    gebaut += 1;
+                    s.rueckgaengig(&mut v, Some(&mut a));
+                }
+            }
+        }
+        println!("gebaut {gebaut}, Meldungen {meldungen:?}");
+        assert!(gebaut > 10);
     }
 
     #[test]

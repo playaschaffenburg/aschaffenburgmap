@@ -17,6 +17,7 @@ mod kamera;
 mod katalog;
 mod kreuzung;
 mod netz;
+mod protokoll;
 mod speichern;
 mod strasse;
 mod vorschau;
@@ -87,6 +88,10 @@ struct App {
     meldung: String,
     zu_laden: Option<usize>,
     filter: String,
+    /// --absturztest / --haengertest: Bericht ausprobieren, sobald die Karte laeuft
+    pruefung: Option<String>,
+    /// Bericht der vorigen Sitzung, einmal in der Statuszeile melden
+    bericht_melden: Option<Option<PathBuf>>,
     /// Testlauf: Strasse, an der spaeter eine Kreuzung gebaut wird
     testlauf_abzweig: Option<i64>,
     /// --testlauf: nach so vielen Sekunden beenden und Bildrate ausgeben
@@ -180,6 +185,8 @@ impl App {
             filter: String::new(),
             beenden_nach: None,
             testlauf_abzweig: None,
+            bericht_melden: Some(protokoll::neuer_bericht()),
+            pruefung: None,
             gestartet: Instant::now(),
             bilder: 0,
             laengstes: 0.0,
@@ -373,8 +380,19 @@ impl App {
             }
         }
         if let Some(i) = self.zu_laden.take() {
-            if let Err(e) = self.karte_oeffnen(i) {
-                self.meldung = format!("Karte nicht geladen: {e:#}");
+            protokoll::aktion_lang(&format!("Karte oeffnen: {}", self.karten[i].ordner));
+            match self.karte_oeffnen(i) {
+                Ok(()) => log::info!("{}", self.meldung),
+                Err(e) => {
+                    self.meldung = format!("Karte nicht geladen: {e:#}");
+                    log::error!("{}", self.meldung);
+                }
+            }
+            protokoll::aktion("");
+            // Bericht der vorigen Sitzung (Absturz/Haenger) melden
+            if let Some(b) = self.bericht_melden.take().flatten() {
+                self.meldung = format!("Die letzte Sitzung ist abgestuerzt oder hing - Bericht: {}", b.display());
+                log::warn!("{}", self.meldung);
             }
         }
         if self.surface.is_none() {
@@ -456,6 +474,9 @@ impl App {
                     let txt = if self.bearb.aenderungen + self.strasse.aenderungen + self.aendern.as_ref().map(|a| a.aenderungen).unwrap_or(0) > 0 { "Als neue Karte speichern *" } else { "Als neue Karte speichern" };
                     if ui.add_enabled(self.viewer.is_some() && self.speichern_job.is_none(), egui::Button::new(txt)).on_hover_text("Strg+S").clicked() {
                         aktionen.push(UiAktion::SpeichernDialog);
+                    }
+                    if ui.button("Protokolle").on_hover_text("Ordner mit Logdateien, Absturz- und Haenger-Berichten oeffnen").clicked() {
+                        let _ = std::process::Command::new("explorer").arg(protokoll::ordner()).spawn();
                     }
                 });
             });
@@ -1305,6 +1326,18 @@ impl ApplicationHandler for App {
                 }
             }
             WindowEvent::RedrawRequested => {
+                protokoll::puls();
+                if self.bilder > 120 {
+                    match self.pruefung.take().as_deref() {
+                        Some("--absturztest") => panic!("Absturztest (--absturztest)"),
+                        Some("--haengertest") => {
+                            protokoll::aktion("Haengertest (--haengertest): 12 s warten");
+                            std::thread::sleep(std::time::Duration::from_secs(12));
+                            protokoll::aktion("");
+                        }
+                        _ => {}
+                    }
+                }
                 self.zeichnen();
                 if self.viewer.is_some() {
                     self.bilder += 1;
@@ -1705,7 +1738,7 @@ fn write_png(path: &Path, w: u32, h: u32, rgba: &[u8]) -> Result<()> {
 }
 
 fn main() -> Result<()> {
-    env_logger::Builder::from_env(env_logger::Env::default().default_filter_or("warn")).init();
+    protokoll::starten();
     // "--name=wert" wie "--name wert" (negative Zahlen in --cam sehen sonst wie Schalter aus)
     let args: Vec<String> = std::env::args()
         .skip(1)
@@ -1717,9 +1750,15 @@ fn main() -> Result<()> {
     let mut root = PathBuf::from(STANDARD_OMSI);
     let mut karte = None;
     let (mut png, mut cam, mut testlauf, mut wechsel) = (None, None, None::<f32>, None);
+    let mut pruefung = None;
     let mut i = 0;
     while i < args.len() {
         let wert = args.get(i + 1).cloned();
+        if args[i] == "--absturztest" || args[i] == "--haengertest" {
+            pruefung = Some(args[i].clone());
+            i += 1;
+            continue;
+        }
         match (args[i].as_str(), wert) {
             ("--root", Some(w)) => root = PathBuf::from(w),
             ("--bild", Some(w)) => png = Some(PathBuf::from(w)),
@@ -1742,6 +1781,7 @@ fn main() -> Result<()> {
     let mut app = App::new(root, karte);
     app.beenden_nach = testlauf;
     app.wechsel = wechsel;
+    app.pruefung = pruefung;
     el.run_app(&mut app)?;
     Ok(())
 }

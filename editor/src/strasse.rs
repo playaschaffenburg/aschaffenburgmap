@@ -429,6 +429,13 @@ impl Strassenbau {
             }
         };
         let laenge: f64 = stuecke.iter().map(|s| s.laenge).sum();
+        // Ziel hinter der Fahrtrichtung oder entartet: keine Vorschau (sonst riesige Boegen)
+        let luftlinie = (b.truncate() - a.truncate()).length();
+        if stuecke.is_empty() || !laenge.is_finite() || laenge > netz::MAX_PLAN || laenge > 4.0 * luftlinie + 300.0 {
+            self.vorschau_weg(v);
+            self.plan = None;
+            return;
+        }
         let min_radius = stuecke.iter().filter(|s| s.radius != 0.0).map(|s| s.radius.abs()).fold(f64::INFINITY, f64::min);
         let steigung = if laenge > 0.0 { (b.z - a.z) / laenge * 100.0 } else { 0.0 };
         let warnung = match &ziel_anschluss {

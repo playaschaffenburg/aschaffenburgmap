@@ -3523,7 +3523,7 @@ dependencies = [
  "egui",
  "egui-wgpu",
  "egui-winit",
- "env_logger",
+ "env_filter 0.1.4",
  "glam",
  "image",
  "log",
