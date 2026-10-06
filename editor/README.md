@@ -11,10 +11,10 @@ der Generator für OSM-Import, Kreuzungen, Gelände, Brücken und Tunnel.
    ```powershell
    cd ..\..\OpenOmsi\source
    git checkout -b editor-api
-   git am ..\..\aschaffenburgmap\editor\patches\openomsi-editor-api.patch
+   git am ..\..\aschaffenburgmap\editor\patches\openomsi-editor-api.patch   # mehrere Commits
    ```
-   Der Patch fügt nur `crates/omsi-app/src/viewer.rs` (öffentliche Schnittstelle: Karte öffnen, Kacheln laden,
-   Bild zeichnen, Bodenhöhe) und eine Zeile in `lib.rs` hinzu und lädt OpenXR zur Laufzeit (kein CMake nötig).
+   Der Patch fügt nur `crates/omsi-app/src/viewer.rs` (öffentliche Schnittstelle: Karte öffnen/wechseln, Kacheln
+   streamen, Bild zeichnen, Bodenhöhe) und eine Zeile in `lib.rs` hinzu und lädt OpenXR zur Laufzeit (kein CMake nötig).
 2. `cargo build --release`
 3. `dxcompiler.dll` und `dxil.dll` aus einem openOMSI-Release neben `target\release\omsi-editor.exe` legen
    (ohne sie nimmt wgpu den alten Shader-Compiler FXC, der mit einem Stapelüberlauf abbricht).
@@ -33,7 +33,8 @@ Q / E drehen, R / F neigen. Koordinaten wie in openOMSI: x Ost, y Nord, z hoch.
 
 ## Stand und Plan
 
-1. **Betrachter** (fertig): beliebige Karte, Darstellung wie im Spiel, Kacheln um den Blickpunkt
+1. **Betrachter** (fertig): beliebige Karte, Darstellung wie im Spiel, Kacheln werden im Hintergrund um den
+   Blickpunkt gestreamt (Worker-Thread, 6 ms Hochladen je Bild), Kartenwechsel ohne neuen Renderer
 2. Auswählen und Bearbeiten (Objekte, Splines), Speichern immer als neue Karte
 3. Straßenwerkzeug wie in Transport Fever 2 mit Netz-Kern (Knoten, Kanten mit Kurven, Querschnitte)
 4. omsigen-Funktionen: OSM-Import, Kreuzungsgenerator, DGM-Gelände, Luftbild

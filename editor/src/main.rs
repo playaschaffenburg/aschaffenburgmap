@@ -25,7 +25,8 @@ use winit::keyboard::{KeyCode, PhysicalKey};
 use winit::window::{Window, WindowId};
 
 const STANDARD_OMSI: &str = r"C:\Program Files (x86)\Steam\steamapps\common\OMSI 2";
-const KACHEL_RADIUS: i32 = 3;
+const KACHEL_RADIUS: i32 = 3;          // nur fuer --bild (alles auf einmal laden)
+const STREAM_BUDGET_MS: u64 = 6;       // je Bild fuer das Hochladen gestreamter Kacheln
 
 struct Karte {
     ordner: String,
@@ -66,7 +67,8 @@ struct App {
     maus: Option<(f32, f32)>,
     ziehen: Option<(MouseButton, (f32, f32))>,
     boden_unter_maus: Option<DVec3>,
-    letzte_kachel: Option<(i32, i32)>,
+    /// Format, in das egui zeichnet (ohne sRGB, sonst werden die Farben blass)
+    ui_format: wgpu::TextureFormat,
     zuletzt: Instant,
     fps: f32,
     meldung: String,
@@ -76,6 +78,10 @@ struct App {
     beenden_nach: Option<f32>,
     gestartet: Instant,
     bilder: u32,
+    /// laengstes Bild (s) nach dem ersten Ladebereich, fuer den Testlauf
+    laengstes: f32,
+    /// --wechsel: im Testlauf nach 60 % auf diese Karte umschalten
+    wechsel: Option<String>,
 }
 
 impl App {
@@ -95,7 +101,7 @@ impl App {
             maus: None,
             ziehen: None,
             boden_unter_maus: None,
-            letzte_kachel: None,
+            ui_format: wgpu::TextureFormat::Bgra8Unorm,
             zuletzt: Instant::now(),
             fps: 0.0,
             meldung: String::new(),
@@ -104,6 +110,8 @@ impl App {
             beenden_nach: None,
             gestartet: Instant::now(),
             bilder: 0,
+            laengstes: 0.0,
+            wechsel: None,
         }
     }
 
@@ -111,7 +119,20 @@ impl App {
     fn karte_oeffnen(&mut self, i: usize) -> Result<()> {
         let window = self.window.clone().context("kein Fenster")?;
         let t0 = Instant::now();
-        // alte Karte und Flaeche zuerst freigeben
+        // schon eine Karte offen: Renderer behalten (Pipelines nur einmal kompilieren), Welt tauschen
+        if let Some(v) = self.viewer.as_mut() {
+            let cam = v.open_map(&self.karten[i].global)?;
+            self.kamera_von(&cam);
+            let (ziel, weite) = (self.kam.ziel, self.sichtweite());
+            if let Some(v) = self.viewer.as_mut() {
+                v.stream(ziel, weite, std::time::Duration::from_millis(STREAM_BUDGET_MS));
+            }
+            self.karte = Some(self.karten[i].ordner.clone());
+            self.meldung = format!("{} geoeffnet in {:.1} s", self.karten[i].ordner, t0.elapsed().as_secs_f32());
+            window.set_title(&format!("{} - OMSI-Editor", self.karten[i].ordner));
+            return Ok(());
+        }
+        // erste Karte: Grafik starten (Pipelines kompilieren), Flaeche anlegen
         self.surface = None;
         self.viewer = None;
         self.gui = None;
@@ -120,24 +141,31 @@ impl App {
         let (mut v, cam) = Viewer::open(&instance, Some(&tmp), &self.root, &self.karten[i].global)?;
         drop(tmp);
         let size = window.inner_size();
-        let surface = SurfaceState::new(&instance, window.clone(), &v.renderer, size.width.max(1), size.height.max(1))?;
-        // Blickpunkt: dorthin, wohin die Startkamera der Karte schaut
-        let f = cam.forward().as_dvec3();
-        let mut ziel = cam.position + f * if f.z < -0.05 { (cam.position.z / -f.z).min(400.0) } else { 150.0 };
-        ziel.z = 0.0;
-        self.kam = Kamera { ziel, gier: cam.yaw, neigung: cam.pitch.min(-15.0), abstand: 250.0, fov: 50.0 };
-        self.letzte_kachel = None;
-        v.tiles_around(self.kam.ziel, KACHEL_RADIUS)?;
-        if let Some(z) = v.ground_height(self.kam.ziel.x, self.kam.ziel.y) {
-            self.kam.ziel.z = z;
+        let mut surface = SurfaceState::new(&instance, window.clone(), &v.renderer, size.width.max(1), size.height.max(1))?;
+        // egui ueber eine Sicht ohne sRGB auf dieselbe Flaeche zeichnen lassen
+        self.ui_format = surface.config.format.remove_srgb_suffix();
+        if self.ui_format != surface.config.format {
+            surface.config.view_formats = vec![self.ui_format];
+            surface.surface.configure(&v.renderer.device, &surface.config);
         }
-        self.gui = Some(Self::gui_neu(&window, &v.renderer.device, surface.config.format));
+        self.kamera_von(&cam);
+        // die Kacheln kommen ab dem ersten Bild im Hintergrund (Viewer::stream)
+        v.stream(self.kam.ziel, self.sichtweite(), std::time::Duration::from_millis(STREAM_BUDGET_MS));
+        self.gui = Some(Self::gui_neu(&window, &v.renderer.device, self.ui_format));
         self.surface = Some(surface);
         self.viewer = Some(v);
         self.karte = Some(self.karten[i].ordner.clone());
         self.meldung = format!("{} geladen in {:.1} s", self.karten[i].ordner, t0.elapsed().as_secs_f32());
         window.set_title(&format!("{} - OMSI-Editor", self.karten[i].ordner));
         Ok(())
+    }
+
+    /// Blickpunkt dorthin, wohin die Startkamera der Karte ([mapcam]) schaut
+    fn kamera_von(&mut self, cam: &openomsi_game::viewer::Camera) {
+        let f = cam.forward().as_dvec3();
+        let mut ziel = cam.position + f * if f.z < -0.05 { (cam.position.z / -f.z).min(400.0) } else { 150.0 };
+        ziel.z = cam.position.z.min(ziel.z.max(0.0));
+        self.kam = Kamera { ziel, gier: cam.yaw, neigung: cam.pitch.min(-15.0), abstand: 250.0, fov: 50.0 };
     }
 
     fn gui_neu(window: &Window, device: &wgpu::Device, format: wgpu::TextureFormat) -> Gui {
@@ -176,17 +204,16 @@ impl App {
         if let Some(z) = self.boden(self.kam.ziel.x, self.kam.ziel.y) {
             self.kam.ziel.z += (z - self.kam.ziel.z) * (1.0 - (-dt as f64 * 8.0).exp());
         }
-        let k = Viewer::tile_of(self.kam.ziel);
-        if self.letzte_kachel != Some(k) {
-            if let Some(v) = self.viewer.as_mut() {
-                match v.tiles_around(self.kam.ziel, KACHEL_RADIUS) {
-                    Ok(n) if n > 0 => self.meldung = format!("{n} Kacheln nachgeladen"),
-                    Err(e) => self.meldung = format!("Kacheln: {e:#}"),
-                    _ => {}
-                }
-            }
-            self.letzte_kachel = Some(k);
+        // Kacheln im Hintergrund: Lesen und Zerlegen im Worker, hier nur ein paar ms Hochladen
+        let (ziel, weite) = (self.kam.ziel, self.sichtweite());
+        if let Some(v) = self.viewer.as_mut() {
+            v.stream(ziel, weite, std::time::Duration::from_millis(STREAM_BUDGET_MS));
         }
+    }
+
+    /// Ladeweite in Metern: weiter, je hoeher die Kamera steht
+    fn sichtweite(&self) -> f64 {
+        (self.kam.abstand * 2.5).clamp(900.0, 3000.0)
     }
 
     fn zeichnen(&mut self) {
@@ -195,6 +222,9 @@ impl App {
         let dt = (jetzt - self.zuletzt).as_secs_f32().min(0.1);
         self.zuletzt = jetzt;
         self.fps = self.fps * 0.9 + 0.1 / dt.max(1e-4);
+        if self.viewer.as_ref().map(|v| v.first_area_progress().is_none() && v.loaded_tiles() > 0).unwrap_or(false) && self.bilder > 5 {
+            self.laengstes = self.laengstes.max(dt);
+        }
         self.bewegen(dt);
         if let Some(i) = self.zu_laden.take() {
             if let Err(e) = self.karte_oeffnen(i) {
@@ -231,7 +261,8 @@ impl App {
         if let Some(v) = self.viewer.as_mut() {
             v.render(&view, w, h, &cam);
         }
-        self.oberflaeche(&window, &view, w, h);
+        let view_ui = frame.texture.create_view(&wgpu::TextureViewDescriptor { format: Some(self.ui_format), ..Default::default() });
+        self.oberflaeche(&window, &view_ui, w, h);
         window.pre_present_notify();
         frame.present();
     }
@@ -274,7 +305,10 @@ impl App {
                     ui.label(format!("{:.0} fps", self.fps));
                     ui.separator();
                     if let Some(v) = self.viewer.as_ref() {
-                        ui.label(format!("{} Kacheln geladen", v.loaded_tiles()));
+                        match v.first_area_progress() {
+                            Some((a, b)) => ui.label(format!("lade Kacheln {a}/{b}")),
+                            None => ui.label(format!("{} Kacheln geladen", v.loaded_tiles())),
+                        };
                         ui.separator();
                     }
                     if let Some(p) = self.boden_unter_maus {
@@ -362,13 +396,19 @@ impl ApplicationHandler for App {
                 if let Some(t) = self.beenden_nach {
                     let s = self.gestartet.elapsed().as_secs_f32();
                     if s > t {
-                        println!("Testlauf: {} Bilder in {:.1} s, zuletzt {:.0} fps, {} | {}", self.bilder, s, self.fps,
+                        println!("Testlauf: {} Bilder in {:.1} s, zuletzt {:.0} fps, laengstes Bild {:.0} ms, {} Kacheln, {} | {}", self.bilder, s, self.fps, self.laengstes * 1000.0, self.viewer.as_ref().map(|v| v.loaded_tiles()).unwrap_or(0),
                                  self.karte.as_deref().unwrap_or("-"), self.meldung);
                         el.exit();
+                    } else if s > t * 0.6 && self.wechsel.is_some() {
+                        let ziel = self.wechsel.take().unwrap();
+                        if let Some(i) = self.karten.iter().position(|k| k.ordner == ziel) {
+                            self.zu_laden = Some(i);
+                            self.laengstes = 0.0;
+                        }
                     } else if s > t * 0.4 {
                         // Kamera bewegen wie ein Nutzer: drehen, fahren, zoomen
                         self.kam.drehen(0.4, 0.0);
-                        self.kam.verschieben(0.0, self.kam.abstand * 0.004);
+                        self.kam.verschieben(0.0, 2.5);
                     }
                 }
                 window.request_redraw();
@@ -528,7 +568,7 @@ fn main() -> Result<()> {
         .collect();
     let mut root = PathBuf::from(STANDARD_OMSI);
     let mut karte = None;
-    let (mut png, mut cam, mut testlauf) = (None, None, None::<f32>);
+    let (mut png, mut cam, mut testlauf, mut wechsel) = (None, None, None::<f32>, None);
     let mut i = 0;
     while i < args.len() {
         let wert = args.get(i + 1).cloned();
@@ -537,6 +577,7 @@ fn main() -> Result<()> {
             ("--bild", Some(w)) => png = Some(PathBuf::from(w)),
             ("--cam", Some(w)) => cam = Some(w),
             ("--testlauf", Some(w)) => testlauf = w.parse().ok(),
+            ("--wechsel", Some(w)) => wechsel = Some(w),
             _ => {
                 karte = Some(args[i].clone());
                 i += 1;
@@ -551,6 +592,7 @@ fn main() -> Result<()> {
     let el = EventLoop::new()?;
     let mut app = App::new(root, karte);
     app.beenden_nach = testlauf;
+    app.wechsel = wechsel;
     el.run_app(&mut app)?;
     Ok(())
 }
