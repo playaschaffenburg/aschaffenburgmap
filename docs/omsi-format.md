@@ -102,6 +102,15 @@ warten auf den Gegenverkehr. In Grundorf hängen alle 53 `priority`-Regeln an Kr
 (`Kreuz_See_Elsflether.sco`, `Einm_See*.sco`), nicht an Splines. Weitere Zählung Grundorf: 217
 `trafficdensity`, 110 `trucks`, 28 `no_cars`, 8 `speedlimit` (80), 2 `bus`.
 
+## Einsetzpunkte `[entrypoints]` *[Grundorf, openOMSI]*
+
+Wo man bei „Freie Fahrt“ startet. In der Kachel steht ein unsichtbares Objekt `Sceneryobjects\Generic\entrypoint_bus.sco`
+(`[entrypoint]`, `[onlyeditor]`); in `global.cfg` je Einsetzpunkt 12 Zeilen: Index des Objekts in der Kachel,
+Objekt-ID, `0`, x, Höhe, z (lokal), Quaternion x y z w (Drehung h: `0, sin(h/2), 0, cos(h/2)`), Index der Kachel in
+der `[map]`-Liste, Name. Ohne Einsetzpunkt setzt OMSI den Bus irgendwo hin (bei uns: an den Kartenrand).
+omsigen legt Einsetzpunkte an Start, Ziel und jeder Haltestelle an (rechte Fahrspur, in Fahrtrichtung);
+geprüft mit openOMSI `--entry 0`: „spawned at entry point … "Start: Hauptbahnhof"“.
+
 ## Spline-Definition `.sli`
 
 - `[heightprofile]` x1 x2 h1 h2: befahrbare Fläche (Fahrbahn 0,10 m, Gehweg 0,25 m).

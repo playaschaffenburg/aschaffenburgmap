@@ -10,7 +10,7 @@ from . import osm, ansicht, kreuzung, vorfahrt
 from .route import Projection, route, corridor
 from .network import build, proj_point
 from .splinedb import SplineDB
-from .writer import write_map, place_stops, install_splines
+from .writer import write_map, place_stops, install_splines, spur_punkt
 
 VERSION = 1
 
@@ -59,7 +59,9 @@ def importiere(von, nach, stadt=None, ueber=(), breite=150.0, cache='.cache', os
     line, length = route(data['ways'], proj, pts, rinfo)
     log(f'    Streckenlaenge {length:.0f} m (Abstand zur Strasse: '
         + ', '.join(f'{d:.0f} m' for d in rinfo['andocken']) + ')')
-    ways, cuts = corridor(data['ways'], proj, line, breite)
+    # Korridor bis zu den echten Start- und Zielpunkten, auch wenn die Strecke an der naechsten Strasse beginnt
+    ziele = [proj.to_m(*p) for p in pts]
+    ways, cuts = corridor(data['ways'], proj, [ziele[0]] + list(line) + [ziele[-1]], breite)
     stops = []
     for s in data['stops']:
         p = proj.to_m(s['lat'], s['lon'])
@@ -71,6 +73,7 @@ def importiere(von, nach, stadt=None, ueber=(), breite=150.0, cache='.cache', os
              schilder=[dict(kind=g['kind'], p=list(proj.to_m(g['lat'], g['lon'])), direction=g.get('direction'))
                        for g in data.get('signs', [])],
              rand=[list(c) for c in cuts], linie=[list(q) for q in line], laenge=length,
+             ziele=[dict(name=q, p=list(z)) for q, z in zip(qs, ziele)],
              quelle='OpenStreetMap (ODbL)',
              beschreibung=f'{von} -> {nach}' + (f' ({stadt})' if stadt else '') + f', Korridor {breite:.0f} m')
     return P
@@ -117,8 +120,21 @@ def erzeuge(projekt, name, omsi=None, ausgabe='build', korrekturen=None, uebersc
         if os.path.exists(kdir) and not ueberschreiben:
             raise FileExistsError(f'Objektordner {kdir} existiert schon - anderen Kartennamen waehlen')
     linie = projekt.get('linie') or [projekt['strassen'][0]['punkte'][0]]
+    # Einsetzpunkte: Start, Ziel (bzw. Anfang der ersten Strasse) und alle Haltestellen
+    orte = [(('Start: ' if i == 0 else 'Ziel: ') + z['name'], z['p']) for i, z in
+            enumerate(projekt.get('ziele', [])[::max(1, len(projekt.get('ziele', [])) - 1)])]
+    if not orte:
+        orte = [('Start', linie[0])]
+    orte += [(s['name'], (s['x'], s['z'])) for s in stops]
+    entrypoints, namen = [], set()
+    for n, p in orte:
+        e = spur_punkt(tuple(p), net['road_chains'], sdb)
+        if e and n not in namen:
+            namen.add(n)
+            entrypoints.append(dict(e, name=n[:60]))
     info = write_map(os.path.join(root, 'maps'), name, chains, stops, omsi_dir=omsi, friendly=titel or name,
-                     description=desc, cam_xz=tuple(linie[0]), overwrite=ueberschreiben, junctions=junctions)
+                     description=desc, cam_xz=(entrypoints[0]['x'], entrypoints[0]['z']) if entrypoints else
+                     tuple(linie[0]), overwrite=ueberschreiben, junctions=junctions, entrypoints=entrypoints)
     kdir = None
     if junctions:
         kdir, _ = kreuzung.install_objects(root, name, junctions, omsi_dir=omsi, overwrite=ueberschreiben)
@@ -129,7 +145,7 @@ def erzeuge(projekt, name, omsi=None, ausgabe='build', korrekturen=None, uebersc
                                         z=j['origin'][1] - info['offset'][1]) for j in junctions if j['vorfahrt']]),
                   f, ensure_ascii=False, indent=1)
     log(f'    {info["dir"]}: {info["tiles"]} Kacheln, {info["splines"]} Splines, '
-        f'{len(junctions)} Kreuzungsobjekte, {len(stops)} Haltestellen')
+        f'{len(junctions)} Kreuzungsobjekte, {len(stops)} Haltestellen, {len(entrypoints)} Einsetzpunkte')
     if junctions:
         log(f'    Kreuzungsobjekte: {kdir} ({sum(j["faces"] for j in junctions)} Dreiecke, '
             f'{sum(j["paths"] for j in junctions)} Pfade)')

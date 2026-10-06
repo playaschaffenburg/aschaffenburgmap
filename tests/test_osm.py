@@ -76,3 +76,12 @@ def test_find_place_fragt_varianten(monkeypatch):
     p = osm.find_place('Hauptbahnhof', 'Aschaffenburg')
     assert gefragt == ['hauptbahnhof, Aschaffenburg', 'hbf, Aschaffenburg']
     assert abs(p['lat'] - 49.9807) < 0.0005 and abs(p['lon'] - 9.1439) < 0.0005
+
+
+def test_benannte_zufahrt_bleibt():
+    """Zufahrt zum Klinikum ist in OSM highway=service mit Namen - muss im Netz bleiben, Parkplatzgassen nicht"""
+    from omsigen.osm import classify
+    assert classify({'highway': 'service', 'name': 'Am Hasenkopf'})
+    assert classify({'highway': 'service'}) is None
+    assert classify({'highway': 'service', 'name': 'P1', 'service': 'parking_aisle'}) is None
+    assert classify({'highway': 'service', 'name': 'X', 'access': 'private'}) is None

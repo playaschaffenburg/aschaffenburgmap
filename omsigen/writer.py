@@ -60,7 +60,40 @@ def ailists_cfg(omsi_dir=None):
     return '\r\n'.join(L)
 
 
-def global_cfg(name, friendly, description, next_id, tiles, cam):
+ENTRYPOINT = 'Sceneryobjects\\Generic\\entrypoint_bus.sco'
+
+
+def spur_punkt(p, road_chains, sdb):
+    """Einsetzpunkt fuer einen Ort p: naechste Strasse, Fahrspur auf der Seite von p, Blick in Fahrtrichtung
+    -> dict(x, z, rot) oder None"""
+    best = None
+    for c in road_chains:
+        for el in c['els']:
+            a, b = (el[0], el[1]), end_of(el)[0]
+            t, d = proj_point(p, a, b)
+            if best is None or d < best[0]:
+                best = (d, el, t)
+    if best is None:
+        return None
+    _, el, t = best
+    x0, z0, h, L, R, spl = el
+    (cx, cz), hh = end_of([x0, z0, h, L * t, R])
+    rv = rvec(hh)
+    links = (p[0] - cx) * rv[0] + (p[1] - cz) * rv[1] < 0
+    lanes = sdb[spl]['lanes']
+    if links:
+        kand = sorted((x for x, d in lanes if d == 1), key=lambda x: x)        # aeusserste linke Spur zuerst
+        rot = (hh + 180) % 360
+    else:
+        kand = sorted((x for x, d in lanes if d == 0), key=lambda x: -x)       # aeusserste rechte Spur
+        rot = hh % 360
+    if not kand:
+        kand, rot = [x for x, _ in lanes][:1] or [0.0], hh % 360
+    x = kand[0]
+    return dict(x=cx + x * rv[0], z=cz + x * rv[1], rot=rot)
+
+
+def global_cfg(name, friendly, description, next_id, tiles, cam, entrypoints=()):
     tx, tz, cx, cz = cam
     L = ['File created with omsigen', '', '[name]', name, '', '[friendlyname]', friendly, '',
          '[description]', description, '[end]', '', '[version]', '14', '', '[NextIDCode]', str(next_id), '',
@@ -77,6 +110,13 @@ def global_cfg(name, friendly, description, next_id, tiles, cam):
         L += ['[trafficdensity_passenger]', f'{h:.3f}', f'{v:.3f}', '']
     for h, v in DENS_ROAD:
         L += ['[trafficdensity_road]', f'{h:.3f}', f'{v:.3f}', '']
+    if entrypoints:          # Einsetzpunkte (Datensatz wie Grundorf): Objektindex in der Kachel, Objekt-ID, 0,
+        L += ['[entrypoints]', str(len(entrypoints))]          # x, Hoehe, z (lokal), Quaternion, Kachelindex, Name
+        for e in entrypoints:
+            h = math.radians((e['rot'] + 180) % 360 - 180)
+            L += [str(e['index']), str(e['id']), '0', f"{e['lx']:.3f}", '0.000', f"{e['lz']:.3f}",
+                  '0.000', f'{math.sin(h / 2):.3f}', '0.000', f'{math.cos(h / 2):.3f}', str(e['kachel']), e['name']]
+        L += ['']
     for (x, z) in sorted(tiles):
         L += ['[map]', str(x), str(z), f'tile_{x}_{z}.map', '']
     return '\r\n'.join(L) + '\r\n'
@@ -93,7 +133,7 @@ def flat_terrain():
 
 
 def write_map(out_maps_dir, name, chains, stops, omsi_dir=None, friendly=None, description='', cam_xz=None,
-              overwrite=False, junctions=()):
+              overwrite=False, junctions=(), entrypoints=()):
     """chains: Liste Ketten (els in Metern, beliebiger Ursprung); junctions: Kreuzungsobjekte (kreuzung.py) mit
     origin und rel (Pfad der .sco). Gibt Infos inkl. Verschiebung zurueck."""
     D = os.path.join(out_maps_dir, name)
@@ -151,6 +191,15 @@ def write_map(out_maps_dir, name, chains, stops, omsi_dir=None, friendly=None, d
             objs[t].append(blk)
             ids.append(nid)
             nid += 1
+    eps = []
+    for e in entrypoints:          # unsichtbares Einsetzpunkt-Objekt + Eintrag in global.cfg
+        x, z = e['x'] - ox, e['z'] - oz
+        t = (int(x // TILE), int(z // TILE))
+        objs[t].append(['[object]', '0', ENTRYPOINT, str(nid), fmt(x - TILE * t[0]), fmt(z - TILE * t[1]), '0',
+                        fmt(e['rot']), '0', '0', '0', ''])
+        eps.append(dict(index=len(objs[t]) - 1, id=nid, lx=x - TILE * t[0], lz=z - TILE * t[1], rot=e['rot'],
+                        tile=t, name=e['name']))
+        nid += 1
     # Nachbarkacheln mit anlegen, damit rundherum Gelaende ist
     used = set(tiles) | set(objs)
     all_tiles = {(x + dx, z + dz) for x, z in used for dx in (-1, 0, 1) for dz in (-1, 0, 1)
@@ -181,8 +230,11 @@ def write_map(out_maps_dir, name, chains, stops, omsi_dir=None, friendly=None, d
         f.write(ailists_cfg(omsi_dir))
     cx, cz = (cam_xz[0] - ox, cam_xz[1] - oz) if cam_xz else (150.0, 150.0)
     cam = (int(cx // TILE), int(cz // TILE), cx % TILE, cz % TILE)
+    reihenfolge = sorted(all_tiles)
+    for e in eps:
+        e['kachel'] = reihenfolge.index(e['tile'])
     write_utf16(os.path.join(D, 'global.cfg'),
-                global_cfg(name, friendly or name, description, nid + 10, all_tiles, cam))
+                global_cfg(name, friendly or name, description, nid + 10, all_tiles, cam, eps))
     with open(os.path.join(D, 'LIESMICH_omsigen.txt'), 'w', encoding='utf-8') as f:
         f.write(f'Erzeugt mit omsigen am {stamp}.\nStrassendaten (c) OpenStreetMap-Mitwirkende, ODbL 1.0 '
                 f'(https://www.openstreetmap.org/copyright).\n{description}\n')

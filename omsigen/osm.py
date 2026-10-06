@@ -105,7 +105,7 @@ def fetch(bbox, cache_dir=None):
     """bbox = (sued, west, nord, ost) -> normalisierte Daten (siehe normalize)"""
     s, w, n, e = bbox
     b = f'{s:.6f},{w:.6f},{n:.6f},{e:.6f}'
-    cached = _cache_get(cache_dir, 'osm2', b)
+    cached = _cache_get(cache_dir, 'osm3', b)
     if cached:
         return cached
     q = f"""[out:json][timeout:120];
@@ -138,7 +138,7 @@ out tags geom;"""
     if 'runtime error' in js.get('remark', ''):   # Abbruch auf dem Server -> Daten unvollstaendig
         raise RuntimeError(f'Overpass-Abfrage abgebrochen: {js["remark"]}')
     data = normalize(js, bbox)
-    _cache_put(cache_dir, 'osm2', b, data)
+    _cache_put(cache_dir, 'osm3', b, data)
     return data
 
 
@@ -194,8 +194,10 @@ def classify(t, include_service=False):
     if hw == 'service' or hw == 'busway':
         if bus and t.get('access') in ('no', 'private', None) and (t.get('psv') or t.get('bus') or hw == 'busway'):
             tt['highway'] = 'bus'
-        elif not include_service or t.get('service') in ('parking_aisle', 'driveway', 'drive-through'):
+        elif t.get('service') in ('parking_aisle', 'driveway', 'drive-through', 'emergency_access', 'alley') or                 t.get('access') in ('no', 'private', 'emergency') or t.get('motor_vehicle') in ('no', 'private'):
             return None
+        elif not (include_service or t.get('name')):
+            return None              # namenlose Zufahrten (Hoefe, Parkplaetze) weglassen, benannte (z. B. Klinikum) behalten
     elif t.get('access') in ('no', 'private') and not bus:
         return None
     return tt
