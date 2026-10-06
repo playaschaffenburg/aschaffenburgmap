@@ -70,7 +70,7 @@ enum Eintrag {
 
 /// Teil 1 komplett: Aenderungen der Kartenobjekte (openOMSI) und neue Objekte in die Kacheln schreiben
 #[allow(clippy::too_many_arguments)]
-pub fn vorbereiten(v: &Viewer, b: &Bearbeiten, netz: &crate::netz::Netz, netz_kreuzungen: &[(String, glam::DVec3, Vec<(usize, i32)>)],
+pub fn vorbereiten(v: &Viewer, b: &Bearbeiten, netz: &crate::netz::Netz, netz_kreuzungen: &[crate::kreuzung::Gesetzt],
                    kopien: &[PathBuf], kreuzungen: Option<(PathBuf, String)>, alt: &str) -> Result<Paket> {
     let (staging, mut dateien) = kacheln_schreiben(v, &b.ed, alt)?;
     let ordner = staging.join("maps").join(alt);
@@ -105,18 +105,42 @@ pub fn vorbereiten(v: &Viewer, b: &Bearbeiten, netz: &crate::netz::Netz, netz_kr
         neue_objekte += 1;
     }
     // Kreuzungsobjekte des eigenen Netzes ([absheight]: Hoehe absolut) mit den Vorfahrtregeln ihrer Pfade
-    for (rel, pos, rules) in netz_kreuzungen {
+    for g in netz_kreuzungen {
+        let pos = g.pos;
         let (tx, ty) = kachel(pos.x, pos.y);
         let mut felder = vec![
-            "[object]".to_string(), "0".into(), rel.clone(), id.to_string(),
+            "[object]".to_string(), "0".into(), g.rel.clone(), id.to_string(),
             zahl(pos.x - tx as f64 * groesse), zahl(pos.y - ty as f64 * groesse), zahl(pos.z), "0".into(), "0".into(), "0".into(), "0".into(),
         ];
-        for (pfad, wert) in rules {
+        for (pfad, wert) in &g.rules {
             felder.extend(["".to_string(), "[rule]".into(), pfad.to_string(), "priority".into(), wert.to_string(), "0".into()]);
         }
         je_kachel.entry((tx, ty)).or_default().push(Eintrag::Objekt(felder));
+        let kreuzung_id = id;
         id += 1;
         neue_objekte += 1;
+        // Ampeln: Signal (Text = Signalgruppe, [varparent] = Kreuzung), Mast, Signal am Ausleger ([attachObj] am Mast) -
+        // in der Kachel der Kreuzung, in dieser Reihenfolge (wie omsigen writer.py und die Standardkarten)
+        let mut ids: Vec<i64> = Vec::new();
+        for sg in &g.signale {
+            let mut f = if sg.art == "oben" {
+                let eltern = sg.eltern.and_then(|i| ids.get(i).copied()).unwrap_or(kreuzung_id);
+                vec!["[attachObj]".to_string(), "0".into(), sg.datei.clone(), id.to_string(), eltern.to_string(), "0".into(),
+                     sg.anhang.to_string(), zahl(sg.rot), "0".into(), "0".into()]
+            } else {
+                let p = sg.pos.unwrap_or(pos.truncate());
+                vec!["[object]".to_string(), "0".into(), sg.datei.clone(), id.to_string(), zahl(p.x - tx as f64 * groesse),
+                     zahl(p.y - ty as f64 * groesse), zahl(sg.hoehe), zahl(sg.rot), "0".into(), "0".into()]
+            };
+            match sg.gruppe {
+                Some(gr) => f.extend(["1".to_string(), gr.to_string(), "".into(), "[varparent]".into(), kreuzung_id.to_string()]),
+                None => f.push("0".into()),
+            }
+            je_kachel.entry((tx, ty)).or_default().push(Eintrag::Objekt(f));
+            ids.push(id);
+            id += 1;
+            neue_objekte += 1;
+        }
     }
     // Strassen: jede Kante als Kette von [spline_h] (Hoehenunterschied nach den Steigungen, wie Omsi.exe liest)
     let mut neue_splines = 0;

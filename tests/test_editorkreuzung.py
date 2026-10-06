@@ -34,3 +34,21 @@ def test_kommandozeile_meldet_fehler(tmp_path):
     r = subprocess.run([sys.executable, '-m', 'omsigen.editorkreuzung'], input=json.dumps(a), capture_output=True,
                        text=True, cwd=os.path.dirname(os.path.dirname(__file__)))
     assert 'mindestens 3 Arme' in json.loads(r.stdout)['fehler']
+
+
+def test_ampelkreuzung(tmp_path):
+    a = auftrag(tmp_path)
+    a['ampel'] = True
+    erg = editorkreuzung.bauen(a, SplineDB())
+    # T-Kreuzung: Hauptstrasse (2 Arme) eine Phase, Nebenstrasse die zweite
+    assert erg['phasen'] == [0, 0, 1] and 60 <= erg['umlauf'] <= 100
+    sco = open(tmp_path / 'K' / 'K_E0001.sco', encoding='cp1252').read()
+    assert '[traffic_lights_group]' in sco and sco.count('[traffic_light]') == 2 and '[use_traffic_light]' in sco
+    # je Zufahrt mit ankommenden Spuren: Signal, Mast, Signal oben am Mast
+    arten = [g['art'] for g in erg['signale']]
+    assert arten.count('signal') == 3 and arten.count('mast') == 3 and arten.count('oben') == 3
+    for g in erg['signale']:
+        if g['art'] == 'oben':
+            assert erg['signale'][g['eltern']]['art'] == 'mast'
+        else:
+            assert g['x'] is not None and g['y'] is not None

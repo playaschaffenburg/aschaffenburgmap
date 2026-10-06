@@ -90,6 +90,9 @@ struct App {
     filter: String,
     /// --absturztest / --haengertest: Bericht ausprobieren, sobald die Karte laeuft
     pruefung: Option<String>,
+    /// Werkzeug "Kreuzungen": gewaehlte Kreuzung (Knoten des Netzes), unter der Maus
+    kreuzung_wahl: Option<u32>,
+    kreuzung_maus: Option<KreuzungsZiel>,
     /// eigene Strassen im Werkzeug "Aendern": gewaehlt, unter der Maus
     eigene_auswahl: Vec<u32>,
     eigene_maus: Option<u32>,
@@ -146,6 +149,15 @@ struct App {
     aendern_warnung: Option<String>,
 }
 
+/// was im Werkzeug "Kreuzungen" unter der Maus liegt
+#[derive(Clone, Debug)]
+enum KreuzungsZiel {
+    /// Kreuzung des eigenen Netzes
+    Netz(u32),
+    /// vorhandenes Kreuzungsobjekt der Karte (Klick uebernimmt es)
+    Vorhanden(kreuzung::Vorhanden),
+}
+
 /// welches Werkzeug einen Schritt im gemeinsamen Verlauf gemacht hat
 #[derive(Clone, Copy, Debug, PartialEq)]
 enum Quelle {
@@ -173,6 +185,8 @@ enum UiAktion {
     SplineLoeschen,
     StrassenModus(strasse::Modus),
     EigeneAendern(strasse::KantenAenderung),
+    /// Vorfahrt/Ampel einer Kreuzung setzen (None: wieder vermuten)
+    KreuzungRegel(u32, Option<netz::Regel>),
     KreiselQuerschnitt(String),
     StrassenHoehe(f64),
     ZugBeenden,
@@ -206,6 +220,8 @@ impl App {
             bericht_melden: Some(protokoll::neuer_bericht()),
             eigene_auswahl: vec![],
             eigene_maus: None,
+            kreuzung_wahl: None,
+            kreuzung_maus: None,
             verlauf: vec![],
             verlauf_redo: vec![],
             stapel: (0, 0, 0),
@@ -347,7 +363,7 @@ impl App {
                 self.anschluesse.aktualisieren(v);
             }
             // die Splines der Karte braucht auch das Strassenwerkzeug (Abzweige mitten aus vorhandenen Strassen)
-            if matches!(self.bearb.werkzeug, Werkzeug::Aendern | Werkzeug::Strasse) {
+            if matches!(self.bearb.werkzeug, Werkzeug::Aendern | Werkzeug::Strasse | Werkzeug::Kreuzung) {
                 if let Some(a) = self.aendern.as_mut() {
                     a.aktualisieren(v);
                 }
@@ -478,7 +494,7 @@ impl App {
                 ui.horizontal(|ui| {
                     ui.strong("OMSI-Editor");
                     ui.separator();
-                    for (wz, t) in [(Werkzeug::Ansehen, "Ansehen"), (Werkzeug::Objekte, "Objekte (O)"), (Werkzeug::Platzieren, "Platzieren (P)"), (Werkzeug::Strasse, "Strasse bauen (B)"), (Werkzeug::Aendern, "Aendern (U)")] {
+                    for (wz, t) in [(Werkzeug::Ansehen, "Ansehen"), (Werkzeug::Objekte, "Objekte (O)"), (Werkzeug::Platzieren, "Platzieren (P)"), (Werkzeug::Strasse, "Strasse bauen (B)"), (Werkzeug::Aendern, "Aendern (U)"), (Werkzeug::Kreuzung, "Kreuzungen (X)")] {
                         if ui.selectable_label(self.bearb.werkzeug == wz, t).clicked() {
                             aktionen.push(UiAktion::Werkzeug(wz));
                         }
@@ -724,6 +740,64 @@ impl App {
                     ui.label(egui::RichText::new("Klick: Start / naechster Punkt (rastet an Knoten ein, gruen = freies Ende: tangential weiter). Bild auf/ab: Hoehe. Entf: Strasse unter der Maus loeschen.").small().weak());
                 });
             }
+            if self.bearb.werkzeug == Werkzeug::Kreuzung {
+                egui::Panel::right("kreuzungen").default_size(360.0).show(ctx, |ui| {
+                    ui.heading("Kreuzungen: Vorfahrt und Ampel");
+                    let info = self.kreuzung_wahl.and_then(|k| self.strasse.kreuzungen().into_iter().find(|x| x.knoten == k));
+                    let Some(info) = info else {
+                        ui.label("Klick auf eine Kreuzung waehlt sie. Vorhandene Kreuzungen der Karte (orange) werden beim Klick durch eine eigene mit denselben Armen ersetzt.");
+                        ui.label(egui::RichText::new(format!("{} eigene Kreuzungen", self.strasse.kreuzungen().len())).small().weak());
+                        return;
+                    };
+                    use kreuzung::Rolle;
+                    let regel_mit = |rollen: Vec<Rolle>, ampel: bool| netz::Regel { rollen: info.arme.iter().zip(rollen).map(|(a, r)| (a.0, r)).collect(), ampel };
+                    let jetzt: Vec<Rolle> = info.arme.iter().map(|a| a.1).collect();
+                    ui.label(if info.vermutet { "Vorfahrt vermutet (noch nicht festgelegt)" } else { "Vorfahrt festgelegt" });
+                    ui.separator();
+                    let himmel = |h: f64| ["Nord", "Nordost", "Ost", "Suedost", "Sued", "Suedwest", "West", "Nordwest"][(((h + 22.5).rem_euclid(360.0)) / 45.0) as usize % 8];
+                    for (i, a) in info.arme.iter().enumerate() {
+                        ui.horizontal(|ui| {
+                            ui.label(format!("Arm {} ({}, {:.0} Grad)", i + 1, himmel(a.0), a.0));
+                        });
+                        ui.horizontal(|ui| {
+                            for (r, t) in [(Rolle::Haupt, "Hauptstrasse"), (Rolle::Neben, "wartet"), (Rolle::Gleich, "rechts vor links")] {
+                                if ui.selectable_label(a.1 == r, t).clicked() && a.1 != r {
+                                    let mut neu = jetzt.clone();
+                                    neu[i] = r;
+                                    aktionen.push(UiAktion::KreuzungRegel(info.knoten, Some(regel_mit(neu, info.ampel))));
+                                }
+                            }
+                        });
+                    }
+                    if jetzt.iter().filter(|r| **r == Rolle::Haupt).count() == 1 {
+                        ui.colored_label(egui::Color32::from_rgb(255, 140, 90), "nur ein Arm ist Hauptstrasse - meist sind es zwei (die durchgehende Strasse)");
+                    }
+                    ui.separator();
+                    ui.horizontal(|ui| {
+                        if ui.button("alle rechts vor links").clicked() {
+                            aktionen.push(UiAktion::KreuzungRegel(info.knoten, Some(regel_mit(vec![Rolle::Gleich; jetzt.len()], info.ampel))));
+                        }
+                        if ui.button("Vorfahrt vermuten").on_hover_text("die Regel des Editors: Ring, durchgehende Strasse, sonst rechts vor links").clicked() {
+                            aktionen.push(UiAktion::KreuzungRegel(info.knoten, None));
+                        }
+                    });
+                    ui.separator();
+                    let mut ampel = info.ampel;
+                    if ui.checkbox(&mut ampel, "Ampel").changed() {
+                        aktionen.push(UiAktion::KreuzungRegel(info.knoten, Some(regel_mit(jetzt.clone(), ampel))));
+                    }
+                    if info.ampel {
+                        let n = info.phasen.iter().max().map(|x| x + 1).unwrap_or(0);
+                        ui.label(format!("Umlauf {:.0} s, {} Phasen (gegenueberliegende Arme gemeinsam gruen, die Hauptstrasse zuerst und laenger)",
+                                         info.umlauf.unwrap_or(0.0), n));
+                        for (i, ph) in info.phasen.iter().enumerate() {
+                            ui.label(egui::RichText::new(format!("  Arm {}: Phase {}", i + 1, ph + 1)).small());
+                        }
+                    }
+                    ui.separator();
+                    ui.label(egui::RichText::new("Farben im Bild: gruen = Hauptstrasse, rot = wartet, gelb = rechts vor links. Strg+Z nimmt jede Aenderung zurueck.").small().weak());
+                });
+            }
             if self.bearb.werkzeug == Werkzeug::Aendern {
                 egui::Panel::right("aendern").default_size(360.0).show(ctx, |ui| {
                     ui.heading("Strassen aendern");
@@ -819,6 +893,40 @@ impl App {
             }
             if let Some(o) = gewaehlt.as_ref() {
                 bearbeiten::markieren(&maler, &self.kam, o, bw, bh, egui::Color32::from_rgb(255, 60, 220), 3.0);
+            }
+            if self.bearb.werkzeug == Werkzeug::Kreuzung {
+                let maus_netz = match &self.kreuzung_maus { Some(KreuzungsZiel::Netz(k)) => Some(*k), _ => None };
+                for k in self.strasse.kreuzungen() {
+                    let Some(m) = bearbeiten::projizieren(&self.kam, k.pos + DVec3::Z * 0.3, bw, bh).map(|(x, y, _)| egui::pos2(x, y)) else { continue };
+                    for a in &k.arme {
+                        let farbe = match a.1 {
+                            kreuzung::Rolle::Haupt => egui::Color32::from_rgb(70, 220, 90),
+                            kreuzung::Rolle::Neben => egui::Color32::from_rgb(240, 70, 60),
+                            kreuzung::Rolle::Gleich => egui::Color32::from_rgb(250, 210, 60),
+                        };
+                        if let Some((x, y, _)) = bearbeiten::projizieren(&self.kam, a.2 + DVec3::Z * 0.3, bw, bh) {
+                            maler.line_segment([m, egui::pos2(x, y)], egui::Stroke::new(4.0, farbe));
+                        }
+                    }
+                    let (f, r) = if Some(k.knoten) == self.kreuzung_wahl { (egui::Color32::from_rgb(255, 60, 220), 9.0) }
+                                 else if Some(k.knoten) == maus_netz { (egui::Color32::WHITE, 8.0) } else { (egui::Color32::from_gray(200), 6.0) };
+                    maler.circle_stroke(m, r, egui::Stroke::new(2.5, f));
+                    if k.ampel {
+                        maler.text(m + egui::vec2(10.0, -10.0), egui::Align2::LEFT_BOTTOM, "Ampel", egui::FontId::proportional(13.0), egui::Color32::WHITE);
+                    }
+                }
+                if let Some(KreuzungsZiel::Vorhanden(k)) = &self.kreuzung_maus {
+                    let c = egui::Color32::from_rgb(255, 170, 40);
+                    if let Some((x, y, _)) = bearbeiten::projizieren(&self.kam, k.pos + DVec3::Z * 0.3, bw, bh) {
+                        maler.circle_stroke(egui::pos2(x, y), 10.0, egui::Stroke::new(2.5, c));
+                        for a in &k.arme {
+                            if let Some((x2, y2, _)) = bearbeiten::projizieren(&self.kam, a.pos + DVec3::Z * 0.3, bw, bh) {
+                                maler.line_segment([egui::pos2(x, y), egui::pos2(x2, y2)], egui::Stroke::new(2.0, c));
+                            }
+                        }
+                        maler.text(egui::pos2(x + 14.0, y + 12.0), egui::Align2::LEFT_TOP, "vorhandene Kreuzung - Klick uebernimmt sie", egui::FontId::proportional(14.0), c);
+                    }
+                }
             }
             if self.bearb.werkzeug == Werkzeug::Aendern {
                 let mut eigene: Vec<(u32, egui::Color32, f32)> = self.eigene_auswahl.iter().map(|id| (*id, egui::Color32::from_rgb(255, 60, 220), 3.0)).collect();
@@ -1060,6 +1168,11 @@ impl App {
                 self.strasse.modus = m;
             }
             UiAktion::KreiselQuerschnitt(rel) => self.strasse.kreisel_sli = Some(rel),
+            UiAktion::KreuzungRegel(k, regel) => {
+                if let Some(v) = self.viewer.as_mut() {
+                    self.meldung = self.strasse.regel_setzen(v, k, regel);
+                }
+            }
             UiAktion::EigeneAendern(art) => {
                 if let Some(v) = self.viewer.as_mut() {
                     let ids = self.eigene_auswahl.clone();
@@ -1209,6 +1322,8 @@ impl App {
     }
 
     fn sitzung_schliessen(&mut self) {
+        self.kreuzung_wahl = None;
+        self.kreuzung_maus = None;
         // Aendern meldet seinen Sitzungsordner beim Verwerfen ab und loescht ihn
         self.aendern = None;
         self.verlauf.clear();
@@ -1231,6 +1346,14 @@ impl App {
                 Some(UiAktion::Werkzeug(w))
             }
             KeyCode::Escape if self.platzier.is_some() => Some(UiAktion::Platzier(None)),
+            KeyCode::KeyX if !self.strg => {
+                let w = if self.bearb.werkzeug == Werkzeug::Kreuzung { Werkzeug::Ansehen } else { Werkzeug::Kreuzung };
+                Some(UiAktion::Werkzeug(w))
+            }
+            KeyCode::Escape if self.bearb.werkzeug == Werkzeug::Kreuzung && self.kreuzung_wahl.is_some() => {
+                self.kreuzung_wahl = None;
+                None
+            }
             KeyCode::KeyU if !self.strg => {
                 let w = if self.bearb.werkzeug == Werkzeug::Aendern { Werkzeug::Ansehen } else { Werkzeug::Aendern };
                 Some(UiAktion::Werkzeug(w))
@@ -1596,6 +1719,9 @@ impl ApplicationHandler for App {
                         self.ausfuehren(UiAktion::Rueckgaengig);
                         let nachher = (self.strasse.netz.kanten.len(), self.strasse.gesetzte_kreuzungen().len());
                         println!("Testlauf Kreuzung: {} | im Aendern-Werkzeug rueckgaengig: {} | Kanten/Kreuzungen {:?} -> {:?}", m.join(" | "), self.meldung, vorher, nachher);
+                        // die restlichen Bilder mit dem Werkzeug "Kreuzungen" (Panel, Markierungen)
+                        self.ausfuehren(UiAktion::Werkzeug(Werkzeug::Kreuzung));
+                        self.kreuzung_wahl = self.strasse.kreuzungen().first().map(|k| k.knoten);
                     } else if s > t * 0.4 {
                         // Kamera bewegen wie ein Nutzer: drehen, fahren, zoomen
                         self.kam.drehen(0.4, 0.0);
@@ -1652,6 +1778,16 @@ impl ApplicationHandler for App {
                             }
                         }
                     }
+                    if self.bearb.werkzeug == Werkzeug::Kreuzung && !egui_will {
+                        self.kreuzung_maus = None;
+                        if let Some(g) = self.boden_unter_maus {
+                            if let Some(k) = self.strasse.kreuzung_bei(g.truncate()) {
+                                self.kreuzung_maus = Some(KreuzungsZiel::Netz(k));
+                            } else if let (Some(v), Some(a)) = (self.viewer.as_ref(), self.aendern.as_mut()) {
+                                self.kreuzung_maus = a.kreuzungsobjekt_bei(v, g.truncate()).filter(|k| k.arme.len() >= 3).map(KreuzungsZiel::Vorhanden);
+                            }
+                        }
+                    }
                     if self.bearb.werkzeug == Werkzeug::Aendern && !egui_will {
                         // eigene Strassen liegen ueber den vorhandenen: zuerst
                         self.eigene_maus = self.boden_unter_maus.and_then(|g| self.strasse.kante_unter(g.truncate()));
@@ -1687,6 +1823,25 @@ impl ApplicationHandler for App {
                     }
                     if button == MouseButton::Right {
                         self.rechts_start = self.maus;
+                    }
+                    if button == MouseButton::Left && self.bearb.werkzeug == Werkzeug::Kreuzung {
+                        match self.kreuzung_maus.clone() {
+                            Some(KreuzungsZiel::Netz(k)) => self.kreuzung_wahl = Some(k),
+                            Some(KreuzungsZiel::Vorhanden(k)) => {
+                                if let (Some(v), Some(a)) = (self.viewer.as_mut(), self.aendern.as_mut()) {
+                                    match self.strasse.vorhandene_uebernehmen(v, a, &k) {
+                                        Ok(id) => {
+                                            self.kreuzung_wahl = Some(id);
+                                            self.meldung = format!("vorhandene Kreuzung uebernommen ({} Arme) - Vorfahrt und Ampel rechts einstellen", k.arme.len());
+                                        }
+                                        Err(e) => self.meldung = format!("Kreuzung nicht uebernommen: {e}"),
+                                    }
+                                }
+                                self.anschluesse.vergessen();
+                                self.kreuzung_maus = None;
+                            }
+                            None => self.kreuzung_wahl = None,
+                        }
                     }
                     if button == MouseButton::Left && self.bearb.werkzeug == Werkzeug::Aendern && self.eigene_maus.is_some() {
                         let id = self.eigene_maus.unwrap();

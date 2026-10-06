@@ -87,6 +87,17 @@ laufen eben auf Kreuzungshöhe ein. Orange Markierungen zeigen in der Vorschau j
   Kreuzungsobjekte nach `Sceneryobjects\Aschaffenburg_KI\<neue Karte>\`. Python: `python` aus dem Pfad (oder
   `OMSIGEN_PYTHON`), omsigen aus diesem Repository (oder `OMSIGEN_DIR`).
 
+**Vorfahrt und Ampel (Werkzeug „Kreuzungen“, Taste X):** im Bild zeigen farbige Linien die Vorfahrt jeder Kreuzung
+(grün Hauptstraße, rot wartet, gelb rechts vor links). Klick wählt eine Kreuzung; rechts je Arm „Hauptstraße“,
+„wartet“ oder „rechts vor links“, dazu „alle rechts vor links“, „Vorfahrt vermuten“ (zurück zur Regel des Editors)
+und der Schalter **Ampel**: omsigen baut dann die Signalanlage ins Kreuzungsobjekt (`[traffic_lights_group]`,
+gegenüberliegende Arme gemeinsam grün, die Hauptstraße zuerst und länger, Umlauf 70–100 s, wie ampel.py) und stellt
+an jede Zufahrt Signal und Mast (Ampel_Kfz_1 auf whip_beam, Signal am Ausleger), beim Speichern mit `[varparent]`
+auf die Kreuzung wie in den Standardkarten. Vorhandene Kreuzungen der Karte (orange beim Darüberfahren) werden beim
+Klick durch eine eigene mit denselben Armen ersetzt und lassen sich dann genauso einstellen. Die Regel hängt an den
+Armrichtungen und bleibt erhalten, wenn später Straßen dazukommen (neue Arme warten bzw. rechts vor links).
+Strg+Z nimmt jede Änderung zurück.
+
 **Eigene Straßen ändern:** im Werkzeug „Ändern“ lassen sich auch die eigenen Straßen wählen (Umschalt+Klick: Kette)
 und umkehren, löschen oder auf einen anderen Querschnitt setzen. Wird eine Straße gelöscht, an der eine vorhandene
 aufgeschnitten war, schließt ein Stück in deren Querschnitt die Lücke wieder.
@@ -125,5 +136,6 @@ Tests: `cargo test --release` (ohne OMSI), `cargo test --release -- --include-ig
 3. **Straßen** (in Arbeit): Netz-Kern (Knoten, Kanten aus Geraden/Bögen, glatte Höhe), Werkzeug Gerade/Kurve mit
    Live-Vorschau und Einrasten, Speichern als Splines, Anschluss an freie Enden vorhandener Straßen, Ändern/Upgrade,
    allgemeine Kreuzungslogik: T, Kreuzen (4+ Arme), Kreisverkehr, über eigene und vorhandene Straßen (fertig);
-   Vorfahrt/Ampel per Klick, Kreisverkehr-Optik (Platten am gebogenen Ring), Knoten ziehen (offen)
+   Vorfahrt/Ampel per Klick (fertig); Kreisverkehr-Optik (Platten am gebogenen Ring), Knoten ziehen, Ampelzeiten
+   einstellen, Fußgängerampeln (offen)
 4. omsigen-Funktionen: OSM-Import, Kreuzungsgenerator, DGM-Gelände, Luftbild

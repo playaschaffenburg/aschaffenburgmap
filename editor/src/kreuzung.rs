@@ -49,7 +49,7 @@ pub struct Vorhanden {
 }
 
 /// Vorfahrt eines Arms (wie omsigen vorfahrt.HAUPT/NEBEN/GLEICH)
-#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+#[derive(Clone, Copy, Debug, PartialEq, Eq, Hash)]
 pub enum Rolle {
     Haupt,
     Neben,
@@ -57,7 +57,7 @@ pub enum Rolle {
 }
 
 impl Rolle {
-    fn text(self) -> &'static str {
+    pub fn text(self) -> &'static str {
         match self {
             Rolle::Haupt => "haupt",
             Rolle::Neben => "neben",
@@ -86,6 +86,35 @@ pub struct Objekt {
     pub rules: Vec<(usize, i32)>,
     pub spuren: usize,
     pub fehlgeschlagen: usize,
+    /// Ampel: Signale und Masten (omsigen ampel.signale), Phase je Arm, Umlauf in s
+    pub signale: Vec<Signal>,
+    pub phasen: Vec<usize>,
+    pub umlauf: Option<f64>,
+}
+
+/// Ampelsignal oder Mast einer Kreuzung (wie omsigen ampel.signale)
+#[derive(Clone, Debug)]
+pub struct Signal {
+    /// "signal", "mast" oder "oben" (haengt am Ausleger des Masts `eltern`)
+    pub art: String,
+    pub datei: String,
+    /// Lage (Welt) und Hoehe ueber dem Gelaende - nicht bei "oben"
+    pub pos: Option<DVec2>,
+    pub hoehe: f64,
+    pub rot: f64,
+    /// Signalgruppe (Phase), None beim Mast
+    pub gruppe: Option<i64>,
+    pub eltern: Option<usize>,
+    pub anhang: i64,
+}
+
+/// eine fertige Kreuzung zum Speichern: Objekt (.sco), Lage, Vorfahrtregeln, Ampeln
+#[derive(Clone, Debug)]
+pub struct Gesetzt {
+    pub rel: String,
+    pub pos: DVec3,
+    pub rules: Vec<(usize, i32)>,
+    pub signale: Vec<Signal>,
 }
 
 /// Richtung des Abzweigs: Wunschrichtung, aber mindestens MIN_WINKEL zur Strasse
@@ -636,10 +665,11 @@ pub fn omsigen_ordner() -> PathBuf {
 }
 
 /// Kreuzungsobjekt von omsigen bauen lassen (Python, OMSIGEN_PYTHON oder python)
-pub fn erzeugen(root: &Path, ordner: &Path, rel_ordner: &str, name: &str, arme: &[Arm]) -> Result<Objekt> {
+pub fn erzeugen(root: &Path, ordner: &Path, rel_ordner: &str, name: &str, arme: &[Arm], ampel: bool) -> Result<Objekt> {
     use std::io::Write;
     let auftrag = serde_json::json!({
         "omsi": root, "ordner": ordner, "rel_ordner": rel_ordner, "name": name, "titel": format!("Editor-Kreuzung {name}"),
+        "ampel": ampel,
         "arme": arme.iter().map(|a| serde_json::json!({
             "pos": [a.pos.x, a.pos.y], "h": a.richtung, "sli": a.sli, "away": a.weg, "rolle": a.rolle.text(),
         })).collect::<Vec<_>>(),
@@ -671,6 +701,18 @@ pub fn erzeugen(root: &Path, ordner: &Path, rel_ordner: &str, name: &str, arme: 
         rules: erg["rules"].as_array().map(|r| r.iter().filter_map(|x| Some((x[0].as_u64()? as usize, x[1].as_i64()? as i32))).collect()).unwrap_or_default(),
         spuren: zahl("spuren"),
         fehlgeschlagen: zahl("fehlgeschlagen"),
+        signale: erg["signale"].as_array().map(|l| l.iter().map(|g| Signal {
+            art: g["art"].as_str().unwrap_or("").to_string(),
+            datei: g["datei"].as_str().unwrap_or("").to_string(),
+            pos: g["x"].as_f64().zip(g["y"].as_f64()).map(|(x, y)| DVec2::new(x, y)),
+            hoehe: g["hoehe"].as_f64().unwrap_or(0.0),
+            rot: g["rot"].as_f64().unwrap_or(0.0),
+            gruppe: g["gruppe"].as_i64(),
+            eltern: g["eltern"].as_u64().map(|x| x as usize),
+            anhang: g["anhang"].as_i64().unwrap_or(0),
+        }).collect()).unwrap_or_default(),
+        phasen: erg["phasen"].as_array().map(|l| l.iter().filter_map(|x| x.as_u64().map(|x| x as usize)).collect()).unwrap_or_default(),
+        umlauf: erg["umlauf"].as_f64(),
     })
 }
 
@@ -703,7 +745,7 @@ mod tests {
         let sli = "Splines\\Marcel\\str_2spur_8m_altonaer1.sli".to_string();
         let arm = |x: f64, y: f64, h: f64, weg: bool, rolle| Arm { pos: DVec3::new(x, y, 0.0), richtung: h, sli: sli.clone(), weg, rolle };
         let arme = [arm(0.0, -12.0, 180.0, false, Rolle::Haupt), arm(0.0, 12.0, 0.0, true, Rolle::Haupt), arm(12.0, 0.0, 90.0, true, Rolle::Neben)];
-        let o = erzeugen(root, &d, "Sceneryobjects\\Aschaffenburg_KI\\Test", "K_E0001", &arme).unwrap();
+        let o = erzeugen(root, &d, "Sceneryobjects\\Aschaffenburg_KI\\Test", "K_E0001", &arme, false).unwrap();
         assert_eq!(o.rel, "Sceneryobjects\\Aschaffenburg_KI\\Test\\K_E0001.sco");
         assert_eq!((o.spuren, o.fehlgeschlagen), (6, 0));
         assert!(!o.rules.is_empty() && d.join("K_E0001.sco").exists() && d.join("model").join("K_E0001.x").exists());
@@ -1100,6 +1142,11 @@ mod tests {
     /// anschliesst und kein Zugende (`rand`) ist, haengt laut Spurnetz an einer Kreuzung; ebenso die Enden der
     /// aufgeschnittenen vorhandenen Strassen (`karten`). -> Anzahl der Enden an Kreuzungen
     fn speichern_laden_pruefen(v: Viewer, s: &crate::strasse::Strassenbau, a: Aendern, name: &str, rand: &[DVec2], karten: &[DVec2]) -> usize {
+        speichern_laden_mit(v, s, a, name, rand, karten, |_| {})
+    }
+
+    fn speichern_laden_mit(v: Viewer, s: &crate::strasse::Strassenbau, a: Aendern, name: &str, rand: &[DVec2], karten: &[DVec2],
+                           pruefen: impl FnOnce(&Viewer)) -> usize {
         use crate::bearbeiten::{Bearbeiten, Werkzeug};
         let root = Path::new(crate::bearbeiten::tests::OMSI);
         let test_root = std::env::temp_dir().join(format!("omsi-editor-{name}-{}", std::process::id()));
@@ -1146,6 +1193,7 @@ mod tests {
         for q in karten {
             assert!(!ans.liste.iter().any(|x| x.frei && (x.pos.truncate() - *q).length() < 1.0), "aufgeschnittene Strasse bei {q:?} endet frei");
         }
+        pruefen(&v2);
         std::fs::remove_dir_all(&test_root).ok();
         an_kreuzung
     }
@@ -1322,8 +1370,8 @@ mod tests {
         assert!(m.contains("Kreuzung") && m.contains("angeschlossen"), "{m}");
         let knoten = s.netz.knoten.iter().find(|x| x.kartenarme.len() == 3).expect("Knoten mit den 3 vorhandenen Armen");
         assert_eq!(s.netz.arme(knoten.id).len(), 4);
-        for (rel, pos, _) in s.gesetzte_kreuzungen() {
-            println!("  Kreuzung {rel} bei {:.1} {:.1}", pos.x, pos.y);
+        for g in s.gesetzte_kreuzungen() {
+            println!("  Kreuzung {} bei {:.1} {:.1}", g.rel, g.pos.x, g.pos.y);
         }
         for kn in &s.netz.knoten {
             println!("  Knoten {} bei {:.1} {:.1}: {} Kanten, {} Kartenarme", kn.id, kn.pos.x, kn.pos.y, s.netz.an(kn.id).len(), kn.kartenarme.len());
@@ -1386,6 +1434,73 @@ mod tests {
         assert!(s.gesetzte_kreuzungen().is_empty());
         let n = speichern_laden_pruefen(v, &s, a, "Grundorf_heilen", &[], &enden);
         assert_eq!(n, 2, "beide Enden des Flickstuecks haengen an der vorhandenen Strasse");
+    }
+
+    /// Werkzeug "Kreuzungen": Vorfahrt umstellen und Ampel setzen; vorhandene Kreuzung uebernehmen. Gespeichert und
+    /// geladen: die Zufahrten der Ampelkreuzung haengen an ihrer Signalanlage (openOMSI liest [traffic_lights_group])
+    #[test]
+    #[ignore]
+    fn vorfahrt_und_ampel_per_klick() {
+        let _sperre = crate::bearbeiten::tests::sperre();
+        use crate::anschluss::Anschluesse;
+        use crate::kreuzung::Rolle;
+        use crate::strasse::{Modus, Strassenbau};
+        let mut v = crate::bearbeiten::tests::grundorf();
+        v.tiles_around(DVec3::new(150.0, 150.0, 0.0), 8).unwrap();
+        let mut a = Aendern::neu(&v);
+        a.aktualisieren(&v);
+        let mut s = Strassenbau::neu(Some("Splines\\Marcel\\str_2spur_8m_altonaer1.sli".into()), Modus::Gerade);
+        // 1. die Ampelkreuzung von Grundorf uebernehmen (3 Arme, Vorfahrt vermutet)
+        let vorhanden = a.kreuzungsobjekt_bei(&v, DVec2::new(414.0, 215.0)).unwrap();
+        let k1 = s.vorhandene_uebernehmen(&mut v, &mut a, &vorhanden).unwrap();
+        let info = s.kreuzungen().into_iter().find(|x| x.knoten == k1).unwrap();
+        println!("uebernommen: {:?}", info.arme.iter().map(|x| (x.0.round(), x.1)).collect::<Vec<_>>());
+        assert_eq!(info.arme.len(), 3);
+        assert!(info.vermutet && !info.ampel);
+        // 2. ein Abzweig an einer anderen Strasse, dort Vorfahrt und Ampel
+        let ab = abzweig_suchen(&v, &mut a);
+        let ans = Anschluesse::default();
+        let aussen = ab.pos.truncate() + crate::netz::rechts(ab.richtung) * 60.0;
+        let g = aussen.extend(v.terrain_height(aussen.x, aussen.y).unwrap());
+        s.klick(&mut v, g, 2.0, &ans, Some(&mut a));
+        s.maus(&mut v, ab.pos, 2.0, &ans, Some(&mut a));
+        s.klick(&mut v, ab.pos, 2.0, &ans, Some(&mut a)).unwrap();
+        s.beenden(&mut v);
+        let k2 = s.kreuzungen().into_iter().find(|x| x.knoten != k1).expect("Abzweig-Kreuzung").knoten;
+        let info = s.kreuzungen().into_iter().find(|x| x.knoten == k2).unwrap();
+        assert_eq!(info.arme.iter().filter(|x| x.1 == Rolle::Haupt).count(), 2, "vorhandene Strasse hat Vorfahrt (vermutet)");
+        // rechts vor links
+        let regel = |r: Vec<Rolle>, ampel: bool| crate::netz::Regel { rollen: info.arme.iter().zip(r).map(|(x, r)| (x.0, r)).collect(), ampel };
+        let m = s.regel_setzen(&mut v, k2, Some(regel(vec![Rolle::Gleich; 3], false)));
+        println!("{m}");
+        let i2 = s.kreuzungen().into_iter().find(|x| x.knoten == k2).unwrap();
+        assert!(i2.arme.iter().all(|x| x.1 == Rolle::Gleich) && !i2.vermutet);
+        // Ampel (mit Vorfahrt der vorhandenen Strasse)
+        let rollen: Vec<Rolle> = info.arme.iter().map(|x| x.1).collect();
+        let m = s.regel_setzen(&mut v, k2, Some(regel(rollen, true)));
+        println!("{m}");
+        let i2 = s.kreuzungen().into_iter().find(|x| x.knoten == k2).unwrap();
+        assert!(i2.ampel && i2.umlauf.is_some(), "{:?}", s.kreuzung_fehler);
+        assert_eq!(i2.phasen.iter().max(), Some(&1), "zwei Phasen");
+        let g2 = s.gesetzte_kreuzungen().into_iter().find(|g| !g.signale.is_empty()).unwrap();
+        assert_eq!(g2.signale.iter().filter(|x| x.art == "signal").count(), 3);
+        // Rueckgaengig: wieder ohne Ampel, rechts vor links
+        assert!(s.rueckgaengig(&mut v, Some(&mut a)));
+        assert!(!s.kreuzungen().into_iter().find(|x| x.knoten == k2).unwrap().ampel);
+        assert!(s.wiederholen(&mut v, Some(&mut a)));
+        if let Some(bild) = std::env::var_os("OMSI_BILD") {
+            let kam = crate::kamera::Kamera { ziel: ab.pos, gier: (ab.richtung + 200.0) as f32, neigung: -35.0, abstand: 55.0, fov: 50.0 };
+            let px = v.render_image(1280, 800, &kam.camera()).unwrap();
+            image::save_buffer(bild, &px, 1280, 800, image::ColorType::Rgba8).unwrap();
+        }
+        // speichern und laden: die Signale stehen mit [varparent] in der Kachel, die Zufahrten haengen an der Anlage
+        let karten: Vec<DVec2> = s.netz.knoten.iter().flat_map(|k| k.kartenarme.iter().map(|x| x.pos.truncate())).collect();
+        let neue_ampeln = std::cell::Cell::new(0usize);
+        let n = speichern_laden_mit(v, &s, a, "Grundorf_ampel", &[aussen], &karten, |v2| {
+            neue_ampeln.set(v2.lanes.lanes.iter().filter(|l| l.traffic_light.is_some() && l.points.first().is_some_and(|q| (q.truncate() - ab.pos.truncate()).length() < 30.0)).count());
+        });
+        println!("{n} Enden an Kreuzungen, {} Spuren mit Ampel", neue_ampeln.get());
+        assert!(neue_ampeln.get() >= 3, "die Zufahrten der Ampelkreuzung");
     }
 
     #[test]

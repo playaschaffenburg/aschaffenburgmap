@@ -20,6 +20,8 @@ pub enum Werkzeug {
     Platzieren,
     Strasse,
     Aendern,
+    /// Vorfahrt und Ampel an Kreuzungen
+    Kreuzung,
 }
 
 /// Was gewaehlt ist: ein Objekt der Karte (id) oder ein neues (Index in `neue`)

@@ -39,8 +39,8 @@ behalten). Tests laufen ohne Bildschirm (`QT_QPA_PLATFORM=offscreen`, `OMSIEDITO
 die OMSI bekommt; zum Prüfen ohne Fenster `python -m omsieditor.bild3d <projekt> --png …` und Bild ansehen.
 **Jede neue Generator-Funktion muss auch im Editor bedienbar und sichtbar sein** (Hauptprodukt ist der Editor).
 Höhen je Punkt (`strasse['hoehen']`) → Brücken/Tunnel automatisch (`omsigen/ebenen.py`, wie Transport Fever 2).
-Etappen: 1 Strassen (fertig) → 1b 3D + Brücken/Tunnel (fertig) → 2 Kreuzungswerkzeug (Vorfahrt/Ampel per Klick)
-→ 3 Haltestellen/Linien.
+Etappen: 1 Strassen (fertig) → 1b 3D + Brücken/Tunnel (fertig) → 2 Kreuzungswerkzeug (Vorfahrt/Ampel per Klick;
+im Rust-Editor fertig) → 3 Haltestellen/Linien.
 
 ## Vorfahrt
 

@@ -8,13 +8,16 @@ Auftrag (Weltkoordinaten in Metern: x Ost, y Nord; Richtungen im Uhrzeigersinn a
     {"omsi": OMSI-Ordner, "ordner": Zielordner (absolut), "rel_ordner": derselbe Ordner relativ zu OMSI,
      "name": Dateiname ohne Endung, "titel": friendlyname,
      "arme": [{"pos": [x, y], "h": Richtung von der Kreuzung weg, "sli": Spline des Arms,
-               "away": true wenn die Splinerichtung von der Kreuzung weg zeigt, "rolle": "haupt"/"neben"/"gleich"}]}
+               "away": true wenn die Splinerichtung von der Kreuzung weg zeigt, "rolle": "haupt"/"neben"/"gleich"}],
+     "ampel": true fuer eine Ampelkreuzung (Phasenplan wie omsigen ampel.py)}
 Ergebnis:
     {"rel": .sco relativ zu OMSI, "ursprung": [x, y], "rules": [[Pfad, Prioritaet], ...], "pfade": n,
-     "spuren": Abbiegespuren, "fehlgeschlagen": n, "dreiecke": n}
+     "spuren": Abbiegespuren, "fehlgeschlagen": n, "dreiecke": n,
+     "signale": [{"art": "signal"/"mast"/"oben", "datei", "x", "y", "hoehe", "rot", "gruppe", "eltern", "anhang"}],
+     "phasen": [Phase je Arm], "umlauf": s}
 oder {"fehler": Text}."""
 import json, os, shutil, sys
-from . import kreuzung, vorfahrt
+from . import ampel, kreuzung, vorfahrt
 from .network import spurenden, kreuzungsspuren
 from .splinedb import SplineDB
 
@@ -31,7 +34,7 @@ def bauen(auftrag, sdb=None):
             spuren.append(spurenden(pos, h, a['sli'], 's', sdb))
         else:
             spuren.append(spurenden(pos, (h + 180) % 360, a['sli'], 'e', sdb))
-        arms.append(dict(pos=pos, h=h, spl=a['sli'], away=bool(a['away'])))
+        arms.append(dict(pos=pos, h=h, spl=a['sli'], away=bool(a['away']), name=a.get('name', '')))
     ketten, fehl, zaehler = kreuzungsspuren(spuren, 0)
     J = kreuzung.build_junction(arms, sdb)
     if J is None or J['asphalt'].is_empty:
@@ -39,10 +42,12 @@ def bauen(auftrag, sdb=None):
     O = J['origin']
     rollen = [a.get('rolle') or vorfahrt.GLEICH for a in arme]
     n_haupt = rollen.count(vorfahrt.HAUPT)
+    plan = ampel.plane(arms, rollen) if auftrag.get('ampel') else None
     moves, rules, idx = [], [], 0
     for c in ketten:
         els = [[e[0] - O[0], e[1] - O[1]] + list(e[2:5]) for e in c['els']]
-        moves.append((els, kreuzung.BLINKER.get(c.get('mv'), 0), None))
+        gruppe = plan['phase'][c['arms'][0]] if (plan and c.get('arms')) else None
+        moves.append((els, kreuzung.BLINKER.get(c.get('mv'), 0), gruppe))
         if c.get('arms'):
             ia, ib = c['arms']
             pr = vorfahrt.priority(rollen[ia], rollen[ib], c.get('mv'), n_haupt)
@@ -51,7 +56,7 @@ def bauen(auftrag, sdb=None):
         idx += len(els)
     V, F = kreuzung.mesh(J)
     name = auftrag['name']
-    sco = kreuzung.sco_text(auftrag.get('titel') or name, name + '.x', moves, J['walks'])
+    sco = kreuzung.sco_text(auftrag.get('titel') or name, name + '.x', moves, J['walks'], ampel.sco_block(plan) if plan else ())
     d = auftrag['ordner']
     os.makedirs(os.path.join(d, 'model'), exist_ok=True)
     os.makedirs(os.path.join(d, 'texture'), exist_ok=True)
@@ -66,7 +71,11 @@ def bauen(auftrag, sdb=None):
                 shutil.copy(os.path.join(src, t), os.path.join(d, 'texture', t))
     return dict(rel=auftrag['rel_ordner'].rstrip('\\') + '\\' + name + '.sco', ursprung=[O[0], O[1]], rules=rules,
                 pfade=idx + sum(len(w) for w in J['walks']), spuren=len(ketten), fehlgeschlagen=fehl,
-                bewegungen=dict(zaehler), dreiecke=len(F))
+                bewegungen=dict(zaehler), dreiecke=len(F),
+                signale=[dict(art=g['art'], datei=g['datei'], x=g.get('x'), y=g.get('z'), hoehe=g.get('hoehe', 0.0),
+                              rot=g['rot'], gruppe=g['gruppe'], eltern=g.get('eltern'), anhang=g.get('anhang'))
+                         for g in (ampel.signale(arms, plan, sdb) if plan else [])],
+                phasen=plan['phase'] if plan else [], umlauf=plan['umlauf'] if plan else None)
 
 
 def main():

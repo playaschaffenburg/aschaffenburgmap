@@ -237,6 +237,16 @@ pub struct Knoten {
     pub anschluss: Option<(f64, f64)>,
     /// Enden vorhandener Strassen, die an diesem Knoten (einer Kreuzung) aufgeschnitten wurden
     pub kartenarme: Vec<Kartenarm>,
+    /// Vorfahrt/Ampel vom Nutzer (Werkzeug "Kreuzungen"); None: vermutet
+    pub regel: Option<Regel>,
+}
+
+/// Regel einer Kreuzung: Vorfahrt je Arm (Richtung von der Kreuzung weg; die Arme werden ueber die Richtung
+/// wiedergefunden, auch wenn Kanten geteilt werden) und ob es eine Ampel gibt
+#[derive(Clone, Debug, PartialEq)]
+pub struct Regel {
+    pub rollen: Vec<(f64, crate::kreuzung::Rolle)>,
+    pub ampel: bool,
 }
 
 /// Ende einer vorhandenen Strasse der Karte an einer Kreuzung des Netzes (dort aufgeschnitten): liegt fest
@@ -338,14 +348,14 @@ impl Netz {
 
     pub fn knoten_neu(&mut self, pos: DVec3) -> u32 {
         let id = self.neue_id();
-        self.knoten.push(Knoten { id, pos, anschluss: None, kartenarme: vec![] });
+        self.knoten.push(Knoten { id, pos, anschluss: None, kartenarme: vec![], regel: None });
         id
     }
 
     /// Knoten am Ende einer vorhandenen Strasse: neue Kanten muessen ihn in `richtung` verlassen
     pub fn anschluss_neu(&mut self, pos: DVec3, richtung: f64, steigung: f64) -> u32 {
         let id = self.neue_id();
-        self.knoten.push(Knoten { id, pos, anschluss: Some((richtung, steigung)), kartenarme: vec![] });
+        self.knoten.push(Knoten { id, pos, anschluss: Some((richtung, steigung)), kartenarme: vec![], regel: None });
         id
     }
 

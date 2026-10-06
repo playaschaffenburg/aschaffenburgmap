@@ -190,6 +190,25 @@ struct NetzObjekt {
     objekt: kreuzung::Objekt,
     hoehe: f64,
     gpu: Option<TileGpu>,
+    /// Ampeln und Masten (gezeichnet)
+    signal_gpu: Vec<TileGpu>,
+    /// je Arm: Richtung, Vorfahrt, Ende (fuer Anzeige und Werkzeug)
+    arme: Vec<(f64, kreuzung::Rolle, DVec3)>,
+    vermutet: bool,
+}
+
+/// eine Kreuzung des Netzes fuer das Werkzeug "Kreuzungen"
+#[derive(Clone, Debug)]
+pub struct KreuzungsInfo {
+    pub knoten: u32,
+    pub pos: DVec3,
+    /// je Arm: Richtung von der Kreuzung weg, Vorfahrt, Ende des Arms
+    pub arme: Vec<(f64, kreuzung::Rolle, DVec3)>,
+    pub ampel: bool,
+    /// Vorfahrt nur vermutet (keine Regel gesetzt)
+    pub vermutet: bool,
+    pub umlauf: Option<f64>,
+    pub phasen: Vec<usize>,
 }
 
 /// Beginn des Zugs
@@ -987,8 +1006,13 @@ impl Strassenbau {
         let knoten: Vec<u32> = self.netz.knoten.iter().map(|k| k.id).filter(|k| self.netz.ist_kreuzung(*k)).collect();
         let weg: Vec<u32> = self.objekte.keys().copied().filter(|k| !knoten.contains(k)).collect();
         for k in weg {
-            if let Some(g) = self.objekte.remove(&k).and_then(|o| o.gpu) {
-                v.remove_object(g);
+            if let Some(o) = self.objekte.remove(&k) {
+                if let Some(g) = o.gpu {
+                    v.remove_object(g);
+                }
+                for g in o.signal_gpu {
+                    v.remove_object(g);
+                }
             }
         }
         for k in knoten {
@@ -1015,16 +1039,29 @@ impl Strassenbau {
             if arme.len() < 3 {
                 continue;
             }
-            let rollen = rollen_vermuten(&arme, &info);
+            let regel = self.netz.knoten(k).and_then(|x| x.regel.clone());
+            let rollen = match &regel {
+                Some(r) => rollen_aus_regel(&arme, r),
+                None => rollen_vermuten(&arme, &info),
+            };
             for (a, r) in arme.iter_mut().zip(rollen) {
                 a.rolle = r;
             }
-            let signatur: String = arme.iter().map(|a| format!("{:.2},{:.2},{:.2},{:.3},{},{},{:?};", a.pos.x, a.pos.y, a.pos.z, a.richtung, a.sli, a.weg, a.rolle)).collect();
+            let ampel = regel.as_ref().is_some_and(|r| r.ampel);
+            let mut signatur: String = arme.iter().map(|a| format!("{:.2},{:.2},{:.2},{:.3},{},{},{:?};", a.pos.x, a.pos.y, a.pos.z, a.richtung, a.sli, a.weg, a.rolle)).collect();
+            if ampel {
+                signatur.push_str("Ampel");
+            }
             if self.objekte.get(&k).is_some_and(|o| o.signatur == signatur) {
                 continue;
             }
-            if let Some(g) = self.objekte.remove(&k).and_then(|o| o.gpu) {
-                v.remove_object(g);
+            if let Some(o) = self.objekte.remove(&k) {
+                if let Some(g) = o.gpu {
+                    v.remove_object(g);
+                }
+                for g in o.signal_gpu {
+                    v.remove_object(g);
+                }
             }
             let objekt = match self.objekt_cache.get(&signatur) {
                 Some(o) => o.clone(),
@@ -1035,7 +1072,7 @@ impl Strassenbau {
                     };
                     let rel_ordner = format!("Sceneryobjects\\Aschaffenburg_KI\\{tag}");
                     crate::protokoll::aktion(&format!("Kreuzung (Knoten {k}): omsigen erzeugt das Objekt"));
-                    let erg = kreuzung::erzeugen(&v.root, &ordner, &rel_ordner, &kreuzung::freier_name(&ordner), &arme);
+                    let erg = kreuzung::erzeugen(&v.root, &ordner, &rel_ordner, &kreuzung::freier_name(&ordner), &arme, ampel);
                     crate::protokoll::aktion("");
                     match erg {
                         Ok(o) => {
@@ -1054,13 +1091,85 @@ impl Strassenbau {
                 }
             };
             let gpu = v.add_object(&objekt.rel, objekt.ursprung.extend(hoehe), 0.0);
-            self.objekte.insert(k, NetzObjekt { signatur, objekt, hoehe, gpu });
+            // Ampeln und Masten zeigen (die Signale am Ausleger haengen im Spiel am Mast; hier nur Signal und Mast)
+            let mut signal_gpu = Vec::new();
+            for g in &objekt.signale {
+                let Some(p) = g.pos else { continue };
+                let z = v.terrain_height(p.x, p.y).unwrap_or(hoehe) + g.hoehe;
+                if let Some(t) = v.add_object(&g.datei, p.extend(z), g.rot) {
+                    signal_gpu.push(t);
+                }
+            }
+            let arme_info = arme.iter().map(|a| (a.richtung, a.rolle, a.pos)).collect();
+            self.objekte.insert(k, NetzObjekt { signatur, objekt, hoehe, gpu, signal_gpu, arme: arme_info, vermutet: regel.is_none() });
         }
     }
 
-    /// Kreuzungsobjekte des Netzes fuers Speichern: (.sco, Lage, Vorfahrtregeln)
-    pub fn gesetzte_kreuzungen(&self) -> Vec<(String, DVec3, Vec<(usize, i32)>)> {
-        self.objekte.values().map(|o| (o.objekt.rel.clone(), o.objekt.ursprung.extend(o.hoehe), o.objekt.rules.clone())).collect()
+    /// Kreuzungsobjekte des Netzes fuers Speichern: (.sco, Lage, Vorfahrtregeln, Ampeln)
+    pub fn gesetzte_kreuzungen(&self) -> Vec<kreuzung::Gesetzt> {
+        self.objekte.values().map(|o| kreuzung::Gesetzt { rel: o.objekt.rel.clone(), pos: o.objekt.ursprung.extend(o.hoehe),
+                                                         rules: o.objekt.rules.clone(), signale: o.objekt.signale.clone() }).collect()
+    }
+
+    // ------------------------------------------------------------ Werkzeug "Kreuzungen": Vorfahrt und Ampel
+
+    /// alle Kreuzungen des Netzes (mit ihren Armen, wie zuletzt erzeugt)
+    pub fn kreuzungen(&self) -> Vec<KreuzungsInfo> {
+        let mut out: Vec<KreuzungsInfo> = self.objekte.iter().filter_map(|(k, o)| {
+            let kn = self.netz.knoten(*k)?;
+            Some(KreuzungsInfo { knoten: *k, pos: kn.pos, arme: o.arme.clone(), ampel: !o.objekt.signale.is_empty(), vermutet: o.vermutet,
+                                 umlauf: o.objekt.umlauf, phasen: o.objekt.phasen.clone() })
+        }).collect();
+        out.sort_by_key(|x| x.knoten);
+        out
+    }
+
+    /// Kreuzung des Netzes unter dem Bodenpunkt (innerhalb ihrer Arme)
+    pub fn kreuzung_bei(&self, p: DVec2) -> Option<u32> {
+        self.kreuzungen().into_iter().filter_map(|k| {
+            let r = k.arme.iter().map(|a| (a.2.truncate() - k.pos.truncate()).length()).fold(0.0, f64::max);
+            let d = (k.pos.truncate() - p).length();
+            (d <= r.max(6.0)).then_some((d, k.knoten))
+        }).min_by(|a, b| a.0.total_cmp(&b.0)).map(|x| x.1)
+    }
+
+    /// Vorfahrt/Ampel einer Kreuzung setzen (None: wieder vermuten) - ein Rueckgaengig-Schritt
+    pub fn regel_setzen(&mut self, v: &mut Viewer, k: u32, regel: Option<netz::Regel>) -> String {
+        if self.netz.knoten(k).is_none() {
+            return String::new();
+        }
+        self.merken();
+        if let Some(kn) = self.netz.knoten.iter_mut().find(|x| x.id == k) {
+            kn.regel = regel;
+        }
+        self.zeichnen_alle(v);
+        match self.objekte.get(&k) {
+            Some(o) => format!("Kreuzung: {}{}", o.arme.iter().map(|a| match a.1 {
+                kreuzung::Rolle::Haupt => "H", kreuzung::Rolle::Neben => "N", kreuzung::Rolle::Gleich => "R" }).collect::<Vec<_>>().join("-"),
+                if o.objekt.signale.is_empty() { String::new() } else { format!(", Ampel (Umlauf {:.0} s)", o.objekt.umlauf.unwrap_or(0.0)) }),
+            None => self.kreuzung_fehler.clone().map(|e| format!("Kreuzung nicht erzeugt: {e}")).unwrap_or_default(),
+        }
+    }
+
+    /// vorhandene Kreuzung der Karte uebernehmen (wird durch eine eigene mit denselben Armen ersetzt), damit sich
+    /// Vorfahrt und Ampel setzen lassen -> Knoten
+    pub fn vorhandene_uebernehmen(&mut self, v: &mut Viewer, ae: &mut Aendern, k: &kreuzung::Vorhanden) -> Result<u32, String> {
+        if k.arme.len() < 3 {
+            return Err("die vorhandene Kreuzung hat weniger als 3 angeschlossene Strassen".into());
+        }
+        if let Some(a) = Some(&*ae) {
+            self.kreuzungs_ordner = Some(a.kreuzungs_ordner());
+        }
+        ae.objekt_entfernen(v, k.kachel, k.objekt).map_err(|e| format!("{e:#}"))?;
+        self.undo.push((self.netz.clone(), 1));
+        self.redo.clear();
+        self.aenderungen += 1;
+        for a in &k.arme {
+            self.netz.breiten.insert(a.sli.clone(), a.halb);
+        }
+        let id = self.netz.knoten_mit_kartenarmen(k.pos, k.arme.clone());
+        self.zeichnen_alle(v);
+        Ok(id)
     }
 
     fn merken(&mut self) {
@@ -1257,6 +1366,18 @@ pub enum KantenAenderung {
     Querschnitt(String),
     Umkehren,
     Loeschen,
+}
+
+/// Vorfahrt aus der Regel des Nutzers: jeder Arm bekommt die Rolle des gespeicherten Arms mit der naechsten Richtung
+/// (bis 30 Grad); neue Arme warten, wenn es eine Hauptstrasse gibt, sonst rechts vor links
+pub fn rollen_aus_regel(arme: &[kreuzung::Arm], regel: &netz::Regel) -> Vec<kreuzung::Rolle> {
+    use kreuzung::Rolle;
+    let haupt = regel.rollen.iter().any(|r| r.1 == Rolle::Haupt);
+    arme.iter().map(|a| {
+        regel.rollen.iter().map(|r| (norm180(r.0 - a.richtung).abs(), r.1)).filter(|x| x.0 < 30.0)
+            .min_by(|x, y| x.0.total_cmp(&y.0)).map(|x| x.1)
+            .unwrap_or(if haupt { Rolle::Neben } else { Rolle::Gleich })
+    }).collect()
 }
 
 /// Vorfahrt an einer Kreuzung vermuten (spaeter per Klick aenderbar). `info` je Arm: (halbe Breite, vorhandene
