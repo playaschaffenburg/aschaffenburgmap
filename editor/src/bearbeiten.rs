@@ -416,7 +416,7 @@ pub fn markieren(p: &egui::Painter, kam: &Kamera, o: &Objekt, breite: f32, hoehe
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
     //! Mit echter Karte und Grafikkarte (ohne Fenster): cargo test --release -- --include-ignored
     use super::*;
 

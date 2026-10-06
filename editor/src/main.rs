@@ -14,6 +14,7 @@ mod bearbeiten;
 mod kamera;
 mod katalog;
 mod speichern;
+mod vorschau;
 
 use anyhow::{Context, Result};
 use glam::DVec3;
@@ -103,6 +104,8 @@ struct App {
     katalog_suche: String,
     katalog_ordner: Option<String>,
     katalog_gruppe: Option<String>,
+    katalog_herkunft: Option<String>,
+    vorschau: vorschau::Vorschau,
     /// gewaehltes Objekt zum Platzieren (relativer .sco-Pfad)
     platzier: Option<String>,
 }
@@ -161,6 +164,8 @@ impl App {
             katalog_suche: String::new(),
             katalog_ordner: None,
             katalog_gruppe: None,
+            katalog_herkunft: None,
+            vorschau: vorschau::Vorschau::default(),
             platzier: None,
         }
     }
@@ -280,7 +285,10 @@ impl App {
         self.bewegen(dt);
         if self.katalog_job.as_ref().map(|j| j.is_finished()).unwrap_or(false) {
             if let Ok(k) = self.katalog_job.take().unwrap().join() {
-                self.meldung = format!("Objektkatalog: {} Objekte in {} Ordnern", k.eintraege.len(), k.ordner.len());
+                self.meldung = format!("Objektkatalog: {} Objekte in {} Ordnern ({:.1} s)", k.eintraege.len(), k.ordner.len(), self.gestartet.elapsed().as_secs_f32());
+                if self.beenden_nach.is_some() {
+                    println!("Testlauf: {}", self.meldung);
+                }
                 self.katalog = Some(k);
             }
         }
@@ -453,41 +461,88 @@ impl App {
                 });
             }
             if self.bearb.werkzeug == Werkzeug::Platzieren {
-                egui::Panel::right("katalog").default_size(320.0).show(ctx, |ui| {
+                egui::Panel::right("katalog").default_size(360.0).show(ctx, |ui| {
                     ui.heading("Objekte platzieren");
                     let Some(kat) = self.katalog.as_ref() else {
                         ui.label("Objektkatalog wird eingelesen ...");
                         return;
                     };
-                    ui.add(egui::TextEdit::singleline(&mut self.katalog_suche).hint_text("suchen (Name, Datei, Gruppe)"));
-                    ui.horizontal(|ui| {
-                        egui::ComboBox::from_id_salt("ordner").width(140.0).selected_text(self.katalog_ordner.clone().unwrap_or("alle Ordner".into())).show_ui(ui, |ui| {
-                            ui.selectable_value(&mut self.katalog_ordner, None, "alle Ordner");
+                    ui.add(egui::TextEdit::singleline(&mut self.katalog_suche).hint_text("suchen (Name, Datei, Gruppe, Herkunft)").desired_width(f32::INFINITY));
+                    egui::Grid::new("filter").num_columns(2).show(ui, |ui| {
+                        ui.label("Herkunft");
+                        let txt = self.katalog_herkunft.clone().unwrap_or("alle".into());
+                        egui::ComboBox::from_id_salt("herkunft").width(220.0).selected_text(txt).show_ui(ui, |ui| {
+                            ui.selectable_value(&mut self.katalog_herkunft, None, format!("alle ({})", kat.eintraege.len()));
+                            for (h, n) in &kat.herkuenfte {
+                                ui.selectable_value(&mut self.katalog_herkunft, Some(h.clone()), format!("{h} ({n})"));
+                            }
+                        });
+                        ui.end_row();
+                        ui.label("Ordner");
+                        egui::ComboBox::from_id_salt("ordner").width(220.0).selected_text(self.katalog_ordner.clone().unwrap_or("alle".into())).show_ui(ui, |ui| {
+                            ui.selectable_value(&mut self.katalog_ordner, None, "alle");
                             for o in &kat.ordner {
                                 ui.selectable_value(&mut self.katalog_ordner, Some(o.clone()), o);
                             }
                         });
-                        egui::ComboBox::from_id_salt("gruppe").width(140.0).selected_text(self.katalog_gruppe.clone().unwrap_or("alle Gruppen".into())).show_ui(ui, |ui| {
-                            ui.selectable_value(&mut self.katalog_gruppe, None, "alle Gruppen");
+                        ui.end_row();
+                        ui.label("Gruppe");
+                        egui::ComboBox::from_id_salt("gruppe").width(220.0).selected_text(self.katalog_gruppe.clone().unwrap_or("alle".into())).show_ui(ui, |ui| {
+                            ui.selectable_value(&mut self.katalog_gruppe, None, "alle");
                             for g in &kat.gruppen {
                                 ui.selectable_value(&mut self.katalog_gruppe, Some(g.clone()), g);
                             }
                         });
+                        ui.end_row();
                     });
                     let suche = self.katalog_suche.to_lowercase();
                     let treffer: Vec<&katalog::Eintrag> = kat.eintraege.iter()
-                        .filter(|e| e.passt(&suche, self.katalog_ordner.as_deref(), self.katalog_gruppe.as_deref()))
+                        .filter(|e| e.passt(&suche, self.katalog_ordner.as_deref(), self.katalog_gruppe.as_deref(), self.katalog_herkunft.as_deref()))
                         .collect();
                     ui.label(egui::RichText::new(format!("{} von {} Objekten", treffer.len(), kat.eintraege.len())).small().weak());
                     ui.separator();
-                    let zeile = ui.text_style_height(&egui::TextStyle::Body) + 4.0;
-                    egui::ScrollArea::vertical().auto_shrink(false).max_height(ui.available_height() - 70.0).show_rows(ui, zeile, treffer.len(), |ui, bereich| {
-                        for e in &treffer[bereich] {
-                            let aktiv = self.platzier.as_deref() == Some(e.rel.as_str());
-                            let r = ui.selectable_label(aktiv, format!("{}   ", e.name)).on_hover_text(format!("{}\nGruppen: {}", e.rel, e.gruppen.join(", ")));
-                            if r.clicked() {
-                                aktionen.push(UiAktion::Platzier(if aktiv { None } else { Some(e.rel.clone()) }));
-                            }
+                    // Kachelraster mit Vorschaubildern (nur die sichtbaren Zeilen werden gebaut und gerendert)
+                    let bild = vorschau::GROESSE as f32;
+                    let zelle = bild + 14.0;
+                    let spalten = ((ui.available_width() / zelle).floor() as usize).max(1);
+                    let zeilen = treffer.len().div_ceil(spalten);
+                    let hoehe_zeile = bild + 34.0;
+                    let ctx2 = ui.ctx().clone();
+                    egui::ScrollArea::vertical().auto_shrink(false).max_height(ui.available_height() - 60.0).show_rows(ui, hoehe_zeile, zeilen, |ui, bereich| {
+                        for z in bereich {
+                            ui.horizontal(|ui| {
+                                for e in treffer.iter().skip(z * spalten).take(spalten) {
+                                    let aktiv = self.platzier.as_deref() == Some(e.rel.as_str());
+                                    let textur = self.vorschau.textur(&ctx2, &e.rel);
+                                    let fehlt = self.vorschau.fehlt(&e.rel);
+                                    let antwort = ui.vertical(|ui| {
+                                        ui.set_width(zelle - 6.0);
+                                        let (rect, r) = ui.allocate_exact_size(egui::vec2(bild, bild), egui::Sense::click());
+                                        let rand = if aktiv { egui::Color32::from_rgb(255, 60, 220) } else if r.hovered() { egui::Color32::WHITE } else { egui::Color32::from_gray(70) };
+                                        ui.painter().rect_filled(rect, 4.0, egui::Color32::from_gray(35));
+                                        match textur {
+                                            Some(t) => {
+                                                egui::Image::new(&t).corner_radius(4.0).paint_at(ui, rect);
+                                            }
+                                            None => {
+                                                let t = if fehlt { "kein Bild" } else { "..." };
+                                                ui.painter().text(rect.center(), egui::Align2::CENTER_CENTER, t, egui::FontId::proportional(11.0), egui::Color32::GRAY);
+                                            }
+                                        }
+                                        ui.painter().rect_stroke(rect, 4.0, egui::Stroke::new(if aktiv { 3.0 } else { 1.0 }, rand), egui::StrokeKind::Inside);
+                                        let mut name = e.name.clone();
+                                        if name.chars().count() > 16 {
+                                            name = name.chars().take(15).collect::<String>() + "…";
+                                        }
+                                        ui.label(egui::RichText::new(name).small());
+                                        r
+                                    }).inner;
+                                    let antwort = antwort.on_hover_text(format!("{}\n{}\nHerkunft: {}\nGruppen: {}", e.name, e.rel, e.herkunft, e.gruppen.join(", ")));
+                                    if antwort.clicked() {
+                                        aktionen.push(UiAktion::Platzier(if aktiv { None } else { Some(e.rel.clone()) }));
+                                    }
+                                }
+                            });
                         }
                     });
                     ui.separator();
@@ -568,6 +623,11 @@ impl App {
             }
         });
         gui.state.handle_platform_output(window, out.platform_output);
+        if self.bearb.werkzeug == Werkzeug::Platzieren {
+            if let Some(v) = self.viewer.as_mut() {
+                self.vorschau.erzeugen(v, &gui.ctx, 8);
+            }
+        }
         let Some(v) = self.viewer.as_ref() else {
             self.gui = Some(gui);
             return;
@@ -780,6 +840,10 @@ impl ApplicationHandler for App {
                 if let Some(t) = self.beenden_nach {
                     let s = self.gestartet.elapsed().as_secs_f32();
                     if s > t {
+                        if let Some(k) = self.katalog.as_ref() {
+                            println!("Testlauf Katalog: {} Vorschaubilder erzeugt, Herkuenfte: {}", self.vorschau.erzeugt,
+                                     k.herkuenfte.iter().map(|(h, n)| format!("{h} {n}")).collect::<Vec<_>>().join(", "));
+                        }
                         println!("Testlauf: {} Bilder in {:.1} s, zuletzt {:.0} fps, laengstes Bild {:.0} ms, {} Kacheln, {} | {}", self.bilder, s, self.fps, self.laengstes * 1000.0, self.viewer.as_ref().map(|v| v.loaded_tiles()).unwrap_or(0),
                                  self.karte.as_deref().unwrap_or("-"), self.meldung);
                         el.exit();

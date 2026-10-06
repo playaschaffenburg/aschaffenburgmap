@@ -3525,6 +3525,7 @@ dependencies = [
  "egui-winit",
  "env_logger",
  "glam",
+ "image",
  "log",
  "omsi-app",
  "omsi-cfg",

@@ -37,9 +37,14 @@ Bild ↑/↓ hebt/senkt, Entf löscht, „Kopieren“ legt eine Kopie 3 m danebe
 auch als Zahlen rechts. Strg+Z / Strg+Y.
 
 **Objekte platzieren (Werkzeug „Platzieren“, Taste P)** wie im Asset-Menü von Transport Fever 2: rechts der Katalog
-aller `.sco` unter `Sceneryobjects` (Name aus `[friendlyname]`, Filter nach Ordner und `[groups]`, Suche). Objekt
-anklicken – es hängt als Vorschau an der Maus –, Klick in die Welt setzt es (beliebig oft), `,` `.` dreht
-(15°, Umschalt 1°), Esc beendet. Neue Objekte lassen sich danach wie alle anderen bearbeiten.
+aller `.sco` unter `Sceneryobjects` als Kachelraster mit Vorschaubildern. Filter: **Herkunft** („OMSI (Standard)“ =
+von Grundorf/Spandau genutzt, sonst die Stadt der Karte, die den Objektordner nutzt – Hamburg, Aachen, Bremen, …),
+Ordner, `[groups]`, dazu Suche über Name, Datei, Gruppe und Herkunft. Objekt anklicken – es hängt als Vorschau an
+der Maus –, Klick in die Welt setzt es (beliebig oft), `,` `.` dreht (15°, Umschalt 1°), Esc beendet. Neue Objekte
+lassen sich danach wie alle anderen bearbeiten.
+
+Vorschaubilder: jedes Objekt wird einmal allein mit openOMSI gerendert und als PNG in
+`%LOCALAPPDATA%\omsi-editororschau` gespeichert; erzeugt werden nur die gerade sichtbaren, höchstens ~8 ms je Bild.
 
 **Strg+S: als neue Karte speichern** – der Kartenordner wird kopiert, geänderte Kacheln (UTF-16 bleibt) kommen
 darüber, neue Objekte stehen als `[object]`-Einträge mit eindeutigen IDs in ihrer Kachel, `global.cfg` bekommt den
