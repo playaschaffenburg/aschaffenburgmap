@@ -143,10 +143,21 @@ Straßen-Splines heranführen. omsigen macht es seit Okt. 2026 genauso (`omsigen
 <Blinker>           0 keiner, 2 links, 3 rechts (für die KI)
 ```
 
-**Ampeln** *[openOMSI]*: `[use_traffic_light] n` nach einem Pfad bindet ihn an Ampel n; `[traffic_light] name`
-und `[phase] zustand sekunden` (0 rot, 3 rot-gelb, 6 grün, 8 gelb, 9 alles rot; letzte Phase `0 0` = rot bis
-zum Neustart des Umlaufs `[traffic_lights_group]`). Lampen sind eigene Objekte mit `[varparent] <ID der Kreuzung>`.
-Weitere Kreuzungs-Schlüsselwörter: `[splinehelper]`, `[blockpath]`, `[crossing_heightdeformation]`.
+**Ampeln** *[openOMSI, Grundorf]*: `[use_traffic_light] n` nach einem Pfad bindet ihn an Signalgruppe n (0-basiert);
+`[traffic_lights_group] <Umlauf s>`, je Gruppe `[traffic_light] <Name>` und `[phase] <Zustand> <Sekunden>` –
+die Phasen laufen nacheinander ab Umlaufbeginn, die letzte `0 0` = rot bis zum Ende des Umlaufs.
+Zustände: 0–2 rot, 3–5 rot-gelb, 6/7 grün, 8 grün-gelb, **9–11 gelb**, ab 12 dunkel (openOMSI `traffic.rs`
+`aspect()`; die Angabe „8 gelb, 9 alles rot“ in openOMSIs FORMATS.md ist veraltet). Grundorf `Kreuz_See_Elsflether`:
+Umlauf 72 s, Hauptrichtung `3 2 / 6 31 / 9 3 / 0 0`, Nebenrichtung ab 39 s.
+- Gebunden ist in Grundorf nur das **erste, 2–3 m kurze Stück jeder Zufahrt**; dort halten die Autos bei Rot.
+- Signale sind eigene Kartenobjekte: `Verkehrszeichen_MC\Ampel_Kfz_1.sco` (Kfz) bzw. `Ampel_Mensch_1.sco`
+  (Fußgänger), Höhe 2,8 m, ein Text = Index der Signalgruppe, danach `[varparent] <ID des Kreuzungsobjekts>`.
+  Darunter steht ein Mast (`Streetobjects_RUE\whip_beam.sco` bzw. `single_pole.sco`, Höhe 0,25 m),
+  0,46 m hinter dem Signal und um 180° gedreht. Das Signal blickt den ankommenden Fahrern entgegen
+  (Drehung ≈ Richtung des Arms von der Kreuzung weg).
+- omsigen (`omsigen/ampel.py`) baut es genauso: Phasen aus gegenüberliegenden Armen (Hauptstraße zuerst),
+  2 s rot-gelb, 3 s gelb, 3 s Räumzeit, Umlauf 70 s bei 2 Phasen (+15 s je weitere), Hauptrichtung 1,5-fache
+  Grünzeit; Signal + Mast je Zufahrt rechts am Bordstein.
 
 ## Verbindungen
 

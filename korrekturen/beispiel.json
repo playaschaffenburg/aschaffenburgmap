@@ -12,6 +12,13 @@
       "lon": 9.148020,
       "regel": "rechts_vor_links",
       "notiz": "Beispiel: hier gilt rechts vor links"
+    },
+    {
+      "lat": 49.978100,
+      "lon": 9.147300,
+      "bestaetigt": true,
+      "ampel": false,
+      "notiz": "Beispiel: Vorfahrt wie berechnet, aber keine Ampel bauen (true = Ampel erzwingen)"
     }
   ]
 }

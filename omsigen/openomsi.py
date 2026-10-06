@@ -22,6 +22,7 @@ PATTERNS = {
     'sackgassen': r'path network: (\d+) street lanes lead into a dead end',
     'fehlend': r'(\d+) unresolved',
     'vorfahrt': r'(\d+) with a \[rule\] priority',
+    'ampeln': r'(\d+) light programs, (\d+) lamps',
 }
 
 
@@ -76,6 +77,8 @@ def main(argv=None):
               f"Fussweg-Querungen {w['konflikte'][1]}")
     if 'vorfahrt' in w:
         print(f"  Spuren mit Vorfahrtsregel ([rule] priority): {w['vorfahrt'][0]}")
+    if 'ampeln' in w:
+        print(f"  Ampelprogramme: {w['ampeln'][0]}, Signale: {w['ampeln'][1]}")
     if 'sackgassen' in w:
         print(f"  Fahrspuren, die in <= 500 m in einer Sackgasse enden: {w['sackgassen'][0]}")
     for l in r['warnungen'][:10]:

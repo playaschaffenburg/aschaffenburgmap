@@ -108,7 +108,17 @@ def write_map(out_maps_dir, name, chains, stops, omsi_dir=None, friendly=None, d
         for idx, val in j.get('rules', ()):     # Vorfahrt: [rule] gilt fuer den Pfad idx des Objekts davor
             blk += ['[rule]', str(idx), 'priority', str(val), '0', '']
         objs[t].append(blk)
+        jid = nid
         nid += 1
+        for sg in j.get('signale', ()):         # Ampel: Signal (Text = Signalgruppe, [varparent] = Kreuzung) und Mast
+            sx, sz = sg['x'] - ox - TILE * t[0], sg['z'] - oz - TILE * t[1]      # in der Kachel der Kreuzung
+            blk = ['[object]', '0', sg['datei'], str(nid), fmt(sx), fmt(sz), fmt(sg['hoehe']), fmt(sg['rot']), '0', '0']
+            if sg['gruppe'] is None:
+                blk += ['0', '']
+            else:
+                blk += ['1', str(sg['gruppe']), '', '[varparent]', str(jid), '']
+            objs[t].append(blk)
+            nid += 1
     # Nachbarkacheln mit anlegen, damit rundherum Gelaende ist
     used = set(tiles) | set(objs)
     all_tiles = {(x + dx, z + dz) for x, z in used for dx in (-1, 0, 1) for dz in (-1, 0, 1)

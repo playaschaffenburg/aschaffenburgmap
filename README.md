@@ -68,14 +68,16 @@ Kreuzungsobjekte; Klick auf eine Spur zeigt Spline/Objekt, Datei, Kachel und Pfa
   zuletzt der Straßenklasse. Prioritäten wie in den Standardkarten (192/64, siehe docs/kartenstudie.md). Jede
   Kreuzung vermerkt ihre Quelle; die HTML-Ansicht zeigt sie farbig (orange = nur vermutet).
 - **Korrekturdatei** `--korrekturen korrekturen/<stadt>.json`: Hauptstraße oder „rechts vor links“ je Kreuzung
-  festlegen (Vorlage: `korrekturen/beispiel.json`, Koordinaten per Klick in der HTML-Ansicht)
+  festlegen, vermutete Vorfahrt bestätigen (`"bestaetigt": true`), Ampel erzwingen/abschalten (`"ampel"`)
+  (Vorlage: `korrekturen/beispiel.json`, Koordinaten per Klick in der HTML-Ansicht)
+- **Ampeln** (`omsigen/ampel.py`) an Kreuzungen mit OSM-Ampel: Phasenplan (gegenüberliegende Arme gemeinsam,
+  Hauptstraße zuerst, Umlauf 70–100 s), Bindung der Zufahrten, Signalmasten wie in Grundorf
 - Haltestellenschilder an den OSM-Haltestellen
 - automatische Prüfung jedes Spurendes + Draufsicht als PNG
 
 ## Noch offen (Roadmap)
 
-1. Ampeln (Phasen, Signalobjekte) – Vorfahrt ist erledigt
-2. Fußwege über die Fahrbahn (Zebrastreifen/Querungen); um die Ecken sind sie verbunden
+1. Fußgängerampeln und Fußgängerquerungen (Zebrastreifen); Ampeln und Vorfahrt sind erledigt
 3. Höhen (SRTM bzw. amtliches DGM)
 4. Haltestellen mit Haltepunkten, Linien und Fahrplänen (aus GTFS-Daten)
 5. Gebäude (OSM-Umrisse, ggf. LoD2-Modelle), Bäume, Straßenmöbel
@@ -91,6 +93,7 @@ omsigen/
   network.py        Kanten, Knoten, Kreisverkehre, Kürzen, Ketten, Kreuzungsspuren
   kreuzung.py       Kreuzungsobjekte: Fläche, Bordsteine, Pfade -> .sco + .x
   vorfahrt.py       Vorfahrt je Kreuzung (Schilder, Vorfahrtstraßen, StVO, Korrekturen)
+  ampel.py          Ampelprogramme, Bindung der Zufahrten, Signalmasten
   studie.py         vorhandene OMSI-Karten auswerten (docs/kartenstudie.md)
   geom.py           Geraden/Bögen/Doppelbögen in OMSI-Konvention
   config.py         welche Spline für welche Straße

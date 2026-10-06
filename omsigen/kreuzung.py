@@ -14,7 +14,7 @@ import shapely
 from shapely.geometry import Polygon, LineString, Point
 from shapely.ops import unary_union
 from .geom import end_of, rvec, dvec, heading, connect, sample, norm180, fillet
-from . import vorfahrt
+from . import vorfahrt, ampel
 
 ASPH_H, WALK_H = 0.10, 0.25          # Hoehe Fahrbahn / Gehweg wie in den Splines
 U_KERB, U_OUT = 0.953, 0.187         # str_side1.bmp: u an der Bordsteinkante / 3,5 m weiter aussen
@@ -232,13 +232,19 @@ def _path_lines(e, height, kind, width, direction, blinker):
     return ['[path]'] + [f'{v:.4f}' if isinstance(v, float) else str(v) for v in vals] + ['']
 
 
-def sco_text(name, mesh_file, moves, walks):
+def sco_text(name, mesh_file, moves, walks, ampel_block=()):
+    """moves: Liste (Elemente, Blinker[, Signalgruppe oder None]); die Signalgruppe gilt fuer das erste Stueck"""
     L = ['Erzeugt mit omsigen (Aschaffenburg-KI). Strassendaten (c) OpenStreetMap-Mitwirkende, ODbL.', '',
          '[friendlyname]', name, '', '[groups]', '1', 'Aschaffenburg_KI', '',
          '[rendertype]', 'surface', '', '[LightMapMapping]', '', '[fixed]', '', '[surface]', '']
-    for els, blinker in moves:
-        for e in els:
+    L += list(ampel_block)
+    for mv in moves:
+        els, blinker = mv[0], mv[1]
+        gruppe = mv[2] if len(mv) > 2 else None
+        for i, e in enumerate(els):
             L += _path_lines(e, ASPH_H, 0, 3.0, 0, blinker)
+            if i == 0 and gruppe is not None:
+                L += ['[use_traffic_light]', str(gruppe), '']
     for els in walks:
         for e in els:
             L += _path_lines(e, WALK_H, 1, 2.0, 2, 0)
@@ -274,10 +280,13 @@ def build_objects(net, sdb, map_name, korrekturen=(), to_ll=None):
         kor = kor_at.get(k)
         V_ = vorfahrt.decide(arms, net.get('node_flags', {}).get(k, ()), kor) if len(arms) >= 3 else None
         n_haupt = V_['rollen'].count(vorfahrt.HAUPT) if V_ else 0
+        mit_ampel = bool(V_) and (kor.get('ampel', V_['ampel']) if kor else V_['ampel'])
+        plan = ampel.plane(arms, V_['rollen']) if mit_ampel else None
         moves, rules, idx = [], [], 0
         for c in moves_at.get(k, []):
             els = [[e[0] - O[0], e[1] - O[1]] + list(e[2:5]) for e in c['els']]
-            moves.append((els, BLINKER.get(c.get('mv'), 0)))
+            gruppe = plan['phase'][c['arms'][0]] if (plan and c.get('arms')) else None
+            moves.append((els, BLINKER.get(c.get('mv'), 0), gruppe))
             if V_ and c.get('arms'):
                 ia, ib = c['arms']
                 pr = vorfahrt.priority(V_['rollen'][ia], V_['rollen'][ib], c.get('mv'), n_haupt)
@@ -288,11 +297,14 @@ def build_objects(net, sdb, map_name, korrekturen=(), to_ll=None):
         name = f'K_{n + 1:03d}'
         info = None
         if V_:
-            info = dict(V_, lat=ll[0] if ll else None, lon=ll[1] if ll else None, x=O[0], z=O[1],
+            info = dict(V_, ampel=mit_ampel, lat=ll[0] if ll else None, lon=ll[1] if ll else None, x=O[0], z=O[1],
+                        umlauf=plan['umlauf'] if plan else None,
                         arme=[dict(name=a['name'], strasse=a['tags'].get('highway'), schild=a['sign'], rolle=r)
                               for a, r in zip(arms, V_['rollen'])])
         out.append(dict(name=name, origin=O, x=x_file(V, F), faces=len(F), rules=rules, vorfahrt=info,
-                        sco=sco_text(f'{map_name} Kreuzung {n + 1}', name + '.x', moves, J['walks']),
+                        signale=ampel.signale(arms, plan, sdb) if plan else [],
+                        sco=sco_text(f'{map_name} Kreuzung {n + 1}', name + '.x', moves, J['walks'],
+                                     ampel.sco_block(plan) if plan else ()),
                         paths=idx + sum(len(w) for w in J['walks']),
                         rel=f'Sceneryobjects\\Aschaffenburg_KI\\{map_name}\\{name}.sco', geom=J))
     return out
