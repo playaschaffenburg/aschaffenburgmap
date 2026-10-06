@@ -140,6 +140,30 @@ Hinter einem `[spline]`-Block (nach den zwei Leerzeilen) steht `[spline_terrain_
 *[Berlin-Spandau tile_2382_11285.map; openOMSI docs/FORMATS.md]*. In Spandau tragen 236 von 2486 Splines das
 Kennzeichen.
 
+## Wie die Standardkarten Brücken und Tunnel bauen (Studie Okt. 2026)
+
+Ausgewertet mit einem Durchlauf über alle Kacheln aller installierten Karten (Objekte/Splines mit „tunnel“,
+„bruecke“, „bridge“, „pfeiler“ im Namen, Gelände unter den Fundstellen aus `.map.terrain`):
+
+- **Geländelöcher werden praktisch nicht benutzt.** `[spline_terrain_align]` kommt in Gladbeck (über 100
+  Tunnel-Splines und -Objekte) nur 2-mal vor, in Aachen 3-mal; Spandau (236) und Express 91.06 (477) setzen es an
+  Gehwegen, Mauern und Kabeln, nicht an Tunneln. `.hole`-Dateien gibt es in keiner Karte.
+- **Flacher Tunnel = Graben im Gelände + geschlossener Baukörper.** Gladbeck, U-Bahn (`tile_-25_7`): Gelände
+  quer zur Röhre `0, 0, −7, −10 … −10, −6.1, −0.6, 0` (Graben bis genau auf die Gleishöhe −10, Flanken innerhalb
+  eines 5-m-Rasterschritts), darin `MS_Tunnel_OL_520.sli` mit schwarzem Kasten (Wände/Decke 6 m,
+  `Tunnelschwarz.tga`) und `MS_Tunnel_Boden_Dach.sli`. Straßentunnel 301 (`tile_-16_7`): Gelände −7 m, die
+  Tunnelobjekte `301_Tunnel_Zusammen/_Getrennt/_Abzweig.sco` stehen bei −0,4 m und bilden den ganzen Körper.
+  Portal `A2_Tunnel_Front.sco` steht auf 0 m über einer Grube von −14 m.
+- **Tiefer Tunnel = Röhre einfach im Gelände.** Spandau `rail_wood_S49_tunnel.sli` liegt 6,5 m unter dem
+  unveränderten Gelände (`tile_2405_11277`), ohne Loch.
+- **Brücken = Brücken-Spline mit Fahrspuren + Pfeilerobjekte.** Gladbeck `RQ_10,5_1spur_bridge_forward.sli`:
+  Fahrbahn, Gehweg, Brüstung (0,1 m dick, 1 m hoch) und Unterkante als Profile, `[path]` wie die Straße;
+  `brueckenpfeiler.sco` (90-mal) steht auf dem Gelände (Höhe 0 relativ). Das Gelände unter Brücken bleibt.
+
+Folgerung: Gelände nie ausschneiden, sondern absenken (Graben, Grube am Portal) und die Öffnung mit einem
+Baukörper schließen, der seinen eigenen Deckel mitbringt. Ausgeschnittene Löcher zeigen an den Rändern die
+Bodentextur verzerrt (im Spiel bemerkt, Okt. 2026).
+
 ## Brücken und Tunnel (omsigen/bauwerke.py)
 
 Die Standardkarten benutzen eigene Brücken-Splines (z. B. `Splines\Ruede\str_2spur_9.5m_DDR_Potsdamer_Str_BUE.sli`).
@@ -148,12 +172,17 @@ Steigung), damit die Spuranschlüsse unverändert bleiben:
 
 - `AB_bruecke_<links>_<rechts>.sli`: Platte 1,2 m, Brüstung 1 m über dem Gehweg, Beton `betonwand1.bmp`
   aus `Splines\Marcel\texture`; Pfeiler (Objekte `pfeiler_n`, `[absheight]`) etwa alle 30 m, 1 m eingegraben.
-- `AB_tunnel_<links>_<rechts>.sli`: Wände, Decke 5 m, Außenhaut und `[terrainholeprofile]`. Das Gelände wird
-  auf den ersten 15 m hinter jedem Portal ausgeschnitten (Röhre und Fahrbahn davor), weiter innen auf
-  mindestens Deckenhöhe + 0,3 m angehoben. Portale sind Objekte (`portal_n`): Rahmen um die Öffnung bis über das
-  Gelände. Ein Portal entsteht, wo der Tunnel in offene Strecke übergeht oder an einer Kreuzung mit Straßen
-  außerhalb des Tunnels endet.
-- Fahrbahn mehr als 1,5 m unter dem Gelände (Einschnitt): `[spline_terrain_align]` am Straßen-Spline.
+- `AB_tunnel_<links>_<rechts>.sli`: Wände und Decke (5 m) von innen. Wie in Gladbeck wird das Gelände
+  zwischen den Portalebenen als **Graben** bis 0,15 m unter die Fahrbahn abgesenkt (`Hoehen.raster`, Strecken in
+  `hoe.graeben`). Der Graben muss mindestens eine Rasterdiagonale (7,07 m) über die Wand hinausreichen, sonst
+  ragen Geländedreiecke mit einer hohen Ecke in die Röhre (openOMSI-Bild Okt. 2026); omsigen nimmt 7,5 m.
+- Deckel (`deckel_n`, Bodentextur `gras.bmp` aus `OMSI 2\Texture`, 1× je 300 m wie `[groundtex]`): Fläche auf
+  der Geländehöhe ohne Graben (`Hoehen.oberflaeche`), über der Röhre mindestens Decke + 0,8 m, 7,5 m breiter als
+  der Graben, damit sein Rand auf unverändertem Gelände liegt; Stücke zu 60 m.
+- Portale (`portal_n`): Wand so breit wie der Deckel mit Öffnung, von unter der Sohle bis über das Gelände. Ein
+  Portal entsteht, wo der Tunnel in offene Strecke übergeht oder an einer Kreuzung mit Straßen außerhalb des
+  Tunnels endet.
+- Geländelöcher (`[spline_terrain_align]`) benutzt omsigen nicht mehr.
 
 ## Kreuzungsobjekte `.sco` (so bauen die Standardkarten Kreuzungen)
 

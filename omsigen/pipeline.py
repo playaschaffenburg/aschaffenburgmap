@@ -133,9 +133,9 @@ def erzeuge(projekt, name, omsi=None, ausgabe='build', korrekturen=None, uebersc
     # Bauwerke: Brueckenkoerper, Tunnelroehren (Begleit-Splines), Pfeiler, Portale, Gelaendeloecher
     bw = bauwerke.bauen(net, sdb, hoe, name)
     b = bw['stats']
-    if b['bruecken'] or b['tunnel'] or b['einschnitte']:
+    if b['bruecken'] or b['tunnel']:
         log(f"    Bauwerke: {b['bruecken']} Brueckenabschnitte mit {b['pfeiler']} Pfeilern, {b['tunnel']} "
-            f"Tunnelabschnitte mit {b['portale']} Portalen, {b['einschnitte']} Elemente im Einschnitt (Gelaendeloch)")
+            f"Tunnelabschnitte mit {b['portale']} Portalen und {b['deckel']} Deckeln ueber dem Tunnelgraben")
     install_splines(root, bw['splines'])
     chains = chains + bw['ketten']
     objekte = junctions + bw['objekte']

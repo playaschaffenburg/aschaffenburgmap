@@ -96,7 +96,7 @@ Kreuzungsobjekte; Klick auf eine Spur zeigt Spline/Objekt, Datei, Kachel und Pfa
 - **Brücken und Tunnel** aus OSM sind Teil des Netzes: Brückenfahrbahn mindestens 5,5 m über dem Boden darunter,
   Tunnel mindestens 6 m unter der Oberfläche, mit Rampen; berechnet als Ausgleichsrechnung über das ganze Netz
   (`omsigen/hoehen.py`)
-- **Brückenkörper** mit Brüstung und Pfeilern, **Tunnelröhren** mit Portalen und Geländeloch an den Mündungen
+- **Brückenkörper** mit Brüstung und Pfeilern, **Tunnelröhren** mit Portalen; das Gelände wird unter Tunneln abgesenkt und mit einem Deckel geschlossen (wie in den Standardkarten, ohne Geländelöcher)
   (`omsigen/bauwerke.py`)
 - **Einsetzpunkte** an Start, Ziel und allen Haltestellen
 - **KI-Verkehr**: `ailists.cfg` mit den Standard-KI-Autos und -LKW, Tagesganglinie des Verkehrs; unsichtbare Wendeschleifen an

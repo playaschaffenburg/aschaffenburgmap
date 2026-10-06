@@ -72,15 +72,19 @@ def test_bauwerke():
     assert abs(sum(e[3] for e in arten['bruecke']['els']) - 120) < 1
     for datei, text in bw['splines'].items():
         assert parse_sli(text)['lanes'] == [] and parse_sli(text)['walks'] == []
-        assert ('[terrainholeprofile]' in text) == datei.startswith('AB_tunnel')
-    # Gelaendeloch nur am Portal, nicht mitten im Tunnel
-    al = arten['tunnel']['align']
-    assert al[0] and al[-1] and not all(al)
+    # keine Gelaendeloecher mehr: das Gelaende wird unter dem Tunnel abgesenkt, ein Deckel liegt darueber
+    assert st['deckel'] >= 1 and not any('terrainhole' in t for t in bw['splines'].values())
     # Pfeiler stehen auf dem Talboden und reichen bis unter die Platte
     for o in bw['objekte']:
         if o['name'].startswith('pfeiler'):
             x, z = o['origin']
             assert abs(o['hoehe'] + 1.0 - hoe.gelaende(x, z)) < 0.01 and 200 <= x <= 300
-    # ueber der Tunnelroehre bleibt Gelaende
-    H = hoe.raster(500.0, -150.0)                       # Kachel ueber dem Tunnel (x 500..800)
-    assert hoe.decken and H[30, 10] >= _hoehe_bei(net, 550) + bauwerke.TUNNEL_H
+    H = hoe.raster(500.0, -150.0)                       # Kachel ueber dem Tunnel (x 500..800, Tunnel 490..620)
+    sohle = _hoehe_bei(net, 550)
+    assert H[30, 10] <= sohle                           # x=550 auf der Achse: Graben bis auf die Sohle
+    assert H[30, 40] > _hoehe_bei(net, 700) - 0.5       # x=700: kein Tunnel mehr, kein Graben
+    assert H[0, 10] > sohle + bauwerke.TUNNEL_H         # 150 m neben der Achse: Huegel bleibt
+    # Deckel liegt ueber der Decke, sein Rand auf dem Gelaende
+    deckel = [o for o in bw['objekte'] if o['name'].startswith('deckel')]
+    ys = [v[1] for o in deckel for v in o['mesh'][0]]
+    assert max(ys) > sohle + bauwerke.TUNNEL_H          # ueber der Roehre; die Raender liegen auf dem Gelaende

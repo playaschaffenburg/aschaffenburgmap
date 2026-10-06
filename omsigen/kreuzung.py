@@ -19,7 +19,8 @@ from . import vorfahrt, ampel
 
 ASPH_H, WALK_H = 0.10, 0.25          # Hoehe Fahrbahn / Gehweg wie in den Splines
 U_KERB, U_OUT = 0.953, 0.187         # str_side1.bmp: u an der Bordsteinkante / 3,5 m weiter aussen
-TEXTURES = ['str_asphdrk.bmp', 'str_asphdrk.bmp.cfg', 'str_side1.bmp', 'str_side1.bmp.cfg', 'betonwand1.bmp']
+TEXTURES = ['str_asphdrk.bmp', 'str_asphdrk.bmp.cfg', 'str_side1.bmp', 'str_side1.bmp.cfg', 'betonwand1.bmp',
+            'gras.bmp']
 FOOT_LEN = 60.0                      # so weit reicht die freigehaltene Flaeche eines Arms nach aussen
 R_KERB = 8.0                         # Bordsteinradius an Ecken (wird kleiner, wenn der Platz nicht reicht)
 
@@ -337,9 +338,11 @@ def install_objects(root, map_name, objects, omsi_dir=None, overwrite=False):
             f.write(o['x'])
     copied = 0
     for src_root in (omsi_dir, root):
-        src = os.path.join(src_root, 'Splines', 'Marcel', 'texture') if src_root else None
-        if src and os.path.isdir(src):
-            for t in TEXTURES:
+        for src in ((os.path.join(src_root, 'Splines', 'Marcel', 'texture'), os.path.join(src_root, 'Texture'))
+                    if src_root else ()):
+            if not os.path.isdir(src):
+                continue
+            for t in TEXTURES:          # Strassentexturen aus Marcel, Bodentextur (Tunneldeckel) aus OMSI\Texture
                 if os.path.exists(os.path.join(src, t)) and not os.path.exists(os.path.join(d, 'texture', t)):
                     shutil.copy(os.path.join(src, t), os.path.join(d, 'texture', t)); copied += 1
     return d, copied

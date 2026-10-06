@@ -228,8 +228,32 @@ class Hoehen:
         ch['y'], ch['g'] = y, g
 
     # ---------------------------------------------------------------- Gelaenderaster
+    def _proben_feld(self):
+        if getattr(self, '_feld_n', -1) != len(self.proben) + len(self.flaechen):
+            P = self.proben + [(x, z, h, 2.0) for x, z, h in self.flaechen]
+            self._feld = np.array(P, dtype=np.float64).reshape(-1, 4)
+            self._feld_n = len(self.proben) + len(self.flaechen)
+        return self._feld
+
+    def oberflaeche(self, x, z):
+        """Gelaendehoehe (relativ) an einem Punkt wie im Raster, aber ohne Tunnelgraeben: DGM, unter Strassen und
+        Kreuzungen angeglichen (fuer Deckel ueber Tunnelgraeben, bauwerke.py)"""
+        g = self.gelaende(x, z)
+        g = 0.0 if g is None else g
+        P = self._proben_feld()
+        if not len(P):
+            return g
+        d = np.hypot(P[:, 0] - x, P[:, 1] - z) - P[:, 3]
+        k = int(np.argmin(d))
+        if d[k] >= UEBERGANG:
+            return g
+        w = max(0.0, d[k] / UEBERGANG)
+        return (P[k, 2] - UNTER_FAHRBAHN) * (1 - w) + g * w
+
     def raster(self, x0, z0, n=61, schritt=5.0):
-        """Hoehen (relativ) einer Kachel ab Welt-Ecke (x0, z0): Array [iz][ix], Zeile 0 = Sueden"""
+        """Hoehen (relativ) einer Kachel ab Welt-Ecke (x0, z0): Array [iz][ix], Zeile 0 = Sueden.
+        Unter Tunneln (self.graeben, bauwerke.py) wird das Gelaende bis auf die Sohle abgesenkt, wie in den
+        Standardkarten (Gladbeck); ausgeschnitten wird nichts."""
         xs = x0 + np.arange(n) * schritt
         zs = z0 + np.arange(n) * schritt
         H = np.zeros((n, n), dtype=np.float32)
@@ -241,7 +265,6 @@ class Hoehen:
         rand = (n - 1) * schritt + 30
         best = np.full((n, n), np.inf, dtype=np.float32)      # Abstand zur naechsten Strasse ausserhalb
         ziel = np.zeros((n, n), dtype=np.float32)
-        gewicht = np.zeros((n, n), dtype=np.float32)
         for (x, z, h, innen) in self.proben + [(x, z, h, 2.0) for x, z, h in self.flaechen]:
             if x < x0 - 30 or z < z0 - 30 or x > x0 + rand or z > z0 + rand:
                 continue
@@ -252,8 +275,14 @@ class Hoehen:
         w = np.clip(best / UEBERGANG, 0, 1)                      # 0 = auf der Strasse, 1 = Gelaende
         m = np.isfinite(best)
         H = np.where(m, ziel * (1 - w) + H * w, H)
-        for (x, z, h, innen) in getattr(self, 'decken', ()):   # ueber Tunnelroehren nicht unter die Decke
-            if x < x0 - 30 or z < z0 - 30 or x > x0 + rand or z > z0 + rand:
+        for (xa, za, xb, zb, h, innen) in getattr(self, 'graeben', ()):  # Tunnelgraben bis auf die Sohle
+            if max(xa, xb) < x0 - 30 or max(za, zb) < z0 - 30 or min(xa, xb) > x0 + rand or min(za, zb) > z0 + rand:
                 continue
-            H = np.where(np.hypot(X - x, Z - z) < innen, np.maximum(H, h), H)
+            dx, dz = xb - xa, zb - za
+            ll = dx * dx + dz * dz
+            if ll < 1e-9:
+                continue
+            t = ((X - xa) * dx + (Z - za) * dz) / ll        # nur zwischen den Enden: am Portal endet der Graben
+            quer = np.abs((X - xa) * dz - (Z - za) * dx) / math.sqrt(ll)
+            H = np.where((t >= 0) & (t <= 1) & (quer < innen), np.minimum(H, h), H)
         return H
