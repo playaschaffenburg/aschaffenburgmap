@@ -62,25 +62,26 @@ beim Start der vorhandene übernommen (abschaltbar), am Ziel erscheint eine Warn
 Gespeichert wird jede Straße als Kette von `[spline_h]`-Einträgen (glatter Höhenverlauf, Enden exakt auf den Knoten
 in gleicher Richtung – so verbindet OMSI die Spuren).
 
-**Kreuzungen (Abzweig mitten aus einer vorhandenen Straße)** wie in Transport Fever 2: im Werkzeug „Straße bauen“
-zeigt eine orange Markierung, wo eine Kreuzung entstünde (Mitte, aufgeschnittenes Stück, neuer Arm). Start oder Ziel
-mitten auf einer vorhandenen Straße: beim Bauen wird die Straße dort aufgeschnitten (auch über mehrere verknüpfte
-Splines; das Stück hinter der Kreuzung bekommt eine neue ID, die Nachbarn werden umgehängt), die Enden laufen eben
-auf Kreuzungshöhe ein, dazwischen kommt ein Kreuzungsobjekt wie in den Standardkarten – Platte mit Bordsteinecken
-und Gehwegen, Abbiegespuren für alle Richtungen, Vorfahrt (vorhandene Straße Hauptstraße, neue wartet) –, erzeugt
-von omsigen (`python -m omsigen.editorkreuzung`, dieselben Funktionen wie für die generierten Karten). Die neue
-Straße beginnt bzw. endet an ihrem dritten Arm (mindestens 35° zur Straße). Ein Strg+Z nimmt Straße und Kreuzung
-zurück. Zu nah am Ende einer Straße oder an einer anderen Kreuzung gibt es eine Meldung. Python: `python` aus dem
-Pfad (oder `OMSIGEN_PYTHON`), omsigen aus diesem Repository (oder `OMSIGEN_DIR`). Die Objekte liegen während der
-Sitzung im Sitzungsordner und kommen beim Speichern nach `Sceneryobjects\Aschaffenburg_KI\<neue Karte>\`.
-
-**Kreuzungen im eigenen Netz:** ein Knoten mit drei und mehr eigenen Straßen ist eine Kreuzung – die Straßen enden
-davor (so weit, dass sie an den Nachbararmen vorbeikommen, wie oben, Winkel ab 35°) und laufen eben auf Knotenhöhe
-ein, omsigen erzeugt das Kreuzungsobjekt (durchgehende Straße gleichen Querschnitts hat Vorfahrt, sonst rechts vor
-links). Start oder Ziel mitten auf einer eigenen Straße teilt sie dort; ein Abzweig von einem Knick-Knoten macht ihn
-zur Kreuzung. Klickt man nahe an ein Straßenende, rückt die Kreuzung so weit in die Straße hinein, dass sie passt;
-nahe an einem freien Ende einer vorhandenen Straße wird dort angeschlossen. Geht eine Kreuzung nicht (Stück zu
-kurz), steht das schon in der Vorschau, und es wird nicht gebaut.
+**Kreuzungen – eine Logik für alle Fälle** (Werkzeug „Straße bauen“): jede Kreuzung ist ein Knoten des Netzes mit
+Armen; ein Arm ist eine eigene Straße oder ein Ende einer vorhandenen Straße, die dort aufgeschnitten wurde
+(„Kartenarm“). Ab drei Armen entsteht ein Kreuzungsobjekt wie in den Standardkarten (Platte mit Bordsteinecken und
+Gehwegen, Abbiegespuren für alle Richtungen, Vorfahrt), erzeugt von omsigen (`python -m omsigen.editorkreuzung`).
+Die Arme enden so weit vor der Mitte, dass sie an den Nachbararmen vorbeikommen (Breiten und Winkel, ab 35°), und
+laufen eben auf Kreuzungshöhe ein. Orange Markierungen zeigen in der Vorschau jede geplante Kreuzung.
+- **T-Kreuzung / Abzweig:** Start oder Ziel mitten auf einer Straße (eigener oder vorhandener) – sie wird geteilt
+  bzw. aufgeschnitten. Nahe einem Ende rückt die Kreuzung in die Straße hinein, nahe einem freien Ende einer
+  vorhandenen Straße wird dort angeschlossen; ein Knick-Knoten wird mit einer dritten Straße zur Kreuzung.
+- **Kreuzen (4 und mehr Arme):** läuft die neue Straße über eine andere (eigene oder vorhandene) auf gleicher Höhe,
+  entsteht dort eine Kreuzung; bei mehr als 3 m Höhenunterschied nicht (Brücke/Tunnel). Zu flach (unter 30°), zu
+  nah an einem Knoten oder Kreuzungen zu dicht hintereinander: steht in der Vorschau, es wird nicht gebaut.
+- **Kreisverkehr (Modus V):** Klick setzt die Mitte, die Maus die Größe (Durchmesser 24–120 m), Klick baut einen Ring
+  aus Einbahn-Straßen gegen den Uhrzeigersinn (Querschnitt rechts wählbar, Vorschlag: Einbahn mit Gehweg). Zufahrten
+  auf den Ring ziehen: dort entstehen T-Kreuzungen. Straßen, die der Ring kreuzt, bekommen Kreuzungen.
+- **Vorfahrt (vermutet, später per Klick änderbar):** im Kreisverkehr der Ring; sonst die durchgehende Straße – eine
+  vorhandene vor einer neuen, dann gleicher Querschnitt, dann die breitere; zwei gleichwertige: rechts vor links.
+- Ein Strg+Z nimmt Straße, Kreuzungen und aufgeschnittene vorhandene Straßen zurück. Beim Speichern kommen die
+  Kreuzungsobjekte nach `Sceneryobjects\Aschaffenburg_KI\<neue Karte>\`. Python: `python` aus dem Pfad (oder
+  `OMSIGEN_PYTHON`), omsigen aus diesem Repository (oder `OMSIGEN_DIR`).
 
 **Vorhandene Straßen ändern (Werkzeug „Ändern“, Taste U)** wie das Upgrade-Werkzeug in Transport Fever 2: die Straße
 unter der Maus wird umrissen, Klick wählt den Spline (Umschalt+Klick: ganze verknüpfte Kette, Strg+Klick: dazu/weg).
@@ -112,6 +113,6 @@ Tests: `cargo test --release` (ohne OMSI), `cargo test --release -- --include-ig
    platzieren, Rückgängig, Speichern als neue Karte. Splines verschieben kommt mit dem Netz-Kern (Schritt 3) – das kann auch openOMSI selbst noch nicht
 3. **Straßen** (in Arbeit): Netz-Kern (Knoten, Kanten aus Geraden/Bögen, glatte Höhe), Werkzeug Gerade/Kurve mit
    Live-Vorschau und Einrasten, Speichern als Splines, Anschluss an freie Enden vorhandener Straßen, Ändern/Upgrade,
-   Kreuzungen beim Abzweig aus vorhandenen und eigenen Straßen (fertig); Kreuzen (4 Arme, auch über vorhandene
-   Straßen), Vorfahrt/Ampel per Klick, Knoten ziehen (offen)
+   allgemeine Kreuzungslogik: T, Kreuzen (4+ Arme), Kreisverkehr, über eigene und vorhandene Straßen (fertig);
+   Vorfahrt/Ampel per Klick, Kreisverkehr-Optik (Platten am gebogenen Ring), Knoten ziehen (offen)
 4. omsigen-Funktionen: OSM-Import, Kreuzungsgenerator, DGM-Gelände, Luftbild
