@@ -15,6 +15,9 @@ FALLBACK_SPLINES = {
     MARCEL + 'str_4spur_12,5m_Heerstr1.sli': dict(lanes=[(-4.75, 1), (-1.609, 1), (1.609, 0), (4.75, 0)], cw=6.25, half=8.0, walks=[]),
     MARCEL + 'str_2spur_13m_Omnibushof.sli': dict(lanes=[(-1.609, 1), (1.609, 0)], cw=6.5, half=10.5, walks=[-8.345, 8.345]),
 }
+# unsichtbare Hilfsstrasse der Standardinhalte (nur im Editor sichtbar) - fuer Wendeschleifen
+INVIS = MARCEL + 'invis_street.sli'
+FALLBACK_SPLINES[INVIS] = dict(lanes=[(0.0, 0)], cw=1.5, half=1.5, walks=[])
 for _v in FALLBACK_SPLINES.values():
     _v.update(cl=-_v['cw'], cr=_v['cw'], ol=-_v['half'], or_=_v['half'])
 

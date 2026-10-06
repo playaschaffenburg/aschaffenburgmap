@@ -65,6 +65,8 @@ def main(argv=None):
     st = net['stats']
     print(f'    {len(net["road_chains"])} Strassenzuege, {st["kreuzungen"]} Kreuzungen, '
           f'{st["verbindungen"]} Kreuzungsspuren {st["bewegungen"]}')
+    print(f'    {st["wendeschleifen"]} unsichtbare Wendeschleifen an Strassenenden'
+          + (f', {st["enden_ohne_wende"]} Einbahn-Enden ohne Gegenspur' if st['enden_ohne_wende'] else ''))
 
     from .network import proj_point
     stops_m = []
@@ -79,7 +81,7 @@ def main(argv=None):
     target = os.path.join(root, 'maps')
     os.makedirs(root, exist_ok=True)
     install_splines(root)
-    chains, junctions = net['road_chains'], []
+    chains, junctions = net['road_chains'] + net['wenden'], []
     if a.kreuzungen == 'objekt':
         junctions = kreuzung.build_objects(net, sdb, a.name, vorfahrt.load_corrections(a.korrekturen), proj.to_ll)
         V = [j['vorfahrt'] for j in junctions if j['vorfahrt']]

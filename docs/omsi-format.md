@@ -180,6 +180,12 @@ Original ist, ist nicht geprüft – deshalb bleibt unsere Prüfung streng.
   `unsched_vehgroups.txt` der Vorlage erwartet).
 - `global.cfg` `[trafficdensity_road] <Stunde> <Faktor>`: Tagesganglinie des Straßenverkehrs (Grundorf: 11 Punkte,
   Spitzen 7 und 17 Uhr mit 1,5).
+- Straßenenden ohne Fortsetzung (Kartenrand, Sackgasse) fangen KI-Fahrzeuge: sie bleiben stehen und stauen sich.
+  Die Standardkarten legen dafür unsichtbare Hilfsstraßen `Splines\Marcel\invis_street.sli` an (`[onlyeditor]`,
+  ein Fahrpfad; in Gladbeck über 11.000-mal). omsigen baut an jedem solchen Ende Wendeschleifen daraus
+  (Schlüsselloch: Gerade, Rechtsbogen, Linksbogen ≥ 6 m Radius, Rechtsbogen, Gerade); Einbahn-Enden wenden auf
+  die nächste Gegenrichtung eines anderen Straßenendes. openOMSI-Zählung „lanes lead into a dead end“ für die
+  Teststrecke: 196 → 63.
 
 ## Fahrplan `TTData/` *[openOMSI]*
 

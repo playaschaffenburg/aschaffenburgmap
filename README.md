@@ -73,7 +73,8 @@ Kreuzungsobjekte; Klick auf eine Spur zeigt Spline/Objekt, Datei, Kachel und Pfa
 - **Ampeln** (`omsigen/ampel.py`) an Kreuzungen mit OSM-Ampel: Phasenplan (gegenüberliegende Arme gemeinsam,
   Hauptstraße zuerst, Umlauf 70–100 s), Bindung der Zufahrten, Signalmasten mit Signal unten und am Ausleger
   wie in Grundorf
-- **KI-Verkehr**: `ailists.cfg` mit den Standard-KI-Autos und -LKW, Tagesganglinie des Verkehrs
+- **KI-Verkehr**: `ailists.cfg` mit den Standard-KI-Autos und -LKW, Tagesganglinie des Verkehrs; unsichtbare Wendeschleifen an
+  Straßenenden (Kartenrand, Sackgassen), damit die KI dort nicht stecken bleibt
 - Haltestellenschilder an den OSM-Haltestellen
 - automatische Prüfung jedes Spurendes + Draufsicht als PNG
 

@@ -2,7 +2,7 @@
 -> Kreuzungsspuren, die die Fahrspuren aller Arme exakt verbinden."""
 import math, collections
 import numpy as np
-from .config import RADIUS, KI, choose_spline, is_oneway
+from .config import RADIUS, KI, INVIS, choose_spline, is_oneway
 from .custom_splines import KREUZ_GAPS
 from .geom import heading, norm180, rvec, end_of, straight, connect
 
@@ -45,6 +45,38 @@ def _closest(p, P):
         if d < best[0]:
             best = (d, (a[0] + (b[0] - a[0]) * t, a[1] + (b[1] - a[1]) * t))
     return best
+
+
+R_WENDE, VORLAUF_WENDE = 6.0, 2.0     # Wendeschleife: Bogenradius, Gerade vor und nach der Schleife
+
+
+def wendeschleife(p, h, d, r=R_WENDE):
+    """Schluesselloch-Schleife von p (Fahrtrichtung h, aus der Strasse hinaus) zur Gegenspur d m links davon
+    (Richtung h + 180): Gerade, Rechtsbogen a, Linksbogen 180 + 2a, Rechtsbogen a, Gerade (symmetrisch, endet auf
+    gleicher Hoehe wie p). -> Elemente"""
+    r = max(r, d / 2 + 0.01)
+    lv = (-rvec(h)[0], -rvec(h)[1])
+
+    def bau(a):
+        els, pos, hh = [], p, h
+        for L, R in ((VORLAUF_WENDE, 0.0), (r * a, r), (r * (math.pi + 2 * a), -r), (r * a, r), (VORLAUF_WENDE, 0.0)):
+            if L < 1e-6:
+                continue
+            el = [pos[0], pos[1], hh % 360, L, R, INVIS]
+            els.append(el)
+            pos, hh = end_of(el)
+        return els, pos
+
+    def seitlich(a):
+        q = bau(a)[1]
+        return (q[0] - p[0]) * lv[0] + (q[1] - p[1]) * lv[1] - d
+    lo, hi = 0.0, math.pi / 2
+    if seitlich(lo) < 0:
+        return bau(0.0)[0]
+    for _ in range(60):
+        mid = (lo + hi) / 2
+        lo, hi = (mid, hi) if seitlich(mid) > 0 else (lo, mid)
+    return bau((lo + hi) / 2)[0]
 
 
 def build(ways_in, sdb, signs=()):
@@ -564,7 +596,78 @@ def build(ways_in, sdb, signs=()):
                         n_moves['nachlauf'] += 1
 
 
+    # ============================================================ Wendeschleifen
+    # Strassenenden ohne Kreuzung (Kartenrand, Sackgasse): jede ankommende Spur wendet unsichtbar auf die naechste
+    # Gegenspur links davon - sonst bleiben KI-Fahrzeuge dort stehen
+    end_count = collections.Counter()
+    for ch in road_chains:
+        end_count[ch['node_s']] += 1; end_count[ch['node_e']] += 1
+    wenden, ohne_wende, frei_in, frei_out = [], 0, [], []
+    for ch in road_chains:
+        if ch['node_s'] == ch['node_e']:
+            continue
+        for which, node in (('s', ch['node_s']), ('e', ch['node_e'])):
+            if node in JN or end_count[node] != 1:
+                continue
+            L = lane_ends(ch, which)
+            ins = [l for l in L if l['kind'] == 'in']
+            outs = [l for l in L if l['kind'] == 'out']
+
+            def links(a, b):                 # wie weit b links von a liegt (Fahrtrichtung von a)
+                lv = (-rvec(a['h'])[0], -rvec(a['h'])[1])
+                return (b['p'][0] - a['p'][0]) * lv[0] + (b['p'][1] - a['p'][1]) * lv[1]
+            paare = set()
+            for a in ins:                    # jede ankommende Spur wendet auf die naechste Gegenspur links
+                cand = [(links(a, b), j) for j, b in enumerate(outs) if links(a, b) > 0.5]
+                if cand:
+                    paare.add((ins.index(a), min(cand)[1]))
+                else:
+                    ohne_wende += 1          # Einbahnstrasse endet: keine Gegenspur
+            for j, b in enumerate(outs):     # jede Gegenspur braucht einen Zulauf
+                if not any(pj == j for _, pj in paare):
+                    cand = [(links(a, b), i) for i, a in enumerate(ins) if links(a, b) > 0.5]
+                    if cand:
+                        paare.add((min(cand)[1], j))
+            for i, j in sorted(paare):
+                wenden.append(dict(els=wendeschleife(ins[i]['p'], ins[i]['h'], links(ins[i], outs[j])),
+                                   name='Wendeschleife', hw='invisible'))
+            frei_in += [a for i, a in enumerate(ins) if not any(pi == i for pi, _ in paare)]
+            frei_out += [b for j, b in enumerate(outs) if not any(pj == j for _, pj in paare)]
+    # Einbahn-Enden (z. B. getrennte Richtungsfahrbahnen am Kartenrand): auf die naechste freie Gegenrichtung
+    # eines anderen Strassenendes (bis 50 m, links, ungefaehr entgegengesetzt) wenden
+    for a in frei_in:
+        lv = (-rvec(a['h'])[0], -rvec(a['h'])[1])
+        cand = []
+        for b in frei_out:
+            d = math.dist(a['p'], b['p'])
+            seit = (b['p'][0] - a['p'][0]) * lv[0] + (b['p'][1] - a['p'][1]) * lv[1]
+            if d < 50 and seit > 0.5 and abs(norm180(b['h'] - a['h'] - 180)) < 45:
+                cand.append((d, id(b), b))
+        if not cand:
+            continue
+        _, _, b = min(cand)
+        els = connect(a['p'], a['h'], b['p'], b['h'], INVIS)
+        if els and sum(e[3] for e in els) < 3 * math.dist(a['p'], b['p']) + 40:
+            wenden.append(dict(els=els, name='Wendeschleife', hw='invisible'))
+            frei_out.remove(b)
+            ohne_wende -= 1
+    for b in frei_out:                   # uebrige freie Spuren: Zulauf von der naechsten passenden Endspur
+        cand = []
+        for a in frei_in:
+            lv = (-rvec(a['h'])[0], -rvec(a['h'])[1])
+            d = math.dist(a['p'], b['p'])
+            seit = (b['p'][0] - a['p'][0]) * lv[0] + (b['p'][1] - a['p'][1]) * lv[1]
+            if d < 50 and seit > 0.5 and abs(norm180(b['h'] - a['h'] - 180)) < 45:
+                cand.append((d, id(a), a))
+        if cand:
+            a = min(cand)[2]
+            els = connect(a['p'], a['h'], b['p'], b['h'], INVIS)
+            if els and sum(e[3] for e in els) < 3 * math.dist(a['p'], b['p']) + 40:
+                wenden.append(dict(els=els, name='Wendeschleife', hw='invisible'))
+
     return dict(road_chains=road_chains, conn_chains=conn_chains, junctions=[list(k) for k in JN],
+                wenden=wenden,
                 arms=dict(arm_meta), node_pos={k: tuple(k) for k in JN}, node_flags=dict(node_flags),
                 stats=dict(kreuzungen=len(JN), verbindungen=len(conn_chains), fehlgeschlagen=conn_fail,
+                           wendeschleifen=len(wenden), enden_ohne_wende=ohne_wende,
                            bewegungen=dict(n_moves)))
