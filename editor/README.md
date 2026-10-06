@@ -31,10 +31,20 @@ target\release\omsi-editor.exe Grundorf --testlauf 20           # Fenster, nach 
 Kamera: rechte Maustaste drehen/neigen, mittlere verschieben, Mausrad zoomen (zum Mauszeiger), W A S D / Pfeile,
 Q / E drehen, R / F neigen. Koordinaten wie in openOMSI: x Ost, y Nord, z hoch.
 
+**Objekte bearbeiten (Werkzeug „Objekte“, Taste O):** Klick wählt das Objekt unter der Maus (weißer Ring = unter der
+Maus, magenta = gewählt), Ziehen schiebt es über das Gelände, Strg+Mausrad oder `,` `.` dreht (Umschalt: fein),
+Bild ↑/↓ hebt/senkt, Entf löscht, „Kopieren“ legt eine Kopie daneben; Position und Richtung auch als Zahlen rechts.
+Strg+Z / Strg+Y. **Strg+S: als neue Karte speichern** – der Kartenordner wird kopiert, die geänderten Kacheln
+(UTF-16 bleibt) kommen darüber, `global.cfg` bekommt den neuen Namen; die Originalkarte bleibt unverändert.
+
+Tests: `cargo test --release` (ohne OMSI), `cargo test --release -- --include-ignored` (mit OMSI und Grafikkarte;
+`dxcompiler.dll`/`dxil.dll` auch nach `targetelease\deps`).
+
 ## Stand und Plan
 
 1. **Betrachter** (fertig): beliebige Karte, Darstellung wie im Spiel, Kacheln werden im Hintergrund um den
    Blickpunkt gestreamt (Worker-Thread, 6 ms Hochladen je Bild), Kartenwechsel ohne neuen Renderer
-2. Auswählen und Bearbeiten (Objekte, Splines), Speichern immer als neue Karte
+2. **Bearbeiten** (Objekte fertig): auswählen, ziehen, drehen, heben, löschen, kopieren, Rückgängig, Speichern als
+   neue Karte. Splines verschieben kommt mit dem Netz-Kern (Schritt 3) – das kann auch openOMSI selbst noch nicht
 3. Straßenwerkzeug wie in Transport Fever 2 mit Netz-Kern (Knoten, Kanten mit Kurven, Querschnitte)
 4. omsigen-Funktionen: OSM-Import, Kreuzungsgenerator, DGM-Gelände, Luftbild

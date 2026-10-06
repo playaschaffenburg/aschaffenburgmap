@@ -1,18 +1,24 @@
 //! OMSI-Editor: moderner Karteneditor fuer OMSI 2 auf Basis von openOMSI (Darstellung wie im Spiel).
 //!
 //! Meilenstein 1 "Betrachter": beliebige OMSI-Karte oeffnen, Kamera wie in Transport Fever,
-//! Kacheln werden um den Blickpunkt nachgeladen.
+//! Kacheln werden im Hintergrund um den Blickpunkt gestreamt.
+//! Meilenstein 2 "Bearbeiten": Objekte auswaehlen, ziehen, drehen, loeschen, kopieren, Rueckgaengig,
+//! Speichern als neue Karte (bearbeiten.rs, speichern.rs).
 //!
 //!   omsi-editor [--root <OMSI-2-Ordner>] [Kartenordner]
 //!
 //! Bedienung: rechte Maustaste drehen/neigen, mittlere verschieben, Mausrad zoomen,
 //! W A S D / Pfeile verschieben, Q / E drehen, R / F neigen.
 
+mod bearbeiten;
 mod kamera;
+mod speichern;
 
 use anyhow::{Context, Result};
 use glam::DVec3;
+use bearbeiten::{Bearbeiten, Werkzeug};
 use kamera::{treffer, Kamera};
+use openomsi_game::viewer::Action;
 use openomsi_game::viewer::{self, SurfaceState, Viewer};
 use std::collections::HashSet;
 use std::path::{Path, PathBuf};
@@ -82,6 +88,28 @@ struct App {
     laengstes: f32,
     /// --wechsel: im Testlauf nach 60 % auf diese Karte umschalten
     wechsel: Option<String>,
+    bearb: Bearbeiten,
+    strg: bool,
+    umschalt: bool,
+    /// Speichern-Dialog offen: Name der neuen Karte
+    speichern_name: Option<String>,
+    speichern_job: Option<std::thread::JoinHandle<Result<PathBuf>>>,
+    /// Kartenwechsel mit ungespeicherten Aenderungen: erst fragen
+    verwerfen_frage: Option<usize>,
+}
+
+/// Was die Oberflaeche ausloesen will (nach dem Zeichnen ausgefuehrt)
+enum UiAktion {
+    Karte(usize),
+    Werkzeug(Werkzeug),
+    Objekt(Action),
+    Rueckgaengig,
+    Wiederholen,
+    Abwaehlen,
+    SpeichernDialog,
+    Speichern(String),
+    Verwerfen(usize),
+    FrageZu,
 }
 
 impl App {
@@ -112,6 +140,12 @@ impl App {
             bilder: 0,
             laengstes: 0.0,
             wechsel: None,
+            bearb: Bearbeiten::default(),
+            strg: false,
+            umschalt: false,
+            speichern_name: None,
+            speichern_job: None,
+            verwerfen_frage: None,
         }
     }
 
@@ -120,6 +154,7 @@ impl App {
         let window = self.window.clone().context("kein Fenster")?;
         let t0 = Instant::now();
         // schon eine Karte offen: Renderer behalten (Pipelines nur einmal kompilieren), Welt tauschen
+        self.bearb = Bearbeiten::neu(self.bearb.werkzeug);
         if let Some(v) = self.viewer.as_mut() {
             let cam = v.open_map(&self.karten[i].global)?;
             self.kamera_von(&cam);
@@ -183,7 +218,8 @@ impl App {
     /// Kamera aus Tasten, Kacheln nachladen
     fn bewegen(&mut self, dt: f32) {
         let s = self.kam.abstand * 0.9 * dt as f64;
-        let t = |k: KeyCode| self.tasten.contains(&k);
+        let strg = self.strg;
+        let t = |k: KeyCode| !strg && self.tasten.contains(&k);
         let (mut r, mut v) = (0.0, 0.0);
         if t(KeyCode::KeyW) || t(KeyCode::ArrowUp) { v += s; }
         if t(KeyCode::KeyS) || t(KeyCode::ArrowDown) { v -= s; }
@@ -226,6 +262,17 @@ impl App {
             self.laengstes = self.laengstes.max(dt);
         }
         self.bewegen(dt);
+        if self.speichern_job.as_ref().map(|j| j.is_finished()).unwrap_or(false) {
+            match self.speichern_job.take().unwrap().join() {
+                Ok(Ok(ziel)) => {
+                    self.meldung = format!("gespeichert als neue Karte: {}", ziel.display());
+                    self.bearb.aenderungen = 0;
+                    self.karten = karten_finden(&self.root);
+                }
+                Ok(Err(e)) => self.meldung = format!("Speichern fehlgeschlagen: {e:#}"),
+                Err(_) => self.meldung = "Speichern fehlgeschlagen (Absturz im Hintergrund)".into(),
+            }
+        }
         if let Some(i) = self.zu_laden.take() {
             if let Err(e) = self.karte_oeffnen(i) {
                 self.meldung = format!("Karte nicht geladen: {e:#}");
@@ -270,18 +317,41 @@ impl App {
     fn oberflaeche(&mut self, window: &Window, view: &wgpu::TextureView, w: u32, h: u32) {
         let Some(mut gui) = self.gui.take() else { return };
         let input = gui.state.take_egui_input(window);
-        let mut waehle: Option<usize> = None;
+        let mut aktionen: Vec<UiAktion> = Vec::new();
+        let (bw, bh) = (w as f32 / window.scale_factor() as f32, h as f32 / window.scale_factor() as f32);
+        // Daten fuer die Anzeige vorab (die Oberflaeche liest den Viewer nur)
+        let objekte = if self.bearb.werkzeug == Werkzeug::Objekte {
+            self.viewer.as_ref().map(Bearbeiten::objekte).unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        let gewaehlt = self.bearb.ausgewaehlt().and_then(|id| objekte.iter().find(|o| o.id == id).cloned());
+        let kopie_aktiv = self.bearb.ed.editing_added.is_some();
+        let edit = gewaehlt.as_ref().and_then(|o| self.viewer.as_ref().map(|v| v.object_edit(o.id)));
         let out = gui.ctx.run_ui(input, |ctx| {
             egui::Panel::top("werkzeuge").show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     ui.strong("OMSI-Editor");
                     ui.separator();
-                    let _ = ui.selectable_label(true, "Ansehen");
+                    for (wz, t) in [(Werkzeug::Ansehen, "Ansehen"), (Werkzeug::Objekte, "Objekte (O)")] {
+                        if ui.selectable_label(self.bearb.werkzeug == wz, t).clicked() {
+                            aktionen.push(UiAktion::Werkzeug(wz));
+                        }
+                    }
                     ui.add_enabled(false, egui::Button::new("Strasse bauen"));
-                    ui.add_enabled(false, egui::Button::new("Objekte"));
                     ui.add_enabled(false, egui::Button::new("Gelaende"));
                     ui.separator();
-                    ui.label(egui::RichText::new("Rechte Maus drehen, mittlere verschieben, Rad zoomen, WASD").weak());
+                    if ui.add_enabled(self.bearb.kann_rueckgaengig(), egui::Button::new("Rueckgaengig")).on_hover_text("Strg+Z").clicked() {
+                        aktionen.push(UiAktion::Rueckgaengig);
+                    }
+                    if ui.add_enabled(self.bearb.kann_wiederholen(), egui::Button::new("Wiederholen")).on_hover_text("Strg+Y").clicked() {
+                        aktionen.push(UiAktion::Wiederholen);
+                    }
+                    ui.separator();
+                    let txt = if self.bearb.aenderungen > 0 { "Als neue Karte speichern *" } else { "Als neue Karte speichern" };
+                    if ui.add_enabled(self.viewer.is_some() && self.speichern_job.is_none(), egui::Button::new(txt)).on_hover_text("Strg+S").clicked() {
+                        aktionen.push(UiAktion::SpeichernDialog);
+                    }
                 });
             });
             egui::Panel::left("karten").default_size(230.0).show(ctx, |ui| {
@@ -295,11 +365,73 @@ impl App {
                         }
                         let aktiv = self.karte.as_deref() == Some(k.ordner.as_str());
                         if ui.selectable_label(aktiv, &k.ordner).clicked() && !aktiv {
-                            waehle = Some(i);
+                            aktionen.push(UiAktion::Karte(i));
                         }
                     }
                 });
             });
+            if self.bearb.werkzeug == Werkzeug::Objekte {
+                egui::Panel::right("eigenschaften").default_size(270.0).show(ctx, |ui| {
+                    ui.heading("Objekt");
+                    if kopie_aktiv {
+                        ui.label("Neue Kopie: mit , / . drehen, Bild auf/ab heben.");
+                        if ui.button("Kopie loeschen").clicked() {
+                            aktionen.push(UiAktion::Objekt(Action::Delete));
+                        }
+                        if ui.button("Fertig").clicked() {
+                            aktionen.push(UiAktion::Abwaehlen);
+                        }
+                    } else if let (Some(o), Some(e)) = (gewaehlt.as_ref(), edit) {
+                        let name = o.sco.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+                        ui.label(egui::RichText::new(name).strong());
+                        ui.label(egui::RichText::new(o.sco.parent().map(|p| p.display().to_string()).unwrap_or_default()).small().weak());
+                        ui.label(format!("ID {}   Kachel {} {}", o.id, (o.pos.x / 300.0).floor(), (o.pos.y / 300.0).floor()));
+                        ui.separator();
+                        let mut p = o.pos;
+                        let alt_h = o.richtung.rem_euclid(360.0);
+                        let mut h = alt_h;
+                        egui::Grid::new("pos").num_columns(2).show(ui, |ui| {
+                            for (t, v) in [("x (Ost)", &mut p.x), ("y (Nord)", &mut p.y), ("Hoehe", &mut p.z)] {
+                                ui.label(t);
+                                ui.add(egui::DragValue::new(v).speed(0.05).suffix(" m").fixed_decimals(2));
+                                ui.end_row();
+                            }
+                            ui.label("Richtung");
+                            ui.add(egui::DragValue::new(&mut h).speed(0.5).suffix(" Grad").fixed_decimals(1));
+                            ui.end_row();
+                        });
+                        let d = p - o.pos;
+                        if d.length() > 1e-6 {
+                            aktionen.push(UiAktion::Objekt(Action::Move(d)));
+                        }
+                        if (h - alt_h).abs() > 1e-6 {
+                            aktionen.push(UiAktion::Objekt(Action::Turn(h - alt_h)));
+                        }
+                        if e != Default::default() {
+                            ui.label(egui::RichText::new(format!("geaendert: {:+.2} / {:+.2} / {:+.2} m, {:+.1} Grad", e.moved.x, e.moved.y, e.moved.z, e.turned)).small());
+                        }
+                        ui.separator();
+                        ui.horizontal(|ui| {
+                            if ui.button("Loeschen").on_hover_text("Entf").clicked() {
+                                aktionen.push(UiAktion::Objekt(Action::Delete));
+                            }
+                            if ui.button("Kopieren").on_hover_text("legt eine Kopie daneben").clicked() {
+                                aktionen.push(UiAktion::Objekt(Action::Copy));
+                            }
+                            if ui.button("Zuruecksetzen").clicked() {
+                                aktionen.push(UiAktion::Objekt(Action::Undo));
+                            }
+                        });
+                        if ui.button("Auswahl aufheben (Esc)").clicked() {
+                            aktionen.push(UiAktion::Abwaehlen);
+                        }
+                    } else {
+                        ui.label("Klick auf ein Objekt waehlt es aus.");
+                    }
+                    ui.separator();
+                    ui.label(egui::RichText::new("Ziehen: verschieben | Strg+Rad oder , . : drehen (Umschalt fein) | Bild auf/ab: heben/senken | Entf: loeschen | Strg+Z/Y").small().weak());
+                });
+            }
             egui::Panel::bottom("status").show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     ui.label(format!("{:.0} fps", self.fps));
@@ -319,6 +451,51 @@ impl App {
                     ui.label(&self.meldung);
                 });
             });
+            // Markierungen ueber dem 3D-Bild (unter den Panels)
+            let maler = ui_maler(ctx);
+            if let Some(id) = self.bearb.unter_maus.filter(|id| Some(*id) != self.bearb.ausgewaehlt()) {
+                if let Some(o) = objekte.iter().find(|o| o.id == id) {
+                    bearbeiten::markieren(&maler, &self.kam, o, bw, bh, egui::Color32::from_rgba_unmultiplied(255, 255, 255, 170), 1.5);
+                }
+            }
+            if let Some(o) = gewaehlt.as_ref() {
+                bearbeiten::markieren(&maler, &self.kam, o, bw, bh, egui::Color32::from_rgb(255, 60, 220), 3.0);
+            }
+            // Dialoge
+            if let Some(name) = self.speichern_name.as_mut() {
+                let mut offen = true;
+                egui::Window::new("Als neue Karte speichern").collapsible(false).resizable(false).open(&mut offen).show(ctx, |ui| {
+                    ui.label(format!("Kopie von {} mit allen Aenderungen ({}). Die Originalkarte bleibt unveraendert.",
+                                     self.karte.as_deref().unwrap_or("-"), self.bearb.aenderungen));
+                    ui.horizontal(|ui| {
+                        ui.label("Name");
+                        ui.text_edit_singleline(name);
+                    });
+                    let ok = speichern::name_ok(name) && !self.root.join("maps").join(name.as_str()).exists();
+                    if !ok {
+                        ui.colored_label(egui::Color32::from_rgb(255, 120, 90), "Name ungueltig oder schon vorhanden");
+                    }
+                    if ui.add_enabled(ok, egui::Button::new("Speichern")).clicked() {
+                        aktionen.push(UiAktion::Speichern(name.clone()));
+                    }
+                });
+                if !offen {
+                    self.speichern_name = None;
+                }
+            }
+            if let Some(i) = self.verwerfen_frage {
+                egui::Window::new("Ungespeicherte Aenderungen").collapsible(false).resizable(false).show(ctx, |ui| {
+                    ui.label(format!("{} Aenderungen an {} gehen verloren.", self.bearb.aenderungen, self.karte.as_deref().unwrap_or("-")));
+                    ui.horizontal(|ui| {
+                        if ui.button("Verwerfen und wechseln").clicked() {
+                            aktionen.push(UiAktion::Verwerfen(i));
+                        }
+                        if ui.button("Abbrechen").clicked() {
+                            aktionen.push(UiAktion::FrageZu);
+                        }
+                    });
+                });
+            }
         });
         gui.state.handle_platform_output(window, out.platform_output);
         let Some(v) = self.viewer.as_ref() else {
@@ -353,12 +530,116 @@ impl App {
         for id in &out.textures_delta.free {
             gui.renderer.free_texture(id);
         }
-        if let Some(i) = waehle {
-            self.zu_laden = Some(i);
-            self.meldung = format!("lade {} ...", self.karten[i].ordner);
-        }
         self.gui = Some(gui);
+        for a in aktionen {
+            self.ausfuehren(a);
+        }
     }
+}
+
+impl App {
+    fn ausfuehren(&mut self, a: UiAktion) {
+        match a {
+            UiAktion::Karte(i) => {
+                if self.bearb.aenderungen > 0 {
+                    self.verwerfen_frage = Some(i);
+                } else {
+                    self.zu_laden = Some(i);
+                    self.meldung = format!("lade {} ...", self.karten[i].ordner);
+                }
+            }
+            UiAktion::Verwerfen(i) => {
+                self.verwerfen_frage = None;
+                self.bearb.aenderungen = 0;
+                self.zu_laden = Some(i);
+            }
+            UiAktion::FrageZu => self.verwerfen_frage = None,
+            UiAktion::Werkzeug(w) => {
+                self.bearb.werkzeug = w;
+                if w == Werkzeug::Ansehen {
+                    self.bearb.waehlen(None);
+                    self.bearb.unter_maus = None;
+                }
+            }
+            UiAktion::Objekt(act) => {
+                if let Some(v) = self.viewer.as_mut() {
+                    if let Some(m) = self.bearb.aktion(v, act) {
+                        self.meldung = m;
+                    }
+                }
+            }
+            UiAktion::Rueckgaengig => {
+                if let Some(v) = self.viewer.as_mut() {
+                    if let Some(m) = self.bearb.rueckgaengig(v) {
+                        self.meldung = m;
+                    }
+                }
+            }
+            UiAktion::Wiederholen => {
+                if let Some(v) = self.viewer.as_mut() {
+                    if let Some(m) = self.bearb.wiederholen(v) {
+                        self.meldung = m;
+                    }
+                }
+            }
+            UiAktion::Abwaehlen => self.bearb.waehlen(None),
+            UiAktion::SpeichernDialog => {
+                if let Some(k) = self.karte.as_deref() {
+                    self.speichern_name = Some(speichern::vorschlag(&self.root, k));
+                }
+            }
+            UiAktion::Speichern(neu) => {
+                self.speichern_name = None;
+                let (Some(v), Some(alt)) = (self.viewer.as_ref(), self.karte.clone()) else { return };
+                match speichern::kacheln_schreiben(v, &self.bearb.ed, &alt) {
+                    Ok((_, dateien)) => {
+                        let root = self.root.clone();
+                        self.meldung = format!("speichere {neu} ({} geaenderte Dateien) ...", dateien.len());
+                        self.speichern_job = Some(std::thread::spawn(move || speichern::karte_anlegen(&root, &alt, &neu, &dateien)));
+                    }
+                    Err(e) => self.meldung = format!("Speichern fehlgeschlagen: {e:#}"),
+                }
+            }
+        }
+    }
+
+    /// Tasten des Bearbeitens (nur beim Druecken, nicht wenn egui die Tastatur hat)
+    fn taste(&mut self, k: KeyCode) {
+        let fein = self.umschalt;
+        let akt = match k {
+            KeyCode::KeyO if !self.strg => {
+                let w = if self.bearb.werkzeug == Werkzeug::Objekte { Werkzeug::Ansehen } else { Werkzeug::Objekte };
+                Some(UiAktion::Werkzeug(w))
+            }
+            KeyCode::KeyZ if self.strg => Some(UiAktion::Rueckgaengig),
+            KeyCode::KeyY if self.strg => Some(UiAktion::Wiederholen),
+            KeyCode::KeyS if self.strg => Some(UiAktion::SpeichernDialog),
+            KeyCode::Escape => Some(UiAktion::Abwaehlen),
+            _ if self.bearb.werkzeug != Werkzeug::Objekte => None,
+            KeyCode::Delete => Some(UiAktion::Objekt(Action::Delete)),
+            KeyCode::Comma => Some(UiAktion::Objekt(Action::Turn(if fein { -0.5 } else { -5.0 }))),
+            KeyCode::Period => Some(UiAktion::Objekt(Action::Turn(if fein { 0.5 } else { 5.0 }))),
+            KeyCode::PageUp => Some(UiAktion::Objekt(Action::Move(DVec3::Z * if fein { 0.02 } else { 0.1 }))),
+            KeyCode::PageDown => Some(UiAktion::Objekt(Action::Move(-DVec3::Z * if fein { 0.02 } else { 0.1 }))),
+            _ => None,
+        };
+        if let Some(a) = akt {
+            self.ausfuehren(a);
+        }
+    }
+
+    /// Bildgroesse in logischen Punkten (wie die Mauskoordinaten)
+    fn bildgroesse(&self) -> (f32, f32) {
+        match (self.surface.as_ref(), self.window.as_ref()) {
+            (Some(s), Some(w)) => (s.config.width as f32 / w.scale_factor() as f32, s.config.height as f32 / w.scale_factor() as f32),
+            _ => (1.0, 1.0),
+        }
+    }
+}
+
+/// Maler fuer Markierungen ueber dem 3D-Bild, unter den Panels
+fn ui_maler(ui: &egui::Ui) -> egui::Painter {
+    ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Background, egui::Id::new("auswahl")))
 }
 
 impl ApplicationHandler for App {
@@ -405,6 +686,28 @@ impl ApplicationHandler for App {
                             self.zu_laden = Some(i);
                             self.laengstes = 0.0;
                         }
+                    } else if s > t * 0.3 && self.bearb.werkzeug == Werkzeug::Ansehen && self.wechsel.is_none() && self.bearb.aenderungen == 0
+                        && self.viewer.as_ref().map(|v| v.first_area_progress().is_none() && v.loaded_tiles() > 0).unwrap_or(false) {
+                        // Bearbeiten ausprobieren: Objekt in der Bildmitte waehlen und drehen
+                        self.ausfuehren(UiAktion::Werkzeug(Werkzeug::Objekte));
+                        let (bw, bh) = self.bildgroesse();
+                        let mut gefunden = None;
+                        if let Some(v) = self.viewer.as_ref() {
+                            for k in 0..40 {
+                                let r = k as f32 * 12.0;
+                                let p = (bw / 2.0 + r * (k as f32).cos(), bh / 2.0 + r * (k as f32).sin());
+                                if let Some(id) = Bearbeiten::suchen(v, &self.kam, p, bw, bh) {
+                                    gefunden = Some(id);
+                                    break;
+                                }
+                            }
+                        }
+                        self.bearb.waehlen(gefunden);
+                        self.ausfuehren(UiAktion::Objekt(Action::Turn(30.0)));
+                        self.ausfuehren(UiAktion::Rueckgaengig);
+                        self.ausfuehren(UiAktion::Wiederholen);
+                        println!("Testlauf Bearbeiten: {} Objekte, Objekt {:?} gewaehlt, Aenderungen {}, Meldung: {}",
+                                 self.viewer.as_ref().map(|v| v.objects().len()).unwrap_or(0), gefunden, self.bearb.aenderungen, self.meldung);
                     } else if s > t * 0.4 {
                         // Kamera bewegen wie ein Nutzer: drehen, fahren, zoomen
                         self.kam.drehen(0.4, 0.0);
@@ -413,10 +716,17 @@ impl ApplicationHandler for App {
                 }
                 window.request_redraw();
             }
+            WindowEvent::ModifiersChanged(m) => {
+                self.strg = m.state().control_key();
+                self.umschalt = m.state().shift_key();
+            }
             WindowEvent::KeyboardInput { event, .. } => {
                 let tastatur_bei_egui = self.gui.as_ref().map(|g| g.ctx.egui_wants_keyboard_input()).unwrap_or(false);
                 if let PhysicalKey::Code(k) = event.physical_key {
                     if event.state == ElementState::Pressed && !tastatur_bei_egui {
+                        if !event.repeat || matches!(k, KeyCode::Comma | KeyCode::Period | KeyCode::PageUp | KeyCode::PageDown) {
+                            self.taste(k);
+                        }
                         self.tasten.insert(k);
                     } else if event.state == ElementState::Released {
                         self.tasten.remove(&k);
@@ -424,13 +734,16 @@ impl ApplicationHandler for App {
                 }
             }
             WindowEvent::CursorMoved { position, .. } => {
-                let p = (position.x as f32, position.y as f32);
+                // logische Punkte wie egui und die Projektion (winit liefert physische Pixel)
+                let sf = window.scale_factor();
+                let p = ((position.x / sf) as f32, (position.y / sf) as f32);
                 if let (Some((knopf, alt)), Some(s)) = (self.ziehen, self.surface.as_ref()) {
                     let (dx, dy) = (p.0 - alt.0, p.1 - alt.1);
                     match knopf {
                         MouseButton::Right => self.kam.drehen(dx * 0.25, -dy * 0.25),
                         _ => {
-                            let f = self.kam.m_pro_px(s.config.height as f32);
+                            let _ = s;
+                            let f = self.kam.m_pro_px(self.bildgroesse().1);
                             let neig = (-self.kam.neigung as f64).to_radians().sin().max(0.25);
                             self.kam.verschieben(-dx as f64 * f, dy as f64 * f / neig);
                         }
@@ -438,9 +751,21 @@ impl ApplicationHandler for App {
                     self.ziehen = Some((knopf, p));
                 }
                 self.maus = Some(p);
-                if let Some(s) = self.surface.as_ref() {
-                    let (o, d) = self.kam.strahl(p.0, p.1, s.config.width as f32, s.config.height as f32);
+                if self.surface.is_some() {
+                    let (bw, bh) = self.bildgroesse();
+                    let (o, d) = self.kam.strahl(p.0, p.1, bw, bh);
                     self.boden_unter_maus = treffer(o, d, |x, y| self.boden(x, y), 6000.0);
+                    if self.bearb.werkzeug == Werkzeug::Objekte {
+                        if self.bearb.zieht() {
+                            if let (Some(g), Some(v)) = (self.boden_unter_maus, self.viewer.as_mut()) {
+                                if let Some(m) = self.bearb.ziehen_nach(v, g) {
+                                    self.meldung = m;
+                                }
+                            }
+                        } else if !egui_will {
+                            self.bearb.unter_maus = self.viewer.as_ref().and_then(|v| Bearbeiten::suchen(v, &self.kam, p, bw, bh));
+                        }
+                    }
                 }
             }
             WindowEvent::MouseInput { state, button, .. } => {
@@ -450,11 +775,35 @@ impl ApplicationHandler for App {
                             self.ziehen = Some((button, p));
                         }
                     }
+                    if button == MouseButton::Left && self.bearb.werkzeug == Werkzeug::Objekte {
+                        let (bw, bh) = self.bildgroesse();
+                        let treffer_id = match (self.viewer.as_ref(), self.maus) {
+                            (Some(v), Some(p)) => Bearbeiten::suchen(v, &self.kam, p, bw, bh),
+                            _ => None,
+                        };
+                        self.bearb.waehlen(treffer_id);
+                        if let (Some(id), Some(g), Some(v)) = (treffer_id, self.boden_unter_maus, self.viewer.as_ref()) {
+                            self.bearb.greifen(v, id, g);
+                        }
+                    }
                 } else if state == ElementState::Released {
                     if self.ziehen.map(|z| z.0) == Some(button) {
                         self.ziehen = None;
                     }
+                    if button == MouseButton::Left {
+                        if let Some(v) = self.viewer.as_ref() {
+                            self.bearb.loslassen(v);
+                        }
+                    }
                 }
+            }
+            WindowEvent::MouseWheel { delta, .. } if !egui_will && self.strg && self.bearb.ausgewaehlt().is_some() => {
+                let y = match delta {
+                    MouseScrollDelta::LineDelta(_, y) => y,
+                    MouseScrollDelta::PixelDelta(p) => p.y as f32 / 60.0,
+                };
+                let schritt = if self.umschalt { 0.5 } else { 5.0 };
+                self.ausfuehren(UiAktion::Objekt(Action::Turn(-(y as f64) * schritt)));
             }
             WindowEvent::MouseWheel { delta, .. } if !egui_will => {
                 let y = match delta {
