@@ -90,6 +90,13 @@ Kreuzungsobjekte; Klick auf eine Spur zeigt Spline/Objekt, Datei, Kachel und Pfa
 - **Ampeln** (`omsigen/ampel.py`) an Kreuzungen mit OSM-Ampel: Phasenplan (gegenüberliegende Arme gemeinsam,
   Hauptstraße zuerst, Umlauf 70–100 s), Bindung der Zufahrten, Signalmasten mit Signal unten und am Ausleger
   wie in Grundorf
+- **Gelände** aus dem amtlichen Geländemodell DGM1 Bayern (1 m Raster, CC BY 4.0, wird automatisch geladen):
+  Straßen mit echten Steigungen, Kreuzungen flach auf Geländehöhe, Gelände unter Straßen angeglichen
+  (`--ohne-gelaende` für flache Karten; außerhalb Bayerns bleibt die Karte flach)
+- **Brücken und Tunnel** aus OSM sind Teil des Netzes: Brückenfahrbahn mindestens 5,5 m über dem Boden darunter,
+  Tunnel mindestens 6 m unter der Oberfläche, mit Rampen; berechnet als Ausgleichsrechnung über das ganze Netz
+  (`omsigen/hoehen.py`). Geländer/Pfeiler und Tunnelröhren fehlen noch
+- **Einsetzpunkte** an Start, Ziel und allen Haltestellen
 - **KI-Verkehr**: `ailists.cfg` mit den Standard-KI-Autos und -LKW, Tagesganglinie des Verkehrs; unsichtbare Wendeschleifen an
   Straßenenden (Kartenrand, Sackgassen), damit die KI dort nicht stecken bleibt
 - Haltestellenschilder an den OSM-Haltestellen
@@ -98,10 +105,9 @@ Kreuzungsobjekte; Klick auf eine Spur zeigt Spline/Objekt, Datei, Kachel und Pfa
 ## Noch offen (Roadmap)
 
 1. Fußgängerampeln und Fußgängerquerungen (Zebrastreifen); Ampeln und Vorfahrt sind erledigt
-3. Höhen (SRTM bzw. amtliches DGM)
 4. Haltestellen mit Haltepunkten, Linien und Fahrplänen (aus GTFS-Daten)
 5. Gebäude (OSM-Umrisse, ggf. LoD2-Modelle), Bäume, Straßenmöbel
-6. Tunnel und Brücken (werden derzeit weggelassen)
+6. Brücken-Optik (Geländer, Pfeiler) und Tunnelröhren mit Portalen
 
 ## Projektaufbau
 
@@ -113,6 +119,8 @@ omsigen/
   route.py          Projektion, Routing (Dijkstra), Korridor
   network.py        Kanten, Knoten, Kreisverkehre, Kürzen, Ketten, Kreuzungsspuren
   kreuzung.py       Kreuzungsobjekte: Fläche, Bordsteine, Pfade -> .sco + .x
+  gelaende.py       DGM1 Bayern laden (utm.py: Umrechnung nach UTM 32)
+  hoehen.py         Strassenhoehen, Bruecken/Tunnel, Gelaenderaster
   vorfahrt.py       Vorfahrt je Kreuzung (Schilder, Vorfahrtstraßen, StVO, Korrekturen)
   ampel.py          Ampelprogramme, Bindung der Zufahrten, Signalmasten
   studie.py         vorhandene OMSI-Karten auswerten (docs/kartenstudie.md)

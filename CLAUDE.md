@@ -51,4 +51,4 @@ Prioritäten aus der Kartenstudie (docs/kartenstudie.md), nicht ändern ohne neu
 
 ## Nächste Schritte (Roadmap im README)
 
-Fußgängerampeln/-querungen → Höhen → Haltestellen/Linien/Fahrpläne aus GTFS → Gebäude.
+Brücken-Optik/Tunnelröhren → Fußgängerampeln/-querungen → Haltestellen/Linien/Fahrpläne aus GTFS → Gebäude.

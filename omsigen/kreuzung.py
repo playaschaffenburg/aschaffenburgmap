@@ -10,6 +10,7 @@ Geometrie (lokal, Objekt am Kreuzungsmittelpunkt mit Drehung 0, x = Ost, z = Nor
 - Nichts ragt in die Flaeche eines Arms (dort liegt der Spline).
 Formatdetails: docs/omsi-format.md (Abschnitt Kreuzungsobjekte)."""
 import math, os, shutil
+import numpy as np
 import shapely
 from shapely.geometry import Polygon, LineString, Point
 from shapely.ops import unary_union
@@ -236,7 +237,8 @@ def sco_text(name, mesh_file, moves, walks, ampel_block=()):
     """moves: Liste (Elemente, Blinker[, Signalgruppe oder None]); die Signalgruppe gilt fuer das erste Stueck"""
     L = ['Erzeugt mit omsigen (Aschaffenburg-KI). Strassendaten (c) OpenStreetMap-Mitwirkende, ODbL.', '',
          '[friendlyname]', name, '', '[groups]', '1', 'Aschaffenburg_KI', '',
-         '[rendertype]', 'surface', '', '[LightMapMapping]', '', '[fixed]', '', '[surface]', '']
+         '[rendertype]', 'surface', '', '[LightMapMapping]', '', '[fixed]', '', '[surface]', '',
+         '[absheight]', '']
     L += list(ampel_block)
     for mv in moves:
         els, blinker = mv[0], mv[1]
@@ -301,7 +303,16 @@ def build_objects(net, sdb, map_name, korrekturen=(), to_ll=None):
                         umlauf=plan['umlauf'] if plan else None,
                         arme=[dict(name=a['name'], strasse=a['tags'].get('highway'), schild=a['sign'], rolle=r)
                               for a, r in zip(arms, V_['rollen'])])
-        out.append(dict(name=name, origin=O, x=x_file(V, F), faces=len(F), rules=rules, vorfahrt=info,
+        flaeche = []                       # Punkte (Welt) auf der Kreuzungsflaeche, fuer das Gelaende darunter
+        ges = J['asphalt'].union(J['side'])
+        if not ges.is_empty:
+            bx0, bz0, bx1, bz1 = ges.bounds
+            for gx in np.arange(bx0, bx1 + 0.1, 2.0):
+                for gz in np.arange(bz0, bz1 + 0.1, 2.0):
+                    if ges.contains(Point(gx, gz)):
+                        flaeche.append((gx + O[0], gz + O[1]))
+        out.append(dict(name=name, origin=O, knoten=k, flaeche=flaeche, x=x_file(V, F), faces=len(F), rules=rules,
+                        vorfahrt=info,
                         signale=ampel.signale(arms, plan, sdb) if plan else [],
                         sco=sco_text(f'{map_name} Kreuzung {n + 1}', name + '.x', moves, J['walks'],
                                      ampel.sco_block(plan) if plan else ()),

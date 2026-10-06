@@ -17,7 +17,7 @@ neue Erkenntnis stammt.
 |---|---|
 | `global.cfg` | Name, Beschreibung, `[NextIDCode]`, Kamera, Jahreszeiten, Liste der Kacheln (`[map]` x, z, Datei) |
 | `tile_X_Z.map` | eine Kachel, 300 × 300 m; X nach Osten, Z nach Norden, auch negativ möglich |
-| `tile_X_Z.map.terrain` | Gelände: int32 `60`, dann 61 × 61 float32 Höhen (alle 0 = flach) |
+| `tile_X_Z.map.terrain` | Gelände: int32 `60`, dann 61 × 61 float32 Höhen im 5-m-Raster, **Zeile für Zeile von Süden (lokal z = 0) nach Norden, je Zeile von Westen nach Osten** (Index `iz * 61 + ix`) *[openOMSI `terrain.rs`]* |
 | `tile_X_Z.map.LM.bmp` | Nacht-Lichtkarte 256 × 256 für die Kachel **und ihre 8 Nachbarn** (Kachel = mittleres Drittel) *[openOMSI]*; kann aus `template/NewMap` kopiert werden |
 | `ailists.cfg`, `humans.txt`, `Holidays*.txt`, … | Vorlagen aus `OMSI 2/template/NewMap` |
 | `TTData/` | Fahrplan: `Busstops.cfg`, `StnLinks.cfg`, `*.ttp` (Fahrten), `*.ttr` (Spurfolgen), `*.ttl` (Linien) – siehe unten |
@@ -60,6 +60,11 @@ Feldfolge nach dem Radius *[openOMSI]*, bestätigt an Spandau: die Felder 14/15 
 (Querneigung, 18 Splines), 16/17 bei Kabeln und Zäunen (Skew). **Früher stand hier fälschlich „?, Überhöhung,
 Überhöhung, ?“** – omsigen schreibt alle sechs Werte als 0, die Karten waren davon nicht betroffen. Für Höhen und
 Querneigung (Roadmap) gilt die Folge oben.
+
+Höhe und Steigung: `<y>` ist die Höhe am Anfang, `<Steigung Anfang/Ende>` in Prozent. omsigen schreibt je Element
+eine gleichbleibende Steigung (Anfang = Ende), die Elemente sind höchstens 20 m lang; so endet jedes Element genau auf
+der Starthöhe des nächsten. Kreuzungsobjekte bekommen `[absheight]` und stehen auf der Höhe ihrer Platte (wie die
+Standardkreuzungen mit `[splinehelper]`).
 
 Endpunkt eines Bogens: Mittelpunkt = Start + R·(cos h, −sin h); Endrichtung = h + L/R (rad → Grad).
 Geprüft an Grundorf: Fehler < 0,1 mm (Test `test_arc_convention`).

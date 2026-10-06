@@ -8,10 +8,9 @@ def _way(*pts_m, **tags):
 
 
 def test_route_meidet_abgeschnittenes_teilnetz():
-    """Wie am Hbf: Der naechste Knoten (Nordring, 20 m) liegt in einem Teilnetz, das nur ueber eine Bruecke
-    (wird weggelassen) mit dem Rest verbunden ist. Die Strecke muss im Stadtnetz (60 m) beginnen."""
-    ways = [_way((-100, 20), (0, 20), (100, 20), name='Nordring'),
-            _way((0, 20), (0, -60), bridge='yes'),
+    """Wie am Klinikum: Der naechste Knoten (20 m) liegt in einem Teilnetz, das nur ueber eine im Import
+    weggelassene Strasse (z. B. private Zufahrt) angebunden waere. Die Strecke muss im Stadtnetz (60 m) beginnen."""
+    ways = [_way((-100, 20), (0, 20), (100, 20), name='Insel'),
             _way((-100, -60), (0, -60), (100, -60), (100, -300), name='Ludwigstrasse')]
     info = {}
     line, L = route(ways, P, [P.to_ll(0, 0), P.to_ll(100, -300)], info)
@@ -28,3 +27,11 @@ def test_route_oneway_gegenrichtung():
     assert abs(L - 300) < 1
     line, L = route(ways, P, [P.to_ll(200, 0), P.to_ll(0, 0)])
     assert abs(L - 200) < 1
+
+
+def test_route_ueber_bruecke():
+    """Bruecken gehoeren zum Netz: die Strecke darf darueber fuehren"""
+    ways = [_way((0, 0), (0, 100), name='A'), _way((0, 100), (0, 200), name='Bruecke', bridge='yes', layer='1'),
+            _way((0, 200), (0, 300), name='B')]
+    line, L = route(ways, P, [P.to_ll(0, 0), P.to_ll(0, 300)])
+    assert abs(L - 300) < 1

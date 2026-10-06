@@ -79,11 +79,21 @@ def wendeschleife(p, h, d, r=R_WENDE):
     return bau((lo + hi) / 2)[0]
 
 
+def ebene(t):
+    """'bruecke' / 'tunnel' / None fuer OSM-Tags (Gebaeudedurchfahrten zaehlen nicht)"""
+    if t.get('bridge') not in (None, 'no'):
+        return 'bruecke'
+    if t.get('tunnel') not in (None, 'no', 'building_passage') or t.get('covered') == 'yes' and t.get('layer', '0') < '0':
+        return 'tunnel'
+    return None
+
+
 def build(ways_in, sdb, signs=()):
     """ways_in: Liste dict(tags, P=[(x,z),...]) in Metern; signs: Vorfahrt-Schilder/Ampeln dict(kind, p, direction). -> dict(road_chains, conn_chains, junctions, stats)
     Kette = dict(els=[[x, z, h, L, R, spline], ...], name, hw)"""
-    ways = [dict(t=w['tags'], P=[tuple(p) for p in w['P']]) for w in ways_in
-            if not (w['tags'].get('layer', '0') != '0' or w['tags'].get('tunnel') or w['tags'].get('bridge'))]
+    # Bruecken und Tunnel gehoeren dazu (Hoehen: hoehen.py); verbunden wird nur ueber gemeinsame Punkte, also nie
+    # zwischen einer Bruecke und der Strasse darunter
+    ways = [dict(t=w['tags'], P=[tuple(p) for p in w['P']]) for w in ways_in]
     def proj(p, a, b):
         dx, dz = b[0] - a[0], b[1] - a[1]
         L2 = dx * dx + dz * dz
@@ -391,7 +401,8 @@ def build(ways_in, sdb, signs=()):
 
 
     def fillet_chain(chain):
-        pts, seg_spl, seg_rad = [], [], []
+        """-> (Elemente, Ebene je Element: 'bruecke' / 'tunnel' / None)"""
+        pts, seg_spl, seg_rad, seg_lvl = [], [], [], []
         for e, rev in chain:
             P = e['P'][::-1] if rev else e['P']
             if pts and math.dist(pts[-1], P[0]) < 0.05:
@@ -399,18 +410,19 @@ def build(ways_in, sdb, signs=()):
             for p in P:
                 if pts:
                     seg_spl.append(e['spl']); seg_rad.append(RADIUS.get(e['t'].get('highway'), 12))
+                    seg_lvl.append(ebene(e['t']))
                 pts.append(p)
-        clean, cs, cr = [pts[0]], [], []
+        clean, cs, cr, cl = [pts[0]], [], [], []
         for i in range(1, len(pts)):
             if math.dist(clean[-1], pts[i]) < 0.8 and i < len(pts) - 1:
                 continue
             if math.dist(clean[-1], pts[i]) < 0.05:
                 continue
-            clean.append(pts[i]); cs.append(seg_spl[i - 1]); cr.append(seg_rad[i - 1])
-        pts, seg_spl, seg_rad = clean, cs, cr
+            clean.append(pts[i]); cs.append(seg_spl[i - 1]); cr.append(seg_rad[i - 1]); cl.append(seg_lvl[i - 1])
+        pts, seg_spl, seg_rad, seg_lvl = clean, cs, cr, cl
         n = len(pts)
         if n < 2:
-            return []
+            return [], []
         L = [math.dist(pts[i], pts[i + 1]) for i in range(n - 1)]
         hd = [heading(pts[i], pts[i + 1]) for i in range(n - 1)]
         tl, R, dth = [0.0] * n, [0.0] * n, [0.0] * n
@@ -422,16 +434,21 @@ def build(ways_in, sdb, signs=()):
             t = r * math.tan(math.radians(abs(th)) / 2)
             t = min(t, L[i - 1] * (0.5 if i - 1 > 0 else 0.95), L[i] * (0.5 if i < n - 2 else 0.95))
             tl[i] = t; R[i] = t / math.tan(math.radians(abs(th)) / 2) * (1 if th > 0 else -1)
-        els, cur = [], pts[0]
+        els, lvls, cur = [], [], pts[0]
         for i in range(1, n):
             a = pts[i - 1]
             if i == n - 1:
-                els += straight(cur, pts[i], seg_spl[i - 1]); break
+                neu = straight(cur, pts[i], seg_spl[i - 1])
+                els += neu; lvls += [seg_lvl[i - 1]] * len(neu)
+                break
             u = ((pts[i][0] - a[0]) / L[i - 1], (pts[i][1] - a[1]) / L[i - 1])
             t1 = (pts[i][0] - u[0] * tl[i], pts[i][1] - u[1] * tl[i])
-            els += straight(cur, t1, seg_spl[i - 1])
+            neu = straight(cur, t1, seg_spl[i - 1])
+            els += neu; lvls += [seg_lvl[i - 1]] * len(neu)
             if tl[i] > 0:
                 els.append([t1[0], t1[1], hd[i - 1], abs(R[i]) * math.radians(abs(dth[i])), R[i], seg_spl[i - 1]])
+                # Bogen am Uebergang Bruecke/Strasse: zaehlt zur Bruecke, wenn eine Seite Bruecke ist
+                lvls.append(seg_lvl[i - 1] or seg_lvl[i])
                 v = ((pts[i + 1][0] - pts[i][0]) / L[i], (pts[i + 1][1] - pts[i][1]) / L[i])
                 cur = (pts[i][0] + v[0] * tl[i], pts[i][1] + v[1] * tl[i])
             else:
@@ -442,7 +459,7 @@ def build(ways_in, sdb, signs=()):
             els[j][0], els[j][1] = p
             if els[j][4] != 0 or abs(norm180(h - els[j][2])) < 0.5:
                 els[j][2] = h
-        return els
+        return els, lvls
 
 
     def circle_chain(e):
@@ -471,12 +488,13 @@ def build(ways_in, sdb, signs=()):
     for ch in chains:
         if len(ch) == 1 and 'circle' in ch[0][0]:
             els = circle_chain(ch[0][0])
+            lvls = [ebene(ch[0][0]['t'])] * len(els)
         else:
-            els = fillet_chain(ch)
+            els, lvls = fillet_chain(ch)
         if not els:
             continue
         e0, r0 = ch[0]; e1, r1 = ch[-1]
-        road_chains.append(dict(els=els, name=e0['t'].get('name', ''), hw=e0['t'].get('highway'),
+        road_chains.append(dict(els=els, ebene=lvls, name=e0['t'].get('name', ''), hw=e0['t'].get('highway'),
                                 node_s=(e0['n1'] if r0 else e0['n0']), node_e=(e1['n0'] if r1 else e1['n1']),
                                 edge_s=(e0, -1 if r0 else 0), edge_e=(e1, 0 if r1 else -1)))
 

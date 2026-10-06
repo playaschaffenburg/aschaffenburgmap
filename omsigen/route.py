@@ -22,7 +22,7 @@ def _nk(c):
     return (round(c[0], 7), round(c[1], 7))
 
 
-def build_graph(ways, proj, skip_layers=True):
+def build_graph(ways, proj, skip_layers=False):
     """gerichteter Graph: Knoten = Koordinate, Kante = Wegstueck mit Laenge"""
     G = {}
     pos = {}

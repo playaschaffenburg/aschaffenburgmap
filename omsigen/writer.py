@@ -114,7 +114,7 @@ def global_cfg(name, friendly, description, next_id, tiles, cam, entrypoints=())
         L += ['[entrypoints]', str(len(entrypoints))]          # x, Hoehe, z (lokal), Quaternion, Kachelindex, Name
         for e in entrypoints:
             h = math.radians((e['rot'] + 180) % 360 - 180)
-            L += [str(e['index']), str(e['id']), '0', f"{e['lx']:.3f}", '0.000', f"{e['lz']:.3f}",
+            L += [str(e['index']), str(e['id']), '0', f"{e['lx']:.3f}", f"{e.get('y', 0.0):.3f}", f"{e['lz']:.3f}",
                   '0.000', f'{math.sin(h / 2):.3f}', '0.000', f'{math.cos(h / 2):.3f}', str(e['kachel']), e['name']]
         L += ['']
     for (x, z) in sorted(tiles):
@@ -133,7 +133,7 @@ def flat_terrain():
 
 
 def write_map(out_maps_dir, name, chains, stops, omsi_dir=None, friendly=None, description='', cam_xz=None,
-              overwrite=False, junctions=(), entrypoints=()):
+              overwrite=False, junctions=(), entrypoints=(), raster=None):
     """chains: Liste Ketten (els in Metern, beliebiger Ursprung); junctions: Kreuzungsobjekte (kreuzung.py) mit
     origin und rel (Pfad der .sco). Gibt Infos inkl. Verschiebung zurueck."""
     D = os.path.join(out_maps_dir, name)
@@ -153,9 +153,12 @@ def write_map(out_maps_dir, name, chains, stops, omsi_dir=None, friendly=None, d
             x, z, h, L, R, spl = el
             x, z = x - ox, z - oz
             t = (int(x // TILE), int(z // TILE))
+            y = c['y'][i] if 'y' in c else 0.0          # Hoehe (relativ zur Basis) und Steigung in Prozent
+            g = c['g'][i] if 'g' in c else 0.0
             tiles[t].append(['[spline]', '0', spl, str(ids[i]), str(ids[i - 1] if i else 0),
-                             str(ids[i + 1] if i < len(ids) - 1 else 0), fmt(x - TILE * t[0]), '0', fmt(z - TILE * t[1]),
-                             fmt(h % 360), fmt(L), fmt(R), '0', '0', '0', '0', '0', '0', fmt(cum), '', ''])
+                             str(ids[i + 1] if i < len(ids) - 1 else 0), fmt(x - TILE * t[0]), fmt(y),
+                             fmt(z - TILE * t[1]), fmt(h % 360), fmt(L), fmt(R), fmt(g), fmt(g), '0', '0', '0', '0',
+                             fmt(cum), '', ''])
             cum += L
     objs = collections.defaultdict(list)
     for s in stops:
@@ -168,8 +171,8 @@ def write_map(out_maps_dir, name, chains, stops, omsi_dir=None, friendly=None, d
     for j in junctions:          # Kreuzungsobjekt: Drehung 0, Hoehe 0, keine Texte
         x, z = j['origin'][0] - ox, j['origin'][1] - oz
         t = (int(x // TILE), int(z // TILE))
-        blk = ['[object]', '0', j['rel'], str(nid), fmt(x - TILE * t[0]), fmt(z - TILE * t[1]), '0', '0',
-               '0', '0', '0', '']
+        blk = ['[object]', '0', j['rel'], str(nid), fmt(x - TILE * t[0]), fmt(z - TILE * t[1]),
+               fmt(j.get('hoehe', 0.0)), '0', '0', '0', '0', '']
         for idx, val in j.get('rules', ()):     # Vorfahrt: [rule] gilt fuer den Pfad idx des Objekts davor
             blk += ['[rule]', str(idx), 'priority', str(val), '0', '']
         objs[t].append(blk)
@@ -198,6 +201,7 @@ def write_map(out_maps_dir, name, chains, stops, omsi_dir=None, friendly=None, d
         objs[t].append(['[object]', '0', ENTRYPOINT, str(nid), fmt(x - TILE * t[0]), fmt(z - TILE * t[1]), '0',
                         fmt(e['rot']), '0', '0', '0', ''])
         eps.append(dict(index=len(objs[t]) - 1, id=nid, lx=x - TILE * t[0], lz=z - TILE * t[1], rot=e['rot'],
+                        y=e.get('y', 0.0),
                         tile=t, name=e['name']))
         nid += 1
     # Nachbarkacheln mit anlegen, damit rundherum Gelaende ist
@@ -217,7 +221,12 @@ def write_map(out_maps_dir, name, chains, stops, omsi_dir=None, friendly=None, d
         base = os.path.join(D, f'tile_{t[0]}_{t[1]}.map')
         write_utf16(base, '\n'.join(L) + '\n')
         with open(base + '.terrain', 'wb') as f:
-            f.write(flat_terrain())
+            if raster is None:
+                f.write(flat_terrain())
+            else:                     # Gelaende: 61 x 61 Hoehen, Zeile fuer Zeile von Sueden, je Zeile von Westen
+                import struct
+                H = raster(TILE * t[0] + ox, TILE * t[1] + oz)
+                f.write(struct.pack('<i', 60) + H.astype('<f4').tobytes())
         if tpl and os.path.exists(os.path.join(tpl, 'tile_0_0.map.LM.bmp')):
             shutil.copy(os.path.join(tpl, 'tile_0_0.map.LM.bmp'), base + '.LM.bmp')
 
