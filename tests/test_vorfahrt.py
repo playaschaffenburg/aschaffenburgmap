@@ -68,3 +68,8 @@ def test_schild_am_richtigen_arm():
     assert 'signals' in net['node_flags'][k]
     d = V.decide(arms, net['node_flags'][k])
     assert d['quelle'] == 'OSM Schild' and d['ampel']
+
+
+def test_bestaetigt():
+    d = V.decide(T(), korrektur={'bestaetigt': True})
+    assert d['quelle'] == 'bestaetigt' and d['rollen'] == ['haupt', 'haupt', 'neben'] and 'vermutet' not in d['text']

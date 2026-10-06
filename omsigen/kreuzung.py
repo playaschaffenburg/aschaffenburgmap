@@ -256,13 +256,22 @@ def build_objects(net, sdb, map_name, korrekturen=(), to_ll=None):
     for c in net['conn_chains']:
         moves_at.setdefault(c.get('node'), []).append(c)
     out = []
+    # jede Korrektur gilt nur fuer die ihr naechste Kreuzung (mit mindestens 3 Armen, bis 30 m)
+    kor_at = {}
+    if korrekturen and to_ll:
+        centers = {k: to_ll(sum(a['pos'][0] for a in arms) / len(arms), sum(a['pos'][1] for a in arms) / len(arms))
+                   for k, arms in net['arms'].items() if len(arms) >= 3}
+        for c in korrekturen:
+            best = min(((vorfahrt.distance_m(c['lat'], c['lon'], *ll), k) for k, ll in centers.items()), default=None)
+            if best and best[0] <= 30:
+                kor_at[best[1]] = c
     for n, (k, arms) in enumerate(sorted(net['arms'].items())):
         J = build_junction(arms, sdb)
         if J is None or J['asphalt'].is_empty:
             continue
         O = J['origin']
         ll = to_ll(*O) if to_ll else None
-        kor = vorfahrt.match_correction(korrekturen, *ll) if (ll and korrekturen) else None
+        kor = kor_at.get(k)
         V_ = vorfahrt.decide(arms, net.get('node_flags', {}).get(k, ()), kor) if len(arms) >= 3 else None
         n_haupt = V_['rollen'].count(vorfahrt.HAUPT) if V_ else 0
         moves, rules, idx = [], [], 0

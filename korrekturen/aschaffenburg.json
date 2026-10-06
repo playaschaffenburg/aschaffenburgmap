@@ -1,0 +1,41 @@
+{
+  "hinweis": "Korrekturen fuer Aschaffenburg, Aufruf mit --korrekturen korrekturen/aschaffenburg.json",
+  "vorfahrt": [
+    {
+      "lat": 49.979914,
+      "lon": 9.142118,
+      "bestaetigt": true,
+      "notiz": "vor Ort bestaetigt (Okt. 2026): Vorfahrt Ludwigstraße"
+    },
+    {
+      "lat": 49.981148,
+      "lon": 9.144545,
+      "bestaetigt": true,
+      "notiz": "vor Ort bestaetigt (Okt. 2026): Vorfahrt Nordring"
+    },
+    {
+      "lat": 49.979265,
+      "lon": 9.148546,
+      "bestaetigt": true,
+      "notiz": "vor Ort bestaetigt (Okt. 2026): Vorfahrt Elisenstraße"
+    },
+    {
+      "lat": 49.976962,
+      "lon": 9.14895,
+      "bestaetigt": true,
+      "notiz": "vor Ort bestaetigt (Okt. 2026): Vorfahrt Goldbacher Straße"
+    },
+    {
+      "lat": 49.977217,
+      "lon": 9.149717,
+      "bestaetigt": true,
+      "notiz": "vor Ort bestaetigt (Okt. 2026): Vorfahrt Platanenallee"
+    },
+    {
+      "lat": 49.977096,
+      "lon": 9.150997,
+      "bestaetigt": true,
+      "notiz": "vor Ort bestaetigt (Okt. 2026): Vorfahrt Platanenallee"
+    }
+  ]
+}

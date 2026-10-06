@@ -442,7 +442,7 @@ def write_png(path, lanes, roads, objs, ends, bereich=None, titel=''):
     plt.close(fig)
 
 
-QUELLE_FARBE = {'OSM Schild': '#1f9e3a', 'OSM Vorfahrtstrasse': '#1f6fd6', 'Korrektur': '#8e44ad',
+QUELLE_FARBE = {'OSM Schild': '#1f9e3a', 'OSM Vorfahrtstrasse': '#1f6fd6', 'Korrektur': '#8e44ad', 'bestaetigt': '#8e44ad',
                 'vermutet': '#ff8c00', 'OSM Mini-Kreisel': '#17a2b8'}     # StVO-Regeln: grau
 
 

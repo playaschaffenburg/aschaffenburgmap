@@ -37,6 +37,9 @@ def decide(arms, flags=(), korrektur=None):
     ampel = 'signals' in flags
     res = lambda rollen, quelle, text: dict(rollen=rollen, quelle=quelle, text=text, ampel=ampel)
     if korrektur:
+        if korrektur.get('bestaetigt'):                  # berechnete Vorfahrt ist vom Nutzer geprueft
+            d = decide(arms, flags)
+            return dict(d, quelle='bestaetigt', text=d['text'].replace('vermutet: ', '') + ' (bestaetigt)')
         if korrektur.get('regel') == 'rechts_vor_links':
             return res([GLEICH] * n, 'Korrektur', 'rechts vor links (Korrekturdatei)')
         namen = [x.lower() for x in korrektur.get('haupt', [])]
@@ -111,18 +114,22 @@ def priority(rolle_von, rolle_nach, mv, n_haupt):
 
 def load_corrections(path):
     """Korrekturdatei (JSON): {"vorfahrt": [{"lat", "lon", "haupt": [Strassennamen]} oder {"regel":
-    "rechts_vor_links"}, ...]}"""
+    "rechts_vor_links"} oder {"bestaetigt": true} (berechnete Vorfahrt stimmt), ...]}"""
     if not path:
         return []
     with open(path, encoding='utf-8') as f:
         return json.load(f).get('vorfahrt', [])
 
 
+def distance_m(lat1, lon1, lat2, lon2):
+    return math.dist((lat1 * 111320, lon1 * 111320 * math.cos(math.radians(lat1))),
+                     (lat2 * 111320, lon2 * 111320 * math.cos(math.radians(lat1))))
+
+
 def match_correction(corrections, lat, lon, radius=30.0):
     best = None
     for c in corrections:
-        d = math.dist((lat * 111320, lon * 111320 * math.cos(math.radians(lat))),
-                      (c['lat'] * 111320, c['lon'] * 111320 * math.cos(math.radians(lat))))
+        d = distance_m(lat, lon, c['lat'], c['lon'])
         if d <= radius and (best is None or d < best[0]):
             best = (d, c)
     return best[1] if best else None
