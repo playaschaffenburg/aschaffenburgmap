@@ -900,10 +900,18 @@ pub fn omsigen_ordner() -> PathBuf {
 
 /// Kreuzungsobjekt von omsigen bauen lassen (Python, OMSIGEN_PYTHON oder python)
 pub fn erzeugen(root: &Path, ordner: &Path, rel_ordner: &str, name: &str, arme: &[Arm], ampel: bool) -> Result<Objekt> {
+    erzeugen_mit(root, ordner, rel_ordner, name, arme, ampel, None)
+}
+
+/// wie erzeugen; mit `kreisel` (Mitte, Kreisel) ein Kreisverkehr als ein Objekt, die Arme sind seine Zufahrten
+pub fn erzeugen_mit(root: &Path, ordner: &Path, rel_ordner: &str, name: &str, arme: &[Arm], ampel: bool,
+                    kreisel: Option<(DVec2, crate::netz::Kreisel)>) -> Result<Objekt> {
     use std::io::Write;
     let auftrag = serde_json::json!({
-        "omsi": root, "ordner": ordner, "rel_ordner": rel_ordner, "name": name, "titel": format!("Editor-Kreuzung {name}"),
+        "omsi": root, "ordner": ordner, "rel_ordner": rel_ordner, "name": name,
+        "titel": format!("Editor-{} {name}", if kreisel.is_some() { "Kreisverkehr" } else { "Kreuzung" }),
         "ampel": ampel,
+        "kreisel": kreisel.map(|(m, k)| serde_json::json!({"mitte": [m.x, m.y], "r": k.r, "breite": k.breite})),
         "arme": arme.iter().map(|a| serde_json::json!({
             "pos": [a.pos.x, a.pos.y], "h": a.richtung, "sli": a.sli, "away": a.weg, "rolle": a.rolle.text(),
         })).collect::<Vec<_>>(),
@@ -1546,7 +1554,9 @@ pub(crate) mod tests {
         s.maus(&mut v, rand, 2.0, &ans, Some(&mut a));
         let m = s.klick(&mut v, rand, 2.0, &ans, Some(&mut a)).unwrap();
         println!("{m}");
-        assert_eq!(s.netz.kanten.iter().filter(|e| e.ring).count(), 4);
+        // ein Knoten mit dem Kreisverkehr, keine Ring-Splines
+        assert!(s.netz.kanten.is_empty() && s.netz.knoten.len() == 1 && s.netz.knoten[0].kreisel.is_some());
+        assert_eq!(s.gesetzte_kreuzungen().len(), 1, "Kreisverkehr-Objekt: {:?}", s.kreuzung_fehler);
         // Zufahrten von Westen, Sueden, Nordosten auf den Ring
         s.modus = Modus::Gerade;
         let mut zufahrten = Vec::new();
@@ -1560,17 +1570,35 @@ pub(crate) mod tests {
             let m = s.klick(&mut v, gb, 2.0, &ans, Some(&mut a)).unwrap_or_default();
             s.beenden(&mut v);
             println!("Zufahrt {n}: {m}");
-            assert!(m.contains("Kreuzung"), "Zufahrt {n}: {m}");
+            assert!(m.contains("gebaut"), "Zufahrt {n}: {m}");
             zufahrten.push(aussen);
         }
-        assert_eq!(s.gesetzte_kreuzungen().len(), 3, "{:?}", s.kreuzung_fehler);
+        assert_eq!(s.netz.kanten.len(), 3);
+        assert_eq!(s.gesetzte_kreuzungen().len(), 1, "{:?}", s.kreuzung_fehler);
+        // die Zufahrten enden ausserhalb des Rings
+        let k = s.netz.knoten.iter().find(|k| k.kreisel.is_some()).unwrap().clone();
+        for e in &s.netz.kanten {
+            let el = s.netz.elemente(e);
+            let ende = if e.b == k.id { el.last().unwrap().stueck.ende().0 } else { el[0].stueck.start };
+            assert!(((ende - k.pos.truncate()).length() - k.kreisel.unwrap().arm_abstand()).abs() < 0.1);
+        }
         if let Some(bild) = std::env::var_os("OMSI_BILD") {
             let k = crate::kamera::Kamera { ziel: boden(&v, o + DVec2::new(-12.0, -12.0)), gier: 225.0, neigung: -50.0, abstand: 55.0, fov: 50.0 };
             let px = v.render_image(1280, 800, &k.camera()).unwrap();
             image::save_buffer(bild, &px, 1280, 800, image::ColorType::Rgba8).unwrap();
         }
+        // mit dem Knoten-Werkzeug 3 m verschieben: die Zufahrten folgen, das Objekt wird neu erzeugt
+        let mut w = crate::knoten::Knotenwerkzeug::default();
+        let kp = k.pos;
+        w.suchen(&v, &mut a, &s, kp, 1.0, 80.0);
+        assert!(w.greifen(kp, false), "Kreisverkehr laesst sich nicht greifen");
+        w.ziehen(&v, &mut a, &s, Some(kp + DVec3::new(3.0, 0.0, 0.0)));
+        let m = w.loslassen(&mut v, &mut a, &mut s).unwrap();
+        println!("{m}");
+        assert!(m.contains("verschoben"), "{m}");
+        assert_eq!(s.gesetzte_kreuzungen().len(), 1, "{:?}", s.kreuzung_fehler);
         let n = speichern_laden_pruefen(v, &s, a, "Grundorf_kreisel", &zufahrten, &[]);
-        assert_eq!(n, 9, "3 Kreuzungen mit je 3 Armen");
+        assert_eq!(n, 3, "3 Zufahrten am Kreisverkehr");
     }
 
     /// Kreisverkehr auf die Ampelkreuzung von Grundorf (414/215): die Kreuzung mit Ampeln und die Strassenstuecke im
@@ -1607,16 +1635,17 @@ pub(crate) mod tests {
         // die Kreuzung ist weg, an ihrer Stelle keine vorhandene Strasse mehr
         assert!(a.kreuzungsobjekt_bei(&v, k.pos.truncate()).is_none(), "Kreuzung im Ring noch da");
         assert!(a.abzweig_bei(&v, k.pos.truncate()).is_none(), "Strasse im Ring noch da");
-        let einmuendungen: Vec<_> = s.netz.knoten.iter().filter(|x| x.kartenarme.len() == 1).collect();
-        assert_eq!(einmuendungen.len(), 3, "drei Einmuendungen am Ring");
-        assert_eq!(s.gesetzte_kreuzungen().len(), 3, "{:?}", s.kreuzung_fehler);
+        let kreisel: Vec<_> = s.netz.knoten.iter().filter(|x| x.kreisel.is_some()).collect();
+        assert_eq!(kreisel.len(), 1);
+        assert_eq!(kreisel[0].kartenarme.len(), 3, "drei Zufahrten");
+        assert_eq!(s.gesetzte_kreuzungen().len(), 1, "{:?}", s.kreuzung_fehler);
         if let Some(b) = std::env::var_os("OMSI_BILD") {
             let px = v.render_image(1280, 800, &kam.camera()).unwrap();
             image::save_buffer(b, &px, 1280, 800, image::ColorType::Rgba8).unwrap();
         }
-        let karten: Vec<DVec2> = einmuendungen.iter().map(|x| x.kartenarme[0].pos.truncate()).collect();
+        let karten: Vec<DVec2> = kreisel[0].kartenarme.iter().map(|x| x.pos.truncate()).collect();
         let n = speichern_laden_pruefen(v, &s, a, "Grundorf_kreisel_karte", &[], &karten);
-        assert_eq!(n, 6, "4 Ringstuecke an 3 Kreuzungen: 6 Enden");
+        assert_eq!(n, 0, "keine neuen Splines");
     }
 
     /// Fall des Nutzers (Screenshot 6.10.): neue Strasse an die Ampelkreuzung von Grundorf (x 412, y 223, 3 Arme)

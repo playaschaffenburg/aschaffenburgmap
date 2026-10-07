@@ -234,6 +234,18 @@ Umlauf 72 s, Hauptrichtung `3 2 / 6 31 / 9 3 / 0 0`, Nebenrichtung ab 39 s.
   2 s rot-gelb, 3 s gelb, 3 s Räumzeit, Umlauf 70 s bei 2 Phasen (+15 s je weitere), Hauptrichtung 1,5-fache
   Grünzeit; Signal + Mast je Zufahrt rechts am Bordstein.
 
+## Kreisverkehre *[Rheinhausen, Gladbeck, Ruhrgebiet]*
+
+Kein Addon baut die Fahrbahn eines Kreisverkehrs aus Splines – sie ist immer ein rundes Modell:
+- Rheinhausen `Sceneryobjects\ADDON_Rheinhausen\Zane_Crossings\Kreisverkehr2.sco` (auch `…3`, `…4`,
+  `Kreisverkehr_8m_gras_1`): **ein** Objekt mit Modell und allen Fahrpfaden (132 `[path]`, Ring als Kreisbögen).
+- Gladbeck/Ruhrgebiet: Fläche `GLA_Kreisverkehr.sco` (Modell mit Textur), die Fahrpfade in unsichtbaren Viertelstücken
+  `ADDON_Gladbeck_Kreuz\RQ_9,5_2spur_6,5m_Sidewalk_Roundabout_part0…3.sco` (Modell `ghost.o3d`, je 2 Pfade).
+
+omsigen baut ihn wie Rheinhausen (`omsigen/kreisel.py`, im Editor Modus „Kreisverkehr“): Ringspur gegen den
+Uhrzeigersinn (Radius < 0 = Linksbogen) aus Bögen zwischen den Aus- und Einfahrpunkten, Ein-/Ausfahrten tangential,
+`priority` 192 auf dem Ring, 64 auf den Einfahrten; Zufahrten enden außerhalb des Rings (Ausrundung 6 m).
+
 ## Verbindungen
 
 OMSI verbindet Pfade, wenn Endpunkt und Richtung zweier Pfade zusammenfallen. Deshalb baut omsigen an jeder

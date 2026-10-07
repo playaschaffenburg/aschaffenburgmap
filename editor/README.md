@@ -94,11 +94,12 @@ laufen eben auf Kreuzungshöhe ein. Orange Markierungen zeigen in der Vorschau j
   Standardkreuzung, auch mit einem Arm ohne Pfade): es wird in der Sitzungskopie entfernt – mit seinen Ampeln und
   deren Masten – und durch eine eigene Kreuzung ersetzt, deren Arme die vorhandenen Straßenenden und die neue Straße
   sind. Offene Arme von Kreuzungsobjekten (Pfade, die nirgends hinführen) sind außerdem normale Anschlusspunkte.
-- **Kreisverkehr (Modus V):** Klick setzt die Mitte, die Maus die Größe (Durchmesser 24–120 m), Klick baut einen Ring
-  aus Einbahn-Straßen gegen den Uhrzeigersinn (Querschnitt rechts wählbar, Vorschlag: Einbahn mit Gehweg). Zufahrten
-  auf den Ring ziehen: dort entstehen T-Kreuzungen. Liegt der Ring über vorhandenen Straßen (auch über einer
-  vorhandenen Kreuzung), fällt alles innerhalb weg – Straßenstücke, Kreuzungsobjekte mit Ampeln und Masten – und
-  jede Straße mündet außen mit einer T-Kreuzung ein; eigene Straßen, die er kreuzt, bekommen Kreuzungen.
+- **Kreisverkehr (Modus V):** Klick setzt die Mitte, die Maus die Größe (Durchmesser 24–120 m), Klick baut. Er ist
+  **ein Objekt** wie in Rheinhausen (`omsigen/kreisel.py`): runde Ringfahrbahn (7 m, gegen den Uhrzeigersinn), Insel
+  mit Pflasterrand, Gehweg außen herum, Zufahrten mit ausgerundeten Ecken; der Ring hat Vorfahrt. Zufahrten: eine
+  Straße auf den Kreisverkehr ziehen (sie endet außerhalb des Rings). Liegt er über vorhandenen Straßen (auch über
+  einer vorhandenen Kreuzung), fällt alles innerhalb weg – Straßenstücke, Kreuzungsobjekte mit Ampeln und Masten –
+  und jede Straße wird eine Zufahrt. Mit dem Knoten-Werkzeug lässt er sich samt Zufahrten verschieben.
 - **Vorfahrt (vermutet, später per Klick änderbar):** im Kreisverkehr der Ring; sonst die durchgehende Straße – eine
   vorhandene vor einer neuen, dann gleicher Querschnitt, dann die breitere; zwei gleichwertige: rechts vor links.
 - Ein Strg+Z nimmt Straße, Kreuzungen und aufgeschnittene vorhandene Straßen zurück. Beim Speichern kommen die

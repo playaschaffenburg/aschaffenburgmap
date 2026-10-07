@@ -9,7 +9,9 @@ Auftrag (Weltkoordinaten in Metern: x Ost, y Nord; Richtungen im Uhrzeigersinn a
      "name": Dateiname ohne Endung, "titel": friendlyname,
      "arme": [{"pos": [x, y], "h": Richtung von der Kreuzung weg, "sli": Spline des Arms,
                "away": true wenn die Splinerichtung von der Kreuzung weg zeigt, "rolle": "haupt"/"neben"/"gleich"}],
-     "ampel": true fuer eine Ampelkreuzung (Phasenplan wie omsigen ampel.py)}
+     "ampel": true fuer eine Ampelkreuzung (Phasenplan wie omsigen ampel.py),
+     "kreisel": {"mitte": [x, y], "r": Radius der Ringspur, "breite": Breite der Ringfahrbahn} fuer einen
+                Kreisverkehr als ein Objekt (kreisel.py; die Arme sind seine Zufahrten, ab einer)}
 Ergebnis:
     {"rel": .sco relativ zu OMSI, "ursprung": [x, y], "rules": [[Pfad, Prioritaet], ...], "pfade": n,
      "spuren": Abbiegespuren, "fehlgeschlagen": n, "dreiecke": n,
@@ -17,13 +19,43 @@ Ergebnis:
      "phasen": [Phase je Arm], "umlauf": s}
 oder {"fehler": Text}."""
 import json, os, shutil, sys
-from . import ampel, kreuzung, vorfahrt
+from . import ampel, kreisel, kreuzung, vorfahrt
 from .network import spurenden, kreuzungsspuren
 from .splinedb import SplineDB
 
 
+def _schreiben(auftrag, name, sco, x):
+    d = auftrag['ordner']
+    os.makedirs(os.path.join(d, 'model'), exist_ok=True)
+    os.makedirs(os.path.join(d, 'texture'), exist_ok=True)
+    with open(os.path.join(d, name + '.sco'), 'w', encoding='cp1252', newline='') as f:
+        f.write(sco)
+    with open(os.path.join(d, 'model', name + '.x'), 'w', encoding='ascii', newline='') as f:
+        f.write(x)
+    om = auftrag['omsi']
+    for src in (os.path.join(om, 'Splines', 'Marcel', 'texture'), os.path.join(om, 'Texture')):
+        for t in kreuzung.TEXTURES:
+            if os.path.exists(os.path.join(src, t)) and not os.path.exists(os.path.join(d, 'texture', t)):
+                shutil.copy(os.path.join(src, t), os.path.join(d, 'texture', t))
+
+
+def kreisel_bauen(auftrag, sdb):
+    k = auftrag['kreisel']
+    arms = [dict(pos=tuple(a['pos']), h=float(a['h']) % 360, spl=a['sli'], away=bool(a['away'])) for a in auftrag['arme']]
+    K = kreisel.bauen(arms, k['mitte'], float(k['r']), float(k['breite']), sdb)
+    name = auftrag['name']
+    x, dreiecke = kreisel.x_file(K)
+    _schreiben(auftrag, name, kreisel.sco_text(auftrag.get('titel') or name, name + '.x', K), x)
+    pfade = sum(len(m[0]) for m in K['moves'])
+    return dict(rel=auftrag['rel_ordner'].rstrip('\\') + '\\' + name + '.sco', ursprung=list(K['origin']),
+                rules=K['rules'], pfade=pfade + sum(len(w) for w in K['walks']), spuren=len(K['moves']),
+                fehlgeschlagen=0, bewegungen={}, dreiecke=dreiecke, signale=[], phasen=[], umlauf=None)
+
+
 def bauen(auftrag, sdb=None):
     sdb = sdb or SplineDB(auftrag['omsi'])
+    if auftrag.get('kreisel'):
+        return kreisel_bauen(auftrag, sdb)
     arme = auftrag['arme']
     if len(arme) < 3:
         raise ValueError('eine Kreuzung braucht mindestens 3 Arme')
@@ -57,18 +89,7 @@ def bauen(auftrag, sdb=None):
     V, F = kreuzung.mesh(J)
     name = auftrag['name']
     sco = kreuzung.sco_text(auftrag.get('titel') or name, name + '.x', moves, J['walks'], ampel.sco_block(plan) if plan else ())
-    d = auftrag['ordner']
-    os.makedirs(os.path.join(d, 'model'), exist_ok=True)
-    os.makedirs(os.path.join(d, 'texture'), exist_ok=True)
-    with open(os.path.join(d, name + '.sco'), 'w', encoding='cp1252', newline='') as f:
-        f.write(sco)
-    with open(os.path.join(d, 'model', name + '.x'), 'w', encoding='ascii', newline='') as f:
-        f.write(kreuzung.x_file(V, F))
-    om = auftrag['omsi']
-    for src in (os.path.join(om, 'Splines', 'Marcel', 'texture'), os.path.join(om, 'Texture')):
-        for t in kreuzung.TEXTURES:
-            if os.path.exists(os.path.join(src, t)) and not os.path.exists(os.path.join(d, 'texture', t)):
-                shutil.copy(os.path.join(src, t), os.path.join(d, 'texture', t))
+    _schreiben(auftrag, name, sco, kreuzung.x_file(V, F))
     return dict(rel=auftrag['rel_ordner'].rstrip('\\') + '\\' + name + '.sco', ursprung=[O[0], O[1]], rules=rules,
                 pfade=idx + sum(len(w) for w in J['walks']), spuren=len(ketten), fehlgeschlagen=fehl,
                 bewegungen=dict(zaehler), dreiecke=len(F),

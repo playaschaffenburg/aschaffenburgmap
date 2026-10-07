@@ -239,6 +239,23 @@ pub struct Knoten {
     pub kartenarme: Vec<Kartenarm>,
     /// Vorfahrt/Ampel vom Nutzer (Werkzeug "Kreuzungen"); None: vermutet
     pub regel: Option<Regel>,
+    /// Kreisverkehr an diesem Knoten (ein Objekt mit Ring, Insel und allen Fahrpfaden; die Kanten und Kartenarme
+    /// sind seine Zufahrten)
+    pub kreisel: Option<Kreisel>,
+}
+
+/// Kreisverkehr als ein Objekt (omsigen kreisel.py): Radius der Ringspur, Breite der Ringfahrbahn
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct Kreisel {
+    pub r: f64,
+    pub breite: f64,
+}
+
+impl Kreisel {
+    /// so weit vor der Mitte enden die Zufahrten: Ring aussen, Ausrundung der Ecken (omsigen R_ECKE 6 m), etwas gerade
+    pub fn arm_abstand(&self) -> f64 {
+        self.r + self.breite / 2.0 + 10.0
+    }
 }
 
 /// Regel einer Kreuzung: Vorfahrt je Arm (Richtung von der Kreuzung weg; die Arme werden ueber die Richtung
@@ -348,14 +365,14 @@ impl Netz {
 
     pub fn knoten_neu(&mut self, pos: DVec3) -> u32 {
         let id = self.neue_id();
-        self.knoten.push(Knoten { id, pos, anschluss: None, kartenarme: vec![], regel: None });
+        self.knoten.push(Knoten { id, pos, anschluss: None, kartenarme: vec![], regel: None, kreisel: None });
         id
     }
 
     /// Knoten am Ende einer vorhandenen Strasse: neue Kanten muessen ihn in `richtung` verlassen
     pub fn anschluss_neu(&mut self, pos: DVec3, richtung: f64, steigung: f64) -> u32 {
         let id = self.neue_id();
-        self.knoten.push(Knoten { id, pos, anschluss: Some((richtung, steigung)), kartenarme: vec![], regel: None });
+        self.knoten.push(Knoten { id, pos, anschluss: Some((richtung, steigung)), kartenarme: vec![], regel: None, kreisel: None });
         id
     }
 
@@ -437,7 +454,7 @@ impl Netz {
 
     /// ist der Knoten eine Kreuzung (3 und mehr Arme: Kanten und aufgeschnittene vorhandene Strassen)?
     pub fn ist_kreuzung(&self, k: u32) -> bool {
-        self.an(k).len() + self.knoten(k).map(|x| x.kartenarme.len()).unwrap_or(0) >= 3
+        self.knoten(k).is_some_and(|x| x.kreisel.is_some()) || self.an(k).len() + self.knoten(k).map(|x| x.kartenarme.len()).unwrap_or(0) >= 3
     }
 
     /// Knoten mit Kartenarmen (Kreuzung an einer vorhandenen Strasse)
@@ -472,7 +489,11 @@ impl Netz {
             Some(ka) => ka.halb,
             None => self.halb(&self.kante(a.kante).unwrap().sli),
         })).collect();
-        let d = kuerzungen(&roh);
+        // am Kreisverkehr enden alle Zufahrten ausserhalb des Rings
+        let d = match knoten.kreisel {
+            Some(kr) => vec![kr.arm_abstand(); roh.len()],
+            None => kuerzungen(&roh),
+        };
         for (a, d) in arme.iter_mut().zip(d) {
             // Kartenarme liegen fest (beim Aufschneiden so bemessen)
             if a.karte.is_none() {

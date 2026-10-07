@@ -280,7 +280,6 @@ enum UiAktion {
     EigeneAendern(strasse::KantenAenderung),
     /// Vorfahrt/Ampel einer Kreuzung setzen (None: wieder vermuten)
     KreuzungRegel(u32, Option<netz::Regel>),
-    KreiselQuerschnitt(String),
     StrassenHoehe(f64),
     ZugBeenden,
 }
@@ -1108,15 +1107,9 @@ impl App {
                     ui.label(egui::RichText::new(format!("{} Knoten, {} Strassenstuecke | {} freie Enden vorhandener Strassen (blau)", self.strasse.netz.knoten.len(), self.strasse.netz.kanten.len(), frei)).small().weak());
                     ui.separator();
                     if self.strasse.modus == strasse::Modus::Kreisel {
-                        ui.label("Querschnitt des Rings (Einbahn, gegen den Uhrzeigersinn befahren)");
-                        let einbahn = self.querschnitte.as_ref().and_then(|q| q.iter().find(|q| Some(&q.rel) == self.strasse.kreisel_sli.as_ref())).map(|q| q.zurueck == 0 && q.vor >= 1);
-                        if einbahn == Some(false) {
-                            ui.colored_label(egui::Color32::from_rgb(255, 140, 90), "kein Einbahn-Querschnitt - im Kreisverkehr fuehren Spuren falsch herum");
-                        }
-                        ui.label(egui::RichText::new("Klick setzt die Mitte, die Maus die Groesse (Durchmesser 24 bis 120 m), Klick baut. Danach Zufahrten auf den Ring ziehen: dort entstehen T-Kreuzungen, der Ring hat Vorfahrt.").small().weak());
-                        if let Some(rel) = self.qs_raster(ui, self.strasse.kreisel_sli.clone()) {
-                            aktionen.push(UiAktion::KreiselQuerschnitt(rel));
-                        }
+                        ui.label(egui::RichText::new("Kreisverkehr").strong());
+                        ui.label("Klick setzt die Mitte, die Maus die Groesse (Durchmesser 24 bis 120 m), Klick baut. Er wird ein Objekt wie in Rheinhausen: runde Ringfahrbahn (7 m), Mittelinsel, Gehweg aussen, Ring mit Vorfahrt.");
+                        ui.label("Liegt er ueber vorhandenen Strassen, faellt alles im Ring weg und sie werden Zufahrten. Weitere Zufahrten: eine Strasse auf den Kreisverkehr ziehen.");
                     } else {
                         ui.label("Querschnitt");
                         if let Some(rel) = self.qs_raster(ui, self.strasse.sli.clone()) {
@@ -1707,7 +1700,6 @@ impl App {
                 }
                 self.strasse.modus = m;
             }
-            UiAktion::KreiselQuerschnitt(rel) => self.strasse.kreisel_sli = Some(rel),
             UiAktion::KreuzungRegel(k, regel) => {
                 if let Some(v) = self.viewer.as_mut() {
                     self.meldung = self.strasse.regel_setzen(v, k, regel);
