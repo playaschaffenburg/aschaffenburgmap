@@ -36,6 +36,11 @@ Ordner (`maps\<Ordner>`, `[name]`; die eigenen Ordner unter `Aschaffenburg_KI\` 
 werden mitgenommen; Spielstände der Karte passen danach nicht mehr). **Löschen …**: zwei Rückfragen (die zweite
 verlangt den Ordnernamen), dann kommen die Karte und ihre eigenen Ordner unter `Aschaffenburg_KI\` in den
 Papierkorb. Die geöffnete Karte lässt sich weder umbenennen noch löschen.
+Jede Karte ist eigenständig: beim Speichern (auch „Als neue Karte“) kommen alle Kreuzungsobjekte, auf die sie in
+Ordnern anderer Karten verweist, in ihren eigenen Ordner (bei Namensgleichheit unter neuem Namen); vor dem Löschen
+oder Umbenennen einer Karte holen sich alle anderen Karten, die ihre Objekte nutzen, diese zuerst. Öffnet man eine
+Karte, die noch auf fremde Ordner verweist (ältere Speicherungen), bietet der Editor „In die Karte holen“ an –
+fehlende Objekte einer gelöschten Karte holt er aus dem Papierkorb (nur lesend), die Kacheln werden vorher gesichert.
 
 Kamera: rechte Maustaste drehen/neigen, mittlere verschieben, Mausrad zoomen (zum Mauszeiger), W A S D / Pfeile,
 Q / E drehen, R / F neigen. Koordinaten wie in openOMSI: x Ost, y Nord, z hoch.

@@ -123,6 +123,11 @@ pub fn umbenennen(root: &Path, alt: &str, neu: &str) -> Result<()> {
             bail!("{} gibt es schon", n.display());
         }
     }
+    // andere Karten, die Objekte dieser Karte nutzen, holen sie vorher zu sich
+    let andere = crate::speichern::abhaengige_loesen(root, alt)?;
+    if !andere.is_empty() {
+        log::info!("vor dem Umbenennen von {alt}: Objekte in {andere:?} uebernommen");
+    }
     std::fs::rename(&von, &nach).with_context(|| format!("{} umbenennen (ist die Karte noch in OMSI oder im nEditor offen?)", von.display()))?;
     global_setzen(&nach.join("global.cfg"), &[("[name]", neu.to_string())])?;
     for (a, n) in &eigene {
@@ -158,6 +163,11 @@ pub fn in_papierkorb(root: &Path, ordner: &str) -> Result<Vec<PathBuf>> {
         if e.is_dir() {
             wege.push(e);
         }
+    }
+    // andere Karten, die Objekte dieser Karte nutzen, holen sie vorher zu sich (sonst fehlen ihnen danach Kreuzungen)
+    let andere = crate::speichern::abhaengige_loesen(root, ordner)?;
+    if !andere.is_empty() {
+        log::info!("vor dem Loeschen von {ordner}: Objekte in {andere:?} uebernommen");
     }
     for w in &wege {
         papierkorb(w)?;
@@ -223,6 +233,38 @@ mod tests {
         // zweite Karte mit dem Zielnamen: nicht umbenennen
         testkarte(&root, "Probe3");
         assert!(umbenennen(&root, "Probe3", "Probe2").is_err());
+        std::fs::remove_dir_all(&root).ok();
+    }
+
+    /// Fall des Nutzers (7.10.): Karte B (als neue Karte aus A gespeichert) verweist auf Kreuzungen im Ordner von A -
+    /// nach dem Einsammeln haengt B nicht mehr von A ab; Umbenennen und Loeschen von A lassen B heil
+    #[test]
+    fn karte_haengt_nicht_von_ihrer_vorlage_ab() {
+        let root = std::env::temp_dir().join(format!("omsi-editor-einsammeln-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        testkarte(&root, "A");
+        std::fs::create_dir_all(root.join("Sceneryobjects/Aschaffenburg_KI/A/model")).unwrap();
+        std::fs::write(root.join("Sceneryobjects/Aschaffenburg_KI/A/K_1.sco"), "[mesh]\r\nK_1.x\r\n").unwrap();
+        std::fs::write(root.join("Sceneryobjects/Aschaffenburg_KI/A/model/K_1.x"), "Modell A").unwrap();
+        // B: verweist auf A\K_1.sco und hat selbst ein anderes K_1.sco
+        testkarte(&root, "B");
+        std::fs::write(root.join("Sceneryobjects/Aschaffenburg_KI/B/K_1.sco"), "[mesh]\r\nK_1.x\r\n(B)").unwrap();
+        let utf16 = |t: &str| -> Vec<u8> { [0xFF, 0xFE].into_iter().chain(t.encode_utf16().flat_map(|u| u.to_le_bytes())).collect() };
+        std::fs::write(root.join("maps/B/tile_0_1.map"), utf16("[object]\r\n0\r\nSceneryobjects\\Aschaffenburg_KI\\A\\K_1.sco\r\n9\r\n")).unwrap();
+        assert_eq!(crate::speichern::fremde_objekte(&root, "B"), vec![("A".to_string(), "K_1.sco".to_string())]);
+        // A loeschen geht nicht ohne Papierkorb im Test; daher: A umbenennen - B holt sich vorher die Objekte
+        umbenennen(&root, "A", "A2").unwrap();
+        assert!(crate::speichern::fremde_objekte(&root, "B").is_empty(), "B haengt noch von A ab");
+        let kachel = dekodieren(&std::fs::read(root.join("maps/B/tile_0_1.map")).unwrap()).0;
+        assert!(kachel.contains("Aschaffenburg_KI\\B\\K_1_A.sco"), "{kachel}");
+        // die geholte .sco zeigt auf ihr eigenes (umbenanntes) Modell, das vorhandene K_1.sco von B ist unveraendert
+        let sco = std::fs::read_to_string(root.join("Sceneryobjects/Aschaffenburg_KI/B/K_1_A.sco")).unwrap();
+        assert!(sco.contains("K_1_A.x"), "{sco}");
+        assert_eq!(std::fs::read_to_string(root.join("Sceneryobjects/Aschaffenburg_KI/B/model/K_1_A.x")).unwrap(), "Modell A");
+        assert!(std::fs::read_to_string(root.join("Sceneryobjects/Aschaffenburg_KI/B/K_1.sco")).unwrap().contains("(B)"));
+        // der Ordner von A (jetzt A2) kann weg, B bleibt vollstaendig
+        std::fs::remove_dir_all(root.join("Sceneryobjects/Aschaffenburg_KI/A2")).unwrap();
+        assert!(crate::speichern::fremde_objekte(&root, "B").is_empty());
         std::fs::remove_dir_all(&root).ok();
     }
 

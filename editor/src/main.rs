@@ -118,6 +118,8 @@ enum KartenDialog {
     Loeschen1(String),
     /// Loeschen, zweite Rueckfrage: Name zur Bestaetigung eintippen
     Loeschen2(String, String),
+    /// die geoeffnete Karte nutzt Objekte aus Ordnern anderer Karten: (Anzahl, davon fehlend)
+    FremdeObjekte(usize, usize),
 }
 
 struct Gui {
@@ -251,6 +253,8 @@ enum UiAktion {
     KarteUmbenennen(String, String, String),
     /// Karte in den Papierkorb
     KarteLoeschen(String),
+    /// Objekte aus Ordnern anderer Karten in die geoeffnete Karte holen (dann neu laden)
+    ObjekteHolen,
     /// "Speichern": die geoeffnete Karte ueberschreiben (eigene sofort, fremde nach Rueckfrage)
     SpeichernHier,
     Ueberschreiben,
@@ -656,6 +660,25 @@ impl App {
                     });
                 });
             }
+            KartenDialog::FremdeObjekte(n, fehlend) => {
+                let (n, fehlend) = (*n, *fehlend);
+                egui::Window::new("Objekte anderer Karten").collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
+                    ui.label(format!("Diese Karte nutzt {n} Kreuzungsobjekt(e) aus den Ordnern anderer Karten (Aschaffenburg_KI)."));
+                    if fehlend > 0 {
+                        ui.colored_label(egui::Color32::from_rgb(255, 120, 90), format!("{fehlend} davon fehlen (ihre Karte wurde geloescht oder umbenannt) - sie werden im Papierkorb gesucht."));
+                    }
+                    ui.label("\"In die Karte holen\" kopiert sie in den eigenen Ordner der Karte; danach haengt sie von keiner anderen Karte mehr ab. Die betroffenen Kacheln werden vorher gesichert.");
+                    ui.horizontal(|ui| {
+                        if ui.button("In die Karte holen").clicked() {
+                            aktionen.push(UiAktion::ObjekteHolen);
+                            zu = true;
+                        }
+                        if ui.button("Spaeter").clicked() {
+                            zu = true;
+                        }
+                    });
+                });
+            }
             KartenDialog::Loeschen2(karte, eingabe) => {
                 egui::Window::new("Wirklich loeschen? (zweite Rueckfrage)").collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
                     ui.label(format!("Zur Bestaetigung den Ordnernamen eintippen: {karte}"));
@@ -742,6 +765,16 @@ impl App {
                     log::info!("{}", self.meldung);
                     if let Some(k) = self.kamera_merken.take() {
                         self.kam = k;
+                    }
+                    // nutzt die Karte Objekte aus Ordnern anderer Karten? (aeltere Speicherungen; fehlende nach Loeschen)
+                    if let Some(k) = self.karte.clone() {
+                        let fremde = speichern::fremde_objekte(&self.root, &k);
+                        if !fremde.is_empty() {
+                            let ki = self.root.join("Sceneryobjects").join("Aschaffenburg_KI");
+                            let fehlend = fremde.iter().filter(|(o, d)| !ki.join(o).join(d).is_file()).count();
+                            log::warn!("Karte {k} nutzt {} Objekte anderer Karten, {fehlend} fehlen: {fremde:?}", fremde.len());
+                            self.karten_dialog = Some(KartenDialog::FremdeObjekte(fremde.len(), fehlend));
+                        }
                     }
                     if let Some(m) = self.speichern_meldung.take() {
                         self.meldung = m;
@@ -1601,6 +1634,23 @@ impl App {
                 };
                 self.karten = karten::finden(&self.root);
                 self.kartenwahl = Some(ordner);
+            }
+            UiAktion::ObjekteHolen => {
+                let Some(k) = self.karte.clone() else { return };
+                match speichern::objekte_reparieren(&self.root, &k) {
+                    Ok((n, fehlend, sicherung)) => {
+                        self.meldung = if fehlend.is_empty() {
+                            format!("{n} Objekt(e) in die Karte geholt (Sicherung der Kacheln: {})", sicherung.display())
+                        } else {
+                            format!("{n} Objekt(e) geholt, nicht gefunden: {} (Sicherung: {})", fehlend.join(", "), sicherung.display())
+                        };
+                        // frisch laden, damit die Kreuzungen erscheinen (Aenderungen gibt es keine: der Dialog kommt beim Oeffnen)
+                        self.kamera_merken = Some(self.kam.clone());
+                        self.speichern_meldung = Some(self.meldung.clone());
+                        self.zu_laden = self.karten.iter().position(|x| x.ordner == k);
+                    }
+                    Err(e) => self.meldung = format!("Objekte holen fehlgeschlagen: {e:#}"),
+                }
             }
             UiAktion::KarteLoeschen(karte) => {
                 if self.karte.as_deref() == Some(karte.as_str()) {

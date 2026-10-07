@@ -29,6 +29,160 @@ pub fn eigene_karte(root: &Path, karte: &str) -> bool {
     d.join(MARKE).exists() || d.join("LIESMICH_omsigen.txt").exists()
 }
 
+/// Verweise der Kacheln einer Karte auf Objekte in Ordnern anderer Karten (Sceneryobjects\Aschaffenburg_KI\<andere>\
+/// <Datei>) -> (Ordner, Datei), ohne Doppelte
+pub fn fremde_objekte(root: &Path, karte: &str) -> Vec<(String, String)> {
+    let mut out: Vec<(String, String)> = Vec::new();
+    for datei in kacheldateien(root, karte) {
+        let Ok(b) = std::fs::read(&datei) else { continue };
+        let (text, _) = dekodieren(&b);
+        for z in text.lines() {
+            let teile: Vec<&str> = z.trim().split('\\').collect();
+            if teile.len() == 4 && teile[0].eq_ignore_ascii_case("Sceneryobjects") && teile[1].eq_ignore_ascii_case("Aschaffenburg_KI")
+                && !teile[2].eq_ignore_ascii_case(karte) && teile[3].to_ascii_lowercase().ends_with(".sco") {
+                let e = (teile[2].to_string(), teile[3].to_string());
+                if !out.contains(&e) {
+                    out.push(e);
+                }
+            }
+        }
+    }
+    out
+}
+
+fn kacheldateien(root: &Path, karte: &str) -> Vec<PathBuf> {
+    std::fs::read_dir(root.join("maps").join(karte)).map(|r| r.flatten().map(|e| e.path()).filter(|p| {
+        let n = p.file_name().map(|n| n.to_string_lossy().to_lowercase()).unwrap_or_default();
+        n.starts_with("tile_") && n.ends_with(".map")
+    }).collect()).unwrap_or_default()
+}
+
+/// Ordner im Windows-Papierkorb, der von `ursprung` stammt (nur lesen: der Papierkorb bleibt, wie er ist)
+fn im_papierkorb(ursprung: &Path) -> Option<PathBuf> {
+    static LISTE: std::sync::OnceLock<Vec<(String, PathBuf)>> = std::sync::OnceLock::new();
+    let liste = LISTE.get_or_init(|| {
+        let befehl = "$sh = New-Object -ComObject Shell.Application; $rb = $sh.Namespace(10); foreach ($i in $rb.Items()) { $rb.GetDetailsOf($i, 1) + '|' + $i.Name + '|' + $i.Path }";
+        let Ok(aus) = std::process::Command::new("powershell").args(["-NoProfile", "-NonInteractive", "-Command", befehl]).output() else { return vec![] };
+        String::from_utf8_lossy(&aus.stdout).lines().filter_map(|z| {
+            let t: Vec<&str> = z.trim().split('|').collect();
+            (t.len() == 3).then(|| (format!("{}\\{}", t[0], t[1]).to_lowercase(), PathBuf::from(t[2])))
+        }).collect()
+    });
+    let gesucht = ursprung.to_string_lossy().replace('/', "\\").to_lowercase();
+    liste.iter().rev().find(|(o, _)| *o == gesucht).map(|(_, p)| p.clone()).filter(|p| p.is_dir())
+}
+
+/// Objekte, auf die die Karte in Ordnern anderer Karten verweist, in ihren eigenen Ordner holen (.sco, Modelle,
+/// Texturen; bei gleichem Namen mit anderem Inhalt unter neuem Namen) und die Kacheln umschreiben - danach haengt die
+/// Karte von keiner anderen mehr ab. Fehlt ein Ordner, wird er im Papierkorb gesucht.
+/// -> (geholte Objekte, nicht gefundene Ordner\Dateien)
+pub fn objekte_einsammeln(root: &Path, karte: &str) -> Result<(usize, Vec<String>)> {
+    let fremde = fremde_objekte(root, karte);
+    if fremde.is_empty() {
+        return Ok((0, vec![]));
+    }
+    let ki = root.join("Sceneryobjects").join("Aschaffenburg_KI");
+    let ziel = ki.join(karte);
+    std::fs::create_dir_all(ziel.join("model"))?;
+    std::fs::create_dir_all(ziel.join("texture"))?;
+    let mut ersetzen: Vec<(String, String)> = Vec::new();
+    let mut fehlend = Vec::new();
+    for (ordner, datei) in &fremde {
+        let quelle = Some(ki.join(ordner)).filter(|q| q.join(datei).is_file()).or_else(|| im_papierkorb(&ki.join(ordner)).filter(|q| q.join(datei).is_file()));
+        let Some(quelle) = quelle else {
+            fehlend.push(format!("{ordner}\\{datei}"));
+            continue;
+        };
+        let sco = std::fs::read(quelle.join(datei))?;
+        // Name: gleich, wenn frei oder schon dieselbe Datei; sonst <Name>_<Ordner>, <Name>_<Ordner>_2, ...
+        let stamm = datei.trim_end_matches(".sco").trim_end_matches(".SCO").to_string();
+        let kurz: String = ordner.chars().filter(|c| c.is_ascii_alphanumeric()).collect();
+        let mut neu = stamm.clone();
+        let mut k = 1;
+        while ziel.join(format!("{neu}.sco")).exists() && std::fs::read(ziel.join(format!("{neu}.sco"))).ok().as_deref() != Some(&sco[..]) {
+            neu = if k == 1 { format!("{stamm}_{kurz}") } else { format!("{stamm}_{kurz}_{k}") };
+            k += 1;
+        }
+        // Modelle der .sco ([mesh]): mitkopieren, bei neuem Namen umbenennen
+        let (mut text, _) = dekodieren(&sco);
+        let zeilen: Vec<String> = text.split('\n').map(|z| z.to_string()).collect();
+        let mut neue_zeilen = zeilen.clone();
+        let mut m = 0;
+        for i in 0..zeilen.len() {
+            if zeilen[i].trim().eq_ignore_ascii_case("[mesh]") && i + 1 < zeilen.len() {
+                let modell = zeilen[i + 1].trim().to_string();
+                let von = quelle.join("model").join(&modell);
+                let ext = Path::new(&modell).extension().map(|e| format!(".{}", e.to_string_lossy())).unwrap_or_default();
+                let neu_modell = if neu == stamm { modell.clone() } else if m == 0 { format!("{neu}{ext}") } else { format!("{neu}_{m}{ext}") };
+                m += 1;
+                if von.is_file() && !ziel.join("model").join(&neu_modell).exists() {
+                    std::fs::copy(&von, ziel.join("model").join(&neu_modell))?;
+                }
+                let ende = if zeilen[i + 1].ends_with('\r') { "\r" } else { "" };
+                neue_zeilen[i + 1] = format!("{neu_modell}{ende}");
+            }
+        }
+        text = neue_zeilen.join("\n");
+        if !ziel.join(format!("{neu}.sco")).exists() {
+            std::fs::write(ziel.join(format!("{neu}.sco")), kodieren(&text, false))?;
+        }
+        if let Ok(rd) = std::fs::read_dir(quelle.join("texture")) {
+            for e in rd.flatten() {
+                if e.path().is_file() && !ziel.join("texture").join(e.file_name()).exists() {
+                    std::fs::copy(e.path(), ziel.join("texture").join(e.file_name()))?;
+                }
+            }
+        }
+        ersetzen.push((format!("Aschaffenburg_KI\\{ordner}\\{datei}"), format!("Aschaffenburg_KI\\{karte}\\{neu}.sco")));
+    }
+    for datei in kacheldateien(root, karte) {
+        let (text, utf16) = dekodieren(&std::fs::read(&datei)?);
+        let mut neu_text = text.clone();
+        for (a, n) in &ersetzen {
+            neu_text = neu_text.replace(a.as_str(), n);
+        }
+        if neu_text != text {
+            std::fs::write(&datei, kodieren(&neu_text, utf16))?;
+        }
+    }
+    log::info!("Karte {karte}: {} Objekte aus Ordnern anderer Karten geholt, {} nicht gefunden {:?}", ersetzen.len(), fehlend.len(), fehlend);
+    Ok((ersetzen.len(), fehlend))
+}
+
+/// Reparatur: die Kacheln mit Verweisen auf fremde Objektordner sichern, dann die Objekte holen -> (geholt, fehlend,
+/// Sicherung)
+pub fn objekte_reparieren(root: &Path, karte: &str) -> Result<(usize, Vec<String>, PathBuf)> {
+    let stempel = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let sicherung = sicherungen().join(karte).join(format!("{stempel}_objekte"));
+    std::fs::create_dir_all(&sicherung)?;
+    for d in kacheldateien(root, karte) {
+        let (t, _) = dekodieren(&std::fs::read(&d)?);
+        if t.contains("Aschaffenburg_KI\\") {
+            std::fs::copy(&d, sicherung.join(d.file_name().context("Datei ohne Namen")?))?;
+        }
+    }
+    let (n, fehlend) = objekte_einsammeln(root, karte)?;
+    Ok((n, fehlend, sicherung))
+}
+
+/// alle anderen Karten, die auf den Objektordner von `karte` verweisen, holen ihre Objekte zu sich (vor Loeschen
+/// oder Umbenennen von `karte`) -> Namen dieser Karten
+pub fn abhaengige_loesen(root: &Path, karte: &str) -> Result<Vec<String>> {
+    let mut out = Vec::new();
+    let Ok(rd) = std::fs::read_dir(root.join("maps")) else { return Ok(out) };
+    for e in rd.flatten() {
+        let andere = e.file_name().to_string_lossy().to_string();
+        if andere.eq_ignore_ascii_case(karte) || !e.path().join("global.cfg").is_file() {
+            continue;
+        }
+        if fremde_objekte(root, &andere).iter().any(|(o, _)| o.eq_ignore_ascii_case(karte)) {
+            objekte_einsammeln(root, &andere)?;
+            out.push(andere);
+        }
+    }
+    Ok(out)
+}
+
 /// Ordner der Sicherungen beim Ueberschreiben
 pub fn sicherungen() -> PathBuf {
     std::env::var_os("LOCALAPPDATA").map(PathBuf::from).unwrap_or_else(std::env::temp_dir).join("omsi-editor").join("sicherungen")
@@ -81,6 +235,19 @@ pub fn karte_ueberschreiben(root: &Path, karte: &str, paket: &Paket) -> Result<P
     }
     if let Some(id) = paket.naechste_id {
         global_setzen(&ziel.join("global.cfg"), &[("[NextIDCode]", id.to_string())])?;
+    }
+    // Objekte aus Ordnern anderer Karten in den eigenen (die Karte haengt danach von keiner anderen ab); die Kacheln,
+    // die das umschreibt, sind vorher gesichert (alle Kacheln mit solchen Verweisen)
+    for d in kacheldateien(root, karte) {
+        let (t, _) = dekodieren(&std::fs::read(&d)?);
+        let n = d.file_name().context("Datei ohne Namen")?;
+        if t.contains("Aschaffenburg_KI\\") && !sicherung.join(n).exists() {
+            std::fs::copy(&d, sicherung.join(n))?;
+        }
+    }
+    let (geholt, fehlend) = objekte_einsammeln(root, karte)?;
+    if geholt > 0 || !fehlend.is_empty() {
+        log::info!("Speichern {karte}: {geholt} Objekte in den eigenen Ordner geholt, fehlend {fehlend:?}");
     }
     let _ = std::fs::remove_dir_all(&paket.staging);
     // die letzten 10 Sicherungen behalten (eigene Ordner, nach Zeit benannt)
@@ -349,6 +516,9 @@ pub fn karte_anlegen(root: &Path, alt: &str, neu: &str, paket: &Paket) -> Result
         werte.push(("[NextIDCode]", id.to_string()));
     }
     global_setzen(&ziel.join("global.cfg"), &werte)?;
+    // Kreuzungsobjekte der Ausgangskarte (und anderer) in den Ordner der neuen Karte: sie haengt danach von keiner
+    // anderen Karte ab (Loeschen oder Umbenennen der alten laesst sie unberuehrt)
+    objekte_einsammeln(root, neu)?;
     let _ = std::fs::write(ziel.join(MARKE), format!("Mit dem OMSI-Editor (aschaffenburgmap) angelegt aus der Karte \"{alt}\".\r\nDiese Karte darf der Editor beim Speichern ueberschreiben (mit Sicherung).\r\n"));
     let _ = std::fs::remove_dir_all(&paket.staging);
     Ok(ziel)
@@ -426,5 +596,22 @@ mod tests {
     fn namen() {
         assert!(name_ok("Grundorf_editor2") && name_ok("Aschaffenburg-Hbf v2"));
         assert!(!name_ok("") && !name_ok("a/b") && !name_ok("..\\x"));
+    }
+}
+
+#[cfg(test)]
+mod papierkorb_tests {
+    /// nur lesend: die fehlenden Objekte von Grundorf_editornew (Nutzer, 7.10.) liegen im Papierkorb
+    #[test]
+    #[ignore]
+    fn fehlende_objekte_im_papierkorb() {
+        let root = std::path::Path::new(crate::bearbeiten::tests::OMSI);
+        let fremde = super::fremde_objekte(root, "Grundorf_editornew");
+        println!("fremde: {fremde:?}");
+        let ki = root.join("Sceneryobjects").join("Aschaffenburg_KI");
+        for (o, d) in &fremde {
+            let q = super::im_papierkorb(&ki.join(o));
+            println!("  {o}/{d}: Papierkorb {:?}, Datei da: {}", q, q.as_ref().is_some_and(|q| q.join(d).is_file()));
+        }
     }
 }
