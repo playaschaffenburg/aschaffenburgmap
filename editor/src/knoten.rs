@@ -20,6 +20,9 @@ use std::collections::{BTreeMap, HashMap, HashSet};
 const FANG_ENDEN: f64 = 0.3;
 /// engere Kurven werden angemerkt
 const ENGER_RADIUS: f64 = 12.0;
+/// so lang wird ein Stueck mindestens neu gelegt (verknuepfte Nachbar-Splines mit gleichem Querschnitt kommen dazu):
+/// kurze Splines an Kreuzungen ergaeben sonst enge S-Kurven
+const UMLEGE_MIN: f64 = 30.0;
 
 /// Lage an einem Stuetzpunkt: Punkt mit Hoehe, Richtung (Grad), Steigung (Verhaeltnis), Querneigung (wie in der Kachel)
 #[derive(Clone, Copy, Debug)]
@@ -47,15 +50,22 @@ impl Lage {
     }
 }
 
-/// ein Spline der Karte, ersetzt durch Boegen ueber die Stuetzpunkte (der erste und letzte sind seine Enden, die
-/// bewegten liegen woanders); Querschnitt, Spiegelung, Anschluesse bleiben
+/// eine Kette von Splines der Karte (`alt`, dann `weitere` in Splinerichtung, gleicher Querschnitt), ersetzt durch
+/// Boegen ueber die Stuetzpunkte (der erste und letzte sind die Enden der Kette, die bewegten liegen woanders);
+/// Querschnitt, Spiegelung, Anschluesse bleiben
 #[derive(Clone, Debug)]
 pub struct Umlegung {
     pub alt: KartenSpline,
+    pub weitere: Vec<KartenSpline>,
     pub punkte: Vec<Lage>,
 }
 
 impl Umlegung {
+    /// alle Splines der Kette in Splinerichtung
+    pub fn kette(&self) -> Vec<&KartenSpline> {
+        std::iter::once(&self.alt).chain(self.weitere.iter()).collect()
+    }
+
     /// Elemente mit Querneigung am Anfang und Ende; Fehler, wenn sich ein Abschnitt nicht legen laesst
     pub fn elemente(&self) -> Result<Vec<(Element, f64, f64)>> {
         let mut out = Vec::new();
@@ -95,25 +105,77 @@ impl Umlegung {
 pub struct Ende {
     pub spline: KartenSpline,
     pub am_ende: bool,
+    /// verknuepfte Splines dahinter (vom Knoten weg), die mit neu gelegt werden
+    pub weiter: Vec<KartenSpline>,
 }
 
 impl Ende {
+    fn neu(spline: KartenSpline, am_ende: bool) -> Ende {
+        Ende { spline, am_ende, weiter: vec![] }
+    }
+
     fn lage(&self) -> Lage {
         if self.am_ende { Lage::ende(&self.spline) } else { Lage::anfang(&self.spline) }
     }
 
-    /// das andere (feste) Ende des Splines
+    /// das feste Ende: das andere Ende des letzten Splines vom Knoten weg
     fn fern(&self) -> Lage {
-        if self.am_ende { Lage::anfang(&self.spline) } else { Lage::ende(&self.spline) }
+        let s = self.weiter.last().unwrap_or(&self.spline);
+        if self.am_ende { Lage::anfang(s) } else { Lage::ende(s) }
     }
 
-    /// der Spline mit diesem Ende an `pos`, seine Richtung dort um `dreh` gedreht
+    /// Splines vom Knoten weg anhaengen (gleicher Querschnitt, lueckenlos verknuepft, keine Abzweigung), bis die
+    /// Kette UMLEGE_MIN lang ist; `ausser`: schon anderweitig vergebene Splines
+    fn verlaengern(&mut self, ae: &Aendern, ausser: &HashSet<i64>) {
+        self.weiter.clear();
+        let mut laenge = self.spline.kurve.length;
+        let mut cur = self.spline.clone();
+        let mut benutzt: HashSet<i64> = ausser.clone();
+        benutzt.insert(self.spline.id);
+        while laenge < UMLEGE_MIN && self.weiter.len() < 12 {
+            // das ferne Ende von cur und die Richtung dort (in Splinerichtung)
+            let (q, h) = if self.am_ende { (cur.kurve.start, cur.kurve.heading_deg) } else { (cur.kurve.end_point(), cur.kurve.heading_at(cur.kurve.length)) };
+            let mut dort: Vec<(&KartenSpline, bool)> = Vec::new();
+            for sp in ae.kacheln.values().flatten() {
+                if sp.id == cur.id {
+                    continue;
+                }
+                for am_ende in [false, true] {
+                    let p = if am_ende { sp.kurve.end_point() } else { sp.kurve.start };
+                    if (p - q).truncate().length() < FANG_ENDEN {
+                        dort.push((sp, am_ende));
+                    }
+                }
+            }
+            // genau ein Nachbar, in gleicher Richtung fortgesetzt
+            let [(n, n_am_ende)] = dort[..] else { break };
+            let passt = n_am_ende == self.am_ende
+                && norm180(if n_am_ende { n.kurve.heading_at(n.kurve.length) } else { n.kurve.heading_deg } - h).abs() < 2.0
+                && n.sli == cur.sli && n.gespiegelt == cur.gespiegelt && !benutzt.contains(&n.id);
+            if !passt {
+                break;
+            }
+            benutzt.insert(n.id);
+            laenge += n.kurve.length;
+            cur = n.clone();
+            self.weiter.push(cur.clone());
+        }
+    }
+
+    /// die Kette mit diesem Ende an `pos`, ihre Richtung dort um `dreh` gedreht
     fn umlegung(&self, pos: DVec3, dreh: f64) -> Umlegung {
         let mut l = self.lage();
         l.pos = pos;
         l.richtung = (l.richtung + dreh).rem_euclid(360.0);
         let f = self.fern();
-        Umlegung { alt: self.spline.clone(), punkte: if self.am_ende { vec![f, l] } else { vec![l, f] } }
+        // in Splinerichtung: am Ende des Splines liegt die Kette davor
+        let mut kette: Vec<KartenSpline> = if self.am_ende {
+            self.weiter.iter().rev().cloned().chain(std::iter::once(self.spline.clone())).collect()
+        } else {
+            std::iter::once(self.spline.clone()).chain(self.weiter.iter().cloned()).collect()
+        };
+        let alt = kette.remove(0);
+        Umlegung { alt, weitere: kette, punkte: if self.am_ende { vec![f, l] } else { vec![l, f] } }
     }
 
     /// Richtung der Sehne zwischen festem Ende und dem Knoten bei p (in Splinerichtung)
@@ -182,6 +244,8 @@ pub struct Knotenwerkzeug {
     /// Griffe in der Naehe der Maus (zum Anzeigen) und der unter der Maus
     pub griffe: Vec<Griff>,
     pub unter_maus: Option<usize>,
+    /// Stelle auf der Strasse unter der Maus (neuer Knoten nur mit Umschalt)
+    pub mitte: Option<usize>,
     zug: Option<Zug>,
     pub plan: Option<Plan>,
     /// beim Ziehen: Richtung am Knoten von Hand gedreht (Mausrad), Hoehe verschoben (Bild auf/ab)
@@ -230,8 +294,8 @@ impl Knotenwerkzeug {
             if !ist_strasse(v, ae, &sp.sli) {
                 continue;
             }
-            enden.push(Ende { spline: sp.clone(), am_ende: false });
-            enden.push(Ende { spline: sp, am_ende: true });
+            enden.push(Ende::neu(sp.clone(), false));
+            enden.push(Ende::neu(sp, true));
         }
         let mut genommen = vec![false; enden.len()];
         for i in 0..enden.len() {
@@ -288,16 +352,19 @@ impl Knotenwerkzeug {
             match g {
                 Griff::Netz { .. } | Griff::Karte { .. } => (d <= fang).then_some(d),
                 Griff::Kreuzung { .. } => (d <= fang.max(8.0)).then_some(100.0 + d),
-                Griff::Mitte { .. } => Some(1000.0 + d),
+                Griff::Mitte { .. } => None,
             }
         };
         self.unter_maus = griffe.iter().enumerate().filter_map(|(i, g)| rang(g).map(|r| (r, i))).min_by(|a, b| a.0.total_cmp(&b.0)).map(|x| x.1);
+        self.mitte = griffe.iter().position(|g| matches!(g, Griff::Mitte { .. }));
         self.griffe = griffe;
     }
 
-    /// Griff unter der Maus nehmen -> ob ein Zug beginnt
-    pub fn greifen(&mut self, boden: DVec3) -> bool {
-        let Some(g) = self.unter_maus.and_then(|i| self.griffe.get(i)).cloned() else { return false };
+    /// Griff unter der Maus nehmen (mit `neu`: sonst die Stelle auf der Strasse, dort entsteht ein Knoten) -> ob ein
+    /// Zug beginnt
+    pub fn greifen(&mut self, boden: DVec3, neu: bool) -> bool {
+        let i = self.unter_maus.or(if neu { self.mitte } else { None });
+        let Some(g) = i.and_then(|i| self.griffe.get(i)).cloned() else { return false };
         self.dreh = 0.0;
         self.hoehe = 0.0;
         self.plan = None;
@@ -328,10 +395,11 @@ impl Knotenwerkzeug {
     pub fn loslassen(&mut self, v: &mut Viewer, ae: &mut Aendern, s: &mut Strassenbau) -> Option<String> {
         let zug = self.zug.take()?;
         let plan = self.plan.take();
+        let (dreh, hoehe) = (self.dreh, self.hoehe);
         self.dreh = 0.0;
         self.hoehe = 0.0;
         let plan = plan?;
-        if (plan.ziel - zug.griff.pos()).length() < 0.05 && plan.netz.is_none() && plan.umlegungen.iter().all(|u| u.punkte.len() == 2) {
+        if (plan.ziel - zug.griff.pos()).length() < 0.05 && dreh == 0.0 && hoehe == 0.0 {
             return None;
         }
         if let Some(f) = &plan.fehler {
@@ -339,7 +407,7 @@ impl Knotenwerkzeug {
         }
         crate::protokoll::aktion(&format!("Knoten ziehen: {} nach {:.1} {:.1}", zug.griff.text(), plan.ziel.x, plan.ziel.y));
         let erg = (|| -> Result<String> {
-            let n = plan.umlegungen.len();
+            let n: usize = plan.umlegungen.iter().map(|u| 1 + u.weitere.len()).sum();
             if !plan.umlegungen.is_empty() || !plan.objekte.is_empty() {
                 ae.umlegen(v, &plan.umlegungen, &plan.objekte)?;
             }
@@ -376,6 +444,8 @@ pub fn planen(v: &Viewer, ae: &mut Aendern, s: &Strassenbau, griff: &Griff, ziel
     let mittel = |w: &[f64]| if w.is_empty() { 0.0 } else { w.iter().sum::<f64>() / w.len() as f64 };
     match griff {
         Griff::Karte { enden, .. } => {
+            let enden = verlaengert(ae, enden);
+            let enden = &enden;
             // die Richtung am Knoten dreht sich mit den Sehnen zu den festen Enden (im Mittel)
             let d: Vec<f64> = enden.iter().map(|e| norm180(e.sehne(ziel.truncate()) - e.sehne(alt.truncate()))).collect();
             let delta = mittel(&d) + dreh;
@@ -388,9 +458,10 @@ pub fn planen(v: &Viewer, ae: &mut Aendern, s: &Strassenbau, griff: &Griff, ziel
             let mut m = Lage::bei(spline, *x);
             m.pos = ziel;
             m.richtung = (m.richtung + (d1 + d2) / 2.0 + dreh).rem_euclid(360.0);
-            plan.umlegungen = vec![Umlegung { alt: spline.clone(), punkte: vec![a, m, b] }];
+            plan.umlegungen = vec![Umlegung { alt: spline.clone(), weitere: vec![], punkte: vec![a, m, b] }];
         }
         Griff::Kreuzung { k, enden } => {
+            let enden = verlaengert(ae, enden);
             // das Objekt wird verschoben (nicht gedreht): die Enden der Strassen gehen mit, in derselben Richtung
             let off = ziel - alt;
             plan.objekte = vec![(k.kachel, k.objekt, off.truncate())];
@@ -436,14 +507,23 @@ pub fn planen(v: &Viewer, ae: &mut Aendern, s: &Strassenbau, griff: &Griff, ziel
             if let Some((h, _)) = kn.anschluss {
                 karten_enden.push((kn.pos, h + 180.0));
             }
+            let mut gefunden = Vec::new();
             for (q, h) in karten_enden {
                 match ende_bei(ae, q, Some(h)) {
-                    Some(e) => plan.umlegungen.push(e.umlegung(e.lage().pos + off, 0.0)),
+                    Some(e) => gefunden.push(e),
+                    None if kn.kartenarme.is_empty() => {
+                        // Anschluss an einen offenen Arm eines Kreuzungsobjekts (dort endet kein Spline)
+                        plan.fehler = Some("der Knoten haengt an einer Kreuzung der Karte - die Kreuzung verschieben".into());
+                        return plan;
+                    }
                     None => {
-                        plan.fehler = Some("angeschlossene Strasse der Karte nicht geladen".into());
+                        plan.fehler = Some("angeschlossene Strasse der Karte nicht gefunden (Kachel wird noch geladen?)".into());
                         return plan;
                     }
                 }
+            }
+            for e in verlaengert(ae, &gefunden) {
+                plan.umlegungen.push(e.umlegung(e.lage().pos + off, 0.0));
             }
             if let Some(x) = netz.knoten.iter_mut().find(|x| x.id == *knoten) {
                 x.pos = ziel;
@@ -484,6 +564,12 @@ pub fn planen(v: &Viewer, ae: &mut Aendern, s: &Strassenbau, griff: &Griff, ziel
                     }
                 }
                 let (l, r) = ae.breite(v, &u.alt.sli);
+                let halb = l.max(r) as f64;
+                if let Some(rmin) = el.iter().filter(|x| x.stueck.radius != 0.0).map(|x| x.stueck.radius.abs()).min_by(|a, b| a.total_cmp(b)) {
+                    if rmin < halb + 1.0 {
+                        plan.fehler = Some(format!("Kurve zu eng fuer den Querschnitt (Radius {rmin:.1} m) - weiter vom Ende weg ziehen"));
+                    }
+                }
                 plan.linien.push((netz::abtasten(&el, 2.0).into_iter().map(|(p, _)| p).zip(richtungen(&el)).collect(), l.max(r) as f64));
             }
             Err(e) => {
@@ -492,6 +578,17 @@ pub fn planen(v: &Viewer, ae: &mut Aendern, s: &Strassenbau, griff: &Griff, ziel
         }
     }
     plan
+}
+
+/// Enden mit ihren Verlaengerungen (jede Kette nur einmal)
+fn verlaengert(ae: &Aendern, enden: &[Ende]) -> Vec<Ende> {
+    let mut vergeben: HashSet<i64> = enden.iter().map(|e| e.spline.id).collect();
+    enden.iter().map(|e| {
+        let mut e = e.clone();
+        e.verlaengern(ae, &vergeben);
+        vergeben.extend(e.weiter.iter().map(|x| x.id));
+        e
+    }).collect()
 }
 
 /// Richtungen passend zu netz::abtasten(el, 2.0)
@@ -522,7 +619,7 @@ fn ende_bei(ae: &Aendern, q: DVec3, weg: Option<f64>) -> Option<Ende> {
             }
             let d = (p - q).truncate().length();
             if d < FANG_ENDEN && best.as_ref().map(|b| d < b.0).unwrap_or(true) {
-                best = Some((d, Ende { spline: sp.clone(), am_ende }));
+                best = Some((d, Ende::neu(sp.clone(), am_ende)));
             }
         }
     }
@@ -572,8 +669,8 @@ impl Aendern {
     pub fn umlegen(&mut self, v: &mut Viewer, umlegungen: &[Umlegung], objekte: &[((i32, i32), i64, DVec2)]) -> Result<usize> {
         let ts = omsi_map::tile_size();
         let kachel_von = |p: DVec2| ((p.x / ts).floor() as i32, (p.y / ts).floor() as i32);
-        let alte: HashSet<i64> = umlegungen.iter().map(|u| u.alt.id).collect();
-        if alte.len() != umlegungen.len() {
+        let alte: HashSet<i64> = umlegungen.iter().flat_map(|u| u.kette().into_iter().map(|x| x.id)).collect();
+        if alte.len() != umlegungen.iter().map(|u| 1 + u.weitere.len()).sum::<usize>() {
             bail!("ein Spline wuerde zweimal neu gelegt");
         }
         let mut naechste = v.next_object_id();
@@ -582,16 +679,21 @@ impl Aendern {
         let mut letzte: HashMap<i64, i64> = HashMap::new();
         for u in umlegungen {
             let el = u.elemente().with_context(|| format!("Spline {}", u.alt.id))?;
+            // IDs: das erste Stueck behaelt die des ersten Splines, weitere nehmen die der uebrigen, dann neue
+            let mut frei: std::collections::VecDeque<i64> = u.weitere.iter().map(|x| x.id).collect();
             let st: Vec<_> = el.into_iter().enumerate().map(|(i, (e, qa, qb))| {
                 let id = if i == 0 {
                     u.alt.id
+                } else if let Some(x) = frei.pop_front() {
+                    x
                 } else {
                     naechste += 1;
                     naechste - 1
                 };
                 (kachel_von(e.stueck.start), e, (qa, qb), id)
             }).collect();
-            letzte.insert(u.alt.id, st.last().map(|x| x.3).unwrap_or(u.alt.id));
+            let letzter = u.weitere.last().unwrap_or(&u.alt).id;
+            letzte.insert(letzter, st.last().map(|x| x.3).unwrap_or(u.alt.id));
             stuecke.push(st);
         }
         // Eintraege: an Ort und Stelle ersetzen (erstes Stueck in der Kachel des alten Splines) oder entfernen und
@@ -601,26 +703,32 @@ impl Aendern {
         let mut neu = 0;
         for (u, st) in umlegungen.iter().zip(&stuecke) {
             let alt = &u.alt;
+            let kette = u.kette();
+            let letzter = *kette.last().unwrap();
             let mut tex = alt.kurve.tex_offset;
             let n = st.len();
-            let mut an_ort = false;
+            let mut an_ort: HashSet<i64> = HashSet::new();
             for (i, (k, e, quer, id)) in st.iter().enumerate() {
                 let prev = if i == 0 { letzte.get(&alt.prev).copied().unwrap_or(alt.prev) } else { st[i - 1].3 };
-                let next = if i + 1 == n { alt.next } else { st[i + 1].3 };
-                let schraeg = (if i == 0 { alt.kurve.skew_start } else { 0.0 }, if i + 1 == n { alt.kurve.skew_end } else { 0.0 });
+                let next = if i + 1 == n { letzter.next } else { st[i + 1].3 };
+                let schraeg = (if i == 0 { alt.kurve.skew_start } else { 0.0 }, if i + 1 == n { letzter.kurve.skew_end } else { 0.0 });
                 let z = datensatz(alt, e, *quer, schraeg, *id, prev, next, *k, tex);
                 tex += e.stueck.laenge;
-                if i == 0 && *k == alt.kachel {
-                    ersetzen.entry(alt.kachel).or_default().push((alt.id, Some(z)));
-                    an_ort = true;
-                } else {
-                    anhaengen.entry(*k).or_default().push(z);
+                // ein Stueck mit der ID eines alten Splines in dessen Kachel ersetzt ihn an Ort und Stelle
+                match kette.iter().find(|x| x.id == *id) {
+                    Some(x) if x.kachel == *k => {
+                        ersetzen.entry(x.kachel).or_default().push((x.id, Some(z)));
+                        an_ort.insert(x.id);
+                    }
+                    _ => anhaengen.entry(*k).or_default().push(z),
                 }
             }
-            if !an_ort {
-                ersetzen.entry(alt.kachel).or_default().push((alt.id, None));
+            for x in &kette {
+                if !an_ort.contains(&x.id) {
+                    ersetzen.entry(x.kachel).or_default().push((x.id, None));
+                }
             }
-            neu += n.saturating_sub(1);
+            neu += n.saturating_sub(kette.len());
         }
         // Nachfolger ausserhalb, deren prev auf einen neu gelegten Spline zeigte
         let mut prev_neu: BTreeMap<(i32, i32), Vec<(i64, i64)>> = BTreeMap::new();
@@ -639,8 +747,8 @@ impl Aendern {
         let mut kacheln: Vec<(i32, i32)> = ersetzen.keys().chain(anhaengen.keys()).chain(prev_neu.keys()).chain(verschieben.keys()).copied().collect();
         kacheln.sort();
         kacheln.dedup();
-        log::info!("Knoten ziehen: {} Spline(s) neu gelegt ({neu} neue Stuecke), {} Objekt(e) verschoben, Kacheln {kacheln:?}",
-                   umlegungen.len(), objekte.len());
+        log::info!("Knoten ziehen: {} Spline(s) neu gelegt ({neu} Stuecke mehr), {} Objekt(e) verschoben, Kacheln {kacheln:?}",
+                   alte.len(), objekte.len());
         self.kacheln_aendern(v, &kacheln, |k, zeilen| {
             if !zeilen.iter().take(20).position(|l| l.trim().eq_ignore_ascii_case("[version]"))
                 .and_then(|i| zeilen.get(i + 1)).and_then(|l| l.trim().parse::<i32>().ok()).is_some_and(|x| x >= 11) {
@@ -768,7 +876,7 @@ mod tests {
         let sp = gerade(100.0);
         let mut m = Lage::bei(&sp, 50.0);
         m.pos.x += 8.0;
-        let u = Umlegung { alt: sp.clone(), punkte: vec![Lage::anfang(&sp), m, Lage::ende(&sp)] };
+        let u = Umlegung { alt: sp.clone(), weitere: vec![], punkte: vec![Lage::anfang(&sp), m, Lage::ende(&sp)] };
         let el: Vec<Element> = u.elemente().unwrap().into_iter().map(|x| x.0).collect();
         assert!(el.len() >= 2);
         let k: Vec<omsi_geometry::SplineCurve> = el.iter().map(|e| e.kurve(0, 0.0)).collect();
@@ -786,7 +894,7 @@ mod tests {
         // hinter das feste Ende gezogen: abgelehnt statt Schleife
         let mut m = Lage::bei(&sp, 50.0);
         m.pos.y = -30.0;
-        assert!(Umlegung { alt: sp.clone(), punkte: vec![Lage::anfang(&sp), m, Lage::ende(&sp)] }.elemente().is_err());
+        assert!(Umlegung { alt: sp.clone(), weitere: vec![], punkte: vec![Lage::anfang(&sp), m, Lage::ende(&sp)] }.elemente().is_err());
     }
 
     fn boden(v: &Viewer, p: DVec2) -> DVec3 {
@@ -831,7 +939,7 @@ mod tests {
         w.suchen(&v, &mut a, &s, knoten, 1.0, 60.0);
         let g = w.unter_maus.map(|i| w.griffe[i].clone()).expect("kein Griff");
         assert!(matches!(&g, Griff::Karte { enden, .. } if enden.len() == 2), "{}", g.text());
-        assert!(w.greifen(knoten));
+        assert!(w.greifen(knoten, false));
         let quer = netz::rechts(sa.kurve.heading_at(sa.kurve.length));
         let ziel = boden(&v, knoten.truncate() + quer * 4.0);
         w.ziehen(&v, &mut a, &s, Some(ziel));
@@ -859,9 +967,10 @@ mod tests {
             && v.spline_end_free(x.id, true) == Some(false)).expect("langer Spline");
         let mitte = lang.kurve.point_at(lang.kurve.length / 2.0);
         w.suchen(&v, &mut a, &s, mitte, 1.0, 60.0);
-        let g = w.unter_maus.map(|i| w.griffe[i].clone()).expect("kein Griff auf dem Spline");
+        assert!(w.unter_maus.is_none(), "ohne Umschalt kein neuer Knoten");
+        let g = w.mitte.map(|i| w.griffe[i].clone()).expect("kein Griff auf dem Spline");
         assert!(matches!(&g, Griff::Mitte { spline, .. } if spline.id == lang.id), "{}", g.text());
-        w.greifen(mitte);
+        w.greifen(mitte, true);
         let ziel = boden(&v, mitte.truncate() + netz::rechts(lang.kurve.heading_at(lang.kurve.length / 2.0)) * 5.0);
         w.ziehen(&v, &mut a, &s, Some(ziel));
         let m = w.loslassen(&mut v, &mut a, &mut s2).unwrap();
@@ -907,7 +1016,7 @@ mod tests {
             }
         };
         bild(&mut v, "vorher");
-        w.greifen(k.pos);
+        w.greifen(k.pos, false);
         let ziel = k.pos + DVec3::new(3.0, -2.0, 0.0);
         w.ziehen(&v, &mut a, &s, Some(ziel));
         assert!(w.plan.as_ref().unwrap().fehler.is_none(), "{:?}", w.plan.as_ref().unwrap().fehler);
@@ -955,7 +1064,7 @@ mod tests {
         let mut w = Knotenwerkzeug::default();
         w.suchen(&v, &mut a, &s, boden(&v, p1), 1.0, 80.0);
         assert!(matches!(w.unter_maus.map(|i| &w.griffe[i]), Some(Griff::Netz { knoten, .. }) if *knoten == mitte));
-        w.greifen(boden(&v, p1));
+        w.greifen(boden(&v, p1), false);
         w.ziehen(&v, &mut a, &s, Some(boden(&v, p1 + netz::dir(ab.richtung) * 6.0)));
         let m = w.loslassen(&mut v, &mut a, &mut s).unwrap();
         println!("{m}");
@@ -969,7 +1078,7 @@ mod tests {
         let kr = s.netz.knoten.iter().find(|k| k.kartenarme.len() == 2).expect("Kreuzung mit Kartenarmen").clone();
         w.suchen(&v, &mut a, &s, kr.pos, 1.0, 80.0);
         assert!(matches!(w.unter_maus.map(|i| &w.griffe[i]), Some(Griff::Netz { knoten, .. }) if *knoten == kr.id));
-        w.greifen(kr.pos);
+        w.greifen(kr.pos, false);
         let ziel = kr.pos + (netz::dir(ab.richtung) * 3.0).extend(0.0);
         w.ziehen(&v, &mut a, &s, Some(ziel));
         assert!(w.plan.as_ref().unwrap().fehler.is_none(), "{:?}", w.plan.as_ref().unwrap().fehler);
@@ -990,5 +1099,70 @@ mod tests {
         for ka in &kr.kartenarme {
             assert!(ende_bei(&a, ka.pos, Some(ka.richtung)).is_some(), "Kartenarm nach Rueckgaengig nicht zurueck");
         }
+    }
+}
+
+#[cfg(test)]
+mod nutzer_tests {
+    use super::*;
+
+    /// nur in der Sitzung: Griffe an einer Stelle der Karte des Nutzers auflisten und jeden 2 m ziehen (OMSI_KARTE,
+    /// OMSI_X, OMSI_Y)
+    #[test]
+    #[ignore]
+    fn griffe_der_nutzerkarte() {
+        let _sperre = crate::bearbeiten::tests::sperre();
+        let Ok(karte) = std::env::var("OMSI_KARTE") else { return };
+        let x: f64 = std::env::var("OMSI_X").unwrap().parse().unwrap();
+        let y: f64 = std::env::var("OMSI_Y").unwrap().parse().unwrap();
+        let root = std::path::Path::new(crate::bearbeiten::tests::OMSI);
+        let (mut v, _) = Viewer::open(&openomsi_game::viewer::instance(), None, root, &root.join("maps").join(&karte).join("global.cfg")).unwrap();
+        v.tiles_around(DVec3::new(x, y, 0.0), 2).unwrap();
+        let mut a = Aendern::neu(&v);
+        a.aktualisieren(&v);
+        let p = DVec2::new(x, y);
+        let mut sp: Vec<KartenSpline> = a.kacheln.values().flatten().filter(|s| (s.kurve.start.truncate() - p).length() < 60.0 || (s.kurve.end_point().truncate() - p).length() < 60.0).cloned().collect();
+        sp.sort_by_key(|s| s.id);
+        for s in &sp {
+            let e = s.kurve.end_point();
+            println!("Spline {} {} L {:.2} R {:.1}  {:.2} {:.2} h {:.1} -> {:.2} {:.2} h {:.1}  prev {} next {} frei {:?}/{:?}", s.id, s.sli.rsplit('\\').next().unwrap(), s.kurve.length, s.kurve.radius,
+                     s.kurve.start.x, s.kurve.start.y, s.kurve.heading_deg, e.x, e.y, s.kurve.heading_at(s.kurve.length).rem_euclid(360.0), s.prev, s.next,
+                     v.spline_end_free(s.id, false), v.spline_end_free(s.id, true));
+        }
+        let s = Strassenbau::default();
+        let mut w = Knotenwerkzeug::default();
+        let g = DVec3::new(x, y, v.terrain_height(x, y).unwrap_or(0.0));
+        w.suchen(&v, &mut a, &s, g, 1.0, 60.0);
+        let griffe = w.griffe.clone();
+        for gr in &griffe {
+            let pos = gr.pos();
+            let extra = match gr {
+                Griff::Karte { enden, .. } => format!("{:?}", enden.iter().map(|e| (e.spline.id, e.am_ende)).collect::<Vec<_>>()),
+                Griff::Kreuzung { k, enden } => format!("Objekt {} Arme {:?} Enden {:?}", k.objekt, k.arme.iter().map(|a| (a.pos.x.round(), a.pos.y.round(), a.richtung.round())).collect::<Vec<_>>(),
+                                                        enden.iter().map(|e| (e.spline.id, e.am_ende)).collect::<Vec<_>>()),
+                Griff::Mitte { spline, .. } => format!("Spline {}", spline.id),
+                Griff::Netz { knoten, .. } => format!("Knoten {knoten}"),
+            };
+            let plan = planen(&v, &mut a, &s, gr, pos + DVec3::new(2.0, 0.0, 0.0), 0.0);
+            println!("Griff {} bei {:.1} {:.1}: {extra} -> Fehler {:?} Warnung {:?}", gr.text(), pos.x, pos.y, plan.fehler, plan.warnung);
+        }
+        // die Kreuzung 2 m verschieben und zeigen (OMSI_BILD: vorher/nachher)
+        if let Some(k) = griffe.iter().find(|g| matches!(g, Griff::Kreuzung { .. })) {
+            let kam = crate::kamera::Kamera { ziel: k.pos(), gier: 200.0, neigung: -55.0, abstand: 55.0, fov: 50.0 };
+            let bild = |v: &mut Viewer, name: &str| {
+                if let Some(b) = std::env::var_os("OMSI_BILD") {
+                    let px = v.render_image(1280, 800, &kam.camera()).unwrap();
+                    image::save_buffer(std::path::PathBuf::from(b).with_extension(format!("{name}.png")), &px, 1280, 800, image::ColorType::Rgba8).unwrap();
+                }
+            };
+            bild(&mut v, "vorher");
+            let mut s2 = Strassenbau::default();
+            w.suchen(&v, &mut a, &s2, k.pos(), 1.0, 60.0);
+            assert!(w.greifen(k.pos(), false));
+            w.ziehen(&v, &mut a, &s2, Some(k.pos() + DVec3::new(2.0, 0.0, 0.0)));
+            println!("{:?}", w.loslassen(&mut v, &mut a, &mut s2));
+            bild(&mut v, "nachher");
+        }
+        drop(a);
     }
 }

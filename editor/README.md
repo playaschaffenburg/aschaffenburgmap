@@ -121,8 +121,10 @@ aufgeschnitten war, schließt ein Stück in deren Querschnitt die Lücke wieder.
 
 **Verlauf ändern (Werkzeug „Knoten“, Taste N)** wie in Transport Fever 2: Knoten greifen und ziehen, die Straße legt
 sich in glatten Bögen neu. Griffe (im Umkreis der Maus): blau die Verbindung zweier Splines einer Karte oder ein
-freies Straßenende, grün die Knoten eigener Straßen, orange Quadrat eine vorhandene Kreuzung; irgendwo auf einer
-Straße greifen setzt dort einen neuen Knoten (der Spline wird geteilt). Ersetzt werden nur die Splines am gezogenen
+freies Straßenende, grün die Knoten eigener Straßen, orange Quadrat eine vorhandene Kreuzung; **Umschalt** + irgendwo
+auf einer Straße ziehen setzt dort einen neuen Knoten (der Spline wird geteilt). Kurze Splines (an Kreuzungen oft
+unter 10 m) werden mit ihren verknüpften Nachbarn gleichen Querschnitts neu gelegt, bis mindestens 30 m Strecke da
+sind – sonst entstünden enge S-Kurven; Kurven enger als der Querschnitt breit ist, werden abgelehnt. Ersetzt werden nur die Splines am gezogenen
 Knoten: durch Bögen (`netz::verbinden`, Bogen oder Bogenpaar), die an ihren festen Enden in Lage, Richtung, Steigung
 und Querneigung genau wie vorher anschließen – die Spuren zu den Nachbarn bleiben verbunden, Querschnitt und
 `mirror` bleiben. Am Knoten bleibt der Verlauf knickfrei (die Richtung dreht sich mit den Sehnen zu den festen

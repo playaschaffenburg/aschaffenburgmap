@@ -1116,7 +1116,7 @@ impl App {
                     ui.label("blau: Verbindung zweier Splines oder freies Ende der Karte");
                     ui.label("gruen: Knoten eigener Strassen");
                     ui.label("orange Quadrat: Kreuzung - wird mit ihren Strassen verschoben");
-                    ui.label("irgendwo auf einer Strasse greifen: setzt dort einen neuen Knoten");
+                    ui.label("Umschalt + irgendwo auf einer Strasse ziehen: setzt dort einen neuen Knoten");
                     ui.add_space(4.0);
                     ui.label(egui::RichText::new("Beim Ziehen").strong());
                     ui.label("Mausrad: Richtung am Knoten drehen (Umschalt: fein)");
@@ -1349,7 +1349,7 @@ impl App {
                         let Some(m) = pt(g.pos()) else { continue };
                         match g {
                             knoten::Griff::Mitte { .. } => {
-                                if unter {
+                                if Some(i) == self.knoten.mitte && self.knoten.unter_maus.is_none() && self.umschalt {
                                     maler.circle_stroke(m, 6.0, egui::Stroke::new(2.0, egui::Color32::WHITE));
                                     maler.text(m + egui::vec2(10.0, 8.0), egui::Align2::LEFT_TOP, g.text(), egui::FontId::proportional(13.0), egui::Color32::WHITE);
                                 }
@@ -2297,7 +2297,7 @@ impl ApplicationHandler for App {
                             if let Some(sp) = a.spline(id).cloned() {
                                 let p = sp.kurve.point_at(sp.kurve.length / 2.0);
                                 self.knoten.suchen(v, a, &self.strasse, p, 1.0, 80.0);
-                                if self.knoten.greifen(p) {
+                                if self.knoten.greifen(p, true) {
                                     let q = p.truncate() + crate::netz::rechts(sp.kurve.heading_at(sp.kurve.length / 2.0)) * 3.0;
                                     self.knoten.ziehen(v, a, &self.strasse, Some(q.extend(p.z)));
                                     m = self.knoten.loslassen(v, a, &mut self.strasse).unwrap_or_default();
@@ -2475,7 +2475,7 @@ impl ApplicationHandler for App {
                     }
                     if button == MouseButton::Left && self.bearb.werkzeug == Werkzeug::Knoten {
                         if let Some(g) = self.boden_unter_maus {
-                            if self.knoten.greifen(g) {
+                            if self.knoten.greifen(g, self.umschalt) {
                                 self.knoten_neu_rechnen();
                             }
                         }
