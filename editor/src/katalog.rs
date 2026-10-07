@@ -13,13 +13,17 @@ pub struct Eintrag {
     pub gruppen: Vec<String>,
     /// woher das Objekt stammt: "OMSI (Standard)", eine Stadt/Karte, ...
     pub herkunft: String,
+    /// Editor-Objekt, das das Spiel nicht zeichnet ([onlyeditor] oder ohne Modell): Einstiegspunkte, Haltestellen-
+    /// Marken, Schallquellen, unsichtbare Kreuzungen ...
+    pub editor: bool,
     /// alles klein, fuer die Suche
     such: String,
 }
 
 impl Eintrag {
-    pub fn passt(&self, suche: &str, ordner: Option<&str>, gruppe: Option<&str>, herkunft: Option<&str>) -> bool {
-        herkunft.map(|h| self.herkunft == h).unwrap_or(true)
+    pub fn passt(&self, suche: &str, ordner: Option<&str>, gruppe: Option<&str>, herkunft: Option<&str>, editor: Option<bool>) -> bool {
+        editor.map(|e| self.editor == e).unwrap_or(true)
+            && herkunft.map(|h| self.herkunft == h).unwrap_or(true)
             && ordner.map(|o| self.ordner == o).unwrap_or(true)
             && gruppe.map(|g| self.gruppen.iter().any(|x| x == g)).unwrap_or(true)
             && (suche.is_empty() || suche.split_whitespace().all(|w| self.such.contains(w)))
@@ -158,13 +162,17 @@ pub fn einlesen(root: &Path) -> Katalog {
             }
             let text: String = std::fs::read(&p).map(|b| b.iter().map(|&c| c as char).collect()).unwrap_or_default();
             let (fname, gruppen) = kopf(&text);
+            let editor = text.lines().any(|l| {
+                let l = l.trim();
+                l.eq_ignore_ascii_case("[onlyeditor]")
+            }) || !text.lines().any(|l| l.trim().eq_ignore_ascii_case("[mesh]"));
             let datei = p.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
             let rel = p.strip_prefix(root).unwrap_or(&p).to_string_lossy().replace('/', "\\");
             let ordner = p.strip_prefix(&basis).ok().and_then(|r| r.components().next()).map(|c| c.as_os_str().to_string_lossy().to_string()).unwrap_or_default();
             let name = fname.unwrap_or(datei.clone());
             let herkunft = herkunft(&ordner, &genutzt);
-            let such = format!("{} {} {} {} {}", name, datei, rel, gruppen.join(" "), herkunft).to_lowercase();
-            eintraege.push(Eintrag { rel, name, ordner, gruppen, herkunft, such });
+            let such = format!("{} {} {} {} {}{}", name, datei, rel, gruppen.join(" "), herkunft, if editor { " editor unsichtbar" } else { "" }).to_lowercase();
+            eintraege.push(Eintrag { rel, name, ordner, gruppen, herkunft, editor, such });
         }
     }
     eintraege.sort_by(|a, b| (a.ordner.to_lowercase(), a.name.to_lowercase()).cmp(&(b.ordner.to_lowercase(), b.name.to_lowercase())));
@@ -198,10 +206,11 @@ mod tests {
     #[test]
     fn filtern() {
         let e = Eintrag { rel: "Sceneryobjects\\A\\bank.sco".into(), name: "Parkbank".into(), ordner: "A".into(),
-                          gruppen: vec!["Moebel".into()], herkunft: "Hamburg".into(),
+                          gruppen: vec!["Moebel".into()], herkunft: "Hamburg".into(), editor: false,
                           such: "parkbank bank sceneryobjects\\a\\bank.sco moebel".into() };
-        assert!(e.passt("park", None, None, None) && e.passt("bank moeb", Some("A"), Some("Moebel"), Some("Hamburg")));
-        assert!(!e.passt("haus", None, None, None) && !e.passt("", Some("B"), None, None) && !e.passt("", None, None, Some(STANDARD)));
+        assert!(e.passt("park", None, None, None, None) && e.passt("bank moeb", Some("A"), Some("Moebel"), Some("Hamburg"), Some(false)));
+        assert!(!e.passt("haus", None, None, None, None) && !e.passt("", Some("B"), None, None, None) && !e.passt("", None, None, Some(STANDARD), None));
+        assert!(!e.passt("", None, None, None, Some(true)), "kein Editor-Objekt");
     }
 
     #[test]

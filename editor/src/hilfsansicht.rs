@@ -10,11 +10,10 @@ use std::collections::HashMap;
 #[derive(Default)]
 pub struct Hilfsansicht {
     pub an: bool,
-    /// gezeigte Modelle unsichtbarer Objekte (je Objekt-ID)
-    gezeigt: HashMap<i64, Option<TileGpu>>,
+    /// gezeigte Modelle unsichtbarer Objekte (je Objekt-ID, mit Lage und Richtung beim Zeichnen)
+    gezeigt: HashMap<i64, (Option<TileGpu>, DVec3, f64)>,
     /// unsichtbare Objekte der geladenen Kacheln: Lage, Richtung, Name, mit Modell
     pub objekte: Vec<(DVec3, f64, String, bool)>,
-    zuletzt: Option<std::time::Instant>,
 }
 
 /// ein Pfad fuer die Anzeige: Punkte, Farbe (RGB), unsichtbare Strasse
@@ -25,7 +24,8 @@ pub struct Pfad<'a> {
 }
 
 impl Hilfsansicht {
-    /// unsichtbare Objekte abgleichen (hoechstens zweimal je Sekunde: Kacheln kommen und gehen beim Streamen)
+    /// unsichtbare Objekte abgleichen (jedes Bild: das Objekte-Werkzeug verschiebt sie; neu gezeichnet wird nur, was
+    /// sich bewegt hat)
     pub fn aktualisieren(&mut self, v: &mut Viewer) {
         if !self.an {
             if !self.gezeigt.is_empty() {
@@ -33,24 +33,26 @@ impl Hilfsansicht {
             }
             return;
         }
-        if self.zuletzt.is_some_and(|t| t.elapsed().as_millis() < 500) {
-            return;
-        }
-        self.zuletzt = Some(std::time::Instant::now());
         let liste = v.hidden_objects();
         let ids: std::collections::HashSet<i64> = liste.iter().map(|x| x.0).collect();
         let weg: Vec<i64> = self.gezeigt.keys().copied().filter(|id| !ids.contains(id)).collect();
         for id in weg {
-            if let Some(Some(g)) = self.gezeigt.remove(&id) {
+            if let Some((Some(g), _, _)) = self.gezeigt.remove(&id) {
                 v.remove_object(g);
             }
         }
         self.objekte.clear();
         for (id, pos, richtung, sco, modell) in liste {
             let rel = relativ(&v.root, &sco);
+            let bewegt = self.gezeigt.get(&id).is_some_and(|(_, p, h)| (*p - pos).length() > 1e-4 || (h - richtung).abs() > 1e-4);
+            if bewegt {
+                if let Some((Some(g), _, _)) = self.gezeigt.remove(&id) {
+                    v.remove_object(g);
+                }
+            }
             if modell && !self.gezeigt.contains_key(&id) {
                 let g = v.add_object(&rel, pos, richtung);
-                self.gezeigt.insert(id, g);
+                self.gezeigt.insert(id, (g, pos, richtung));
             }
             let name = rel.rsplit('\\').next().unwrap_or(&rel).to_string();
             self.objekte.push((pos, richtung, name, modell));
@@ -59,13 +61,12 @@ impl Hilfsansicht {
 
     /// alle gezeigten Modelle wegnehmen (Ansicht aus, Kartenwechsel)
     pub fn leeren(&mut self, v: &mut Viewer) {
-        for (_, g) in self.gezeigt.drain() {
+        for (_, (g, _, _)) in self.gezeigt.drain() {
             if let Some(g) = g {
                 v.remove_object(g);
             }
         }
         self.objekte.clear();
-        self.zuletzt = None;
     }
 }
 
@@ -106,7 +107,7 @@ mod tests {
         v.tiles_around(DVec3::new(150.0, 150.0, 0.0), 8).unwrap();
         let mut h = Hilfsansicht { an: true, ..Default::default() };
         h.aktualisieren(&mut v);
-        println!("{} unsichtbare Objekte, {} mit Modell gezeigt", h.objekte.len(), h.gezeigt.values().filter(|g| g.is_some()).count());
+        println!("{} unsichtbare Objekte, {} mit Modell gezeigt", h.objekte.len(), h.gezeigt.values().filter(|g| g.0.is_some()).count());
         let mut namen: Vec<&String> = h.objekte.iter().map(|o| &o.2).collect();
         namen.sort();
         namen.dedup();

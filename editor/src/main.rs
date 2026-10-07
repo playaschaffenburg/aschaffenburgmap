@@ -206,6 +206,8 @@ struct App {
     katalog_ordner: Option<String>,
     katalog_gruppe: Option<String>,
     katalog_herkunft: Option<String>,
+    /// nur sichtbare (false) bzw. nur Editor-Objekte (true)
+    katalog_editor: Option<bool>,
     vorschau: vorschau::Vorschau,
     /// gewaehltes Objekt zum Platzieren (relativer .sco-Pfad)
     platzier: Option<String>,
@@ -342,6 +344,7 @@ impl App {
             katalog_ordner: None,
             katalog_gruppe: None,
             katalog_herkunft: None,
+            katalog_editor: None,
             vorschau: vorschau::Vorschau::default(),
             platzier: None,
             strasse: strasse::Strassenbau::default(),
@@ -463,6 +466,7 @@ impl App {
         if let Some(v) = self.viewer.as_mut() {
             v.stream(ziel, weite, std::time::Duration::from_millis(STREAM_BUDGET_MS));
             self.hilfe.aktualisieren(v);
+            self.bearb.unsichtbare = self.hilfe.an;
             if self.bearb.werkzeug == Werkzeug::Strasse {
                 self.anschluesse.aktualisieren(v);
             }
@@ -994,6 +998,15 @@ impl App {
                             }
                         });
                         ui.end_row();
+                        ui.label("Art");
+                        let txt = match self.katalog_editor { None => "alle", Some(false) => "sichtbare Objekte", Some(true) => "Editor-Objekte (unsichtbar)" };
+                        egui::ComboBox::from_id_salt("art").width(220.0).selected_text(txt).show_ui(ui, |ui| {
+                            ui.selectable_value(&mut self.katalog_editor, None, "alle");
+                            ui.selectable_value(&mut self.katalog_editor, Some(false), "sichtbare Objekte");
+                            ui.selectable_value(&mut self.katalog_editor, Some(true), format!("Editor-Objekte (unsichtbar, {})", kat.eintraege.iter().filter(|e| e.editor).count()))
+                                .on_hover_text("Objekte, die das Spiel nicht zeichnet: Einstiegspunkte, Haltestellen-Marken, Schallquellen, unsichtbare Kreuzungen ... Mit H (Pfade) werden sie im Bild gezeigt.");
+                        });
+                        ui.end_row();
                         ui.label("Gruppe");
                         egui::ComboBox::from_id_salt("gruppe").width(220.0).selected_text(self.katalog_gruppe.clone().unwrap_or("alle".into())).show_ui(ui, |ui| {
                             ui.selectable_value(&mut self.katalog_gruppe, None, "alle");
@@ -1005,7 +1018,7 @@ impl App {
                     });
                     let suche = self.katalog_suche.to_lowercase();
                     let treffer: Vec<&katalog::Eintrag> = kat.eintraege.iter()
-                        .filter(|e| e.passt(&suche, self.katalog_ordner.as_deref(), self.katalog_gruppe.as_deref(), self.katalog_herkunft.as_deref()))
+                        .filter(|e| e.passt(&suche, self.katalog_ordner.as_deref(), self.katalog_gruppe.as_deref(), self.katalog_herkunft.as_deref(), self.katalog_editor))
                         .collect();
                     ui.label(egui::RichText::new(format!("{} von {} Objekten", treffer.len(), kat.eintraege.len())).small().weak());
                     ui.separator();

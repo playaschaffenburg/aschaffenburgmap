@@ -89,12 +89,14 @@ pub struct Bearbeiten {
     pub platzier_richtung: f64,
     /// Anzahl Aenderungen seit dem Oeffnen (fuers Speichern)
     pub aenderungen: usize,
+    /// auch die unsichtbaren Objekte der Karte waehlen (nur wenn die Hilfsansicht sie zeigt)
+    pub unsichtbare: bool,
 }
 
 impl Default for Bearbeiten {
     fn default() -> Self {
         Bearbeiten { ed: Editor::default(), werkzeug: Werkzeug::Ansehen, wahl: None, unter_maus: None, neue: vec![],
-                     ziehen: None, undo: vec![], redo: vec![], geist: None, platzier_richtung: 0.0, aenderungen: 0 }
+                     ziehen: None, undo: vec![], redo: vec![], geist: None, platzier_richtung: 0.0, aenderungen: 0, unsichtbare: false }
     }
 }
 
@@ -123,9 +125,11 @@ impl Bearbeiten {
 
     /// alle Objekte im Bild: die der geladenen Kacheln und die neuen (geloeschte nicht)
     pub fn objekte(&self, v: &Viewer) -> Vec<Objekt> {
+        let unsichtbar: std::collections::HashSet<i64> = if self.unsichtbare { Default::default() } else { v.hidden_objects().into_iter().map(|x| x.0).collect() };
         let mut out: Vec<Objekt> = v
             .objects()
             .into_iter()
+            .filter(|(id, ..)| !unsichtbar.contains(id))
             .map(|(id, pos, richtung, sco)| Objekt { wahl: Wahl::Karte(id), pos, richtung, sco })
             .collect();
         for (i, n) in self.neue.iter().enumerate().filter(|(_, n)| !n.z.geloescht) {
@@ -486,6 +490,47 @@ pub mod tests {
         let alt = omsi_map::Tile::load(&Path::new(OMSI).join("maps/Grundorf/tile_1_0.map")).unwrap();
         let (n, a) = (t.objects.iter().find(|x| x.id == 10).unwrap(), alt.objects.iter().find(|x| x.id == 10).unwrap());
         assert!((n.pos[0] - a.pos[0] - 1.0).abs() < 1e-3 && (n.pos[1] - a.pos[1]).abs() < 1e-3 && (n.pos[2] - a.pos[2]).abs() < 1e-3, "{:?} -> {:?}", a.pos, n.pos);
+        let _ = std::fs::remove_dir_all(staging);
+    }
+
+    /// unsichtbare Objekte ([onlyeditor]: Einstiegspunkte, Haltestellen-Marken) sind nur mit der Hilfsansicht waehlbar
+    /// und lassen sich dann verschieben und loeschen
+    #[test]
+    #[ignore]
+    fn unsichtbare_objekte_bearbeiten() {
+        let _sperre = sperre();
+        let mut v = grundorf();
+        v.tiles_around(DVec3::new(150.0, 150.0, 0.0), 8).unwrap();
+        let mut b = Bearbeiten::neu(Werkzeug::Objekte);
+        let versteckt: Vec<i64> = v.hidden_objects().into_iter().map(|x| x.0).collect();
+        assert!(versteckt.len() > 10);
+        assert!(!b.objekte(&v).iter().any(|o| matches!(o.wahl, Wahl::Karte(id) if versteckt.contains(&id))), "ohne Hilfsansicht waehlbar");
+        b.unsichtbare = true;
+        let liste: Vec<Objekt> = b.objekte(&v).into_iter().filter(|o| matches!(o.wahl, Wahl::Karte(id) if versteckt.contains(&id))).collect();
+        assert_eq!(liste.len(), versteckt.len(), "nicht alle unsichtbaren Objekte waehlbar");
+        let (Wahl::Karte(id1), Wahl::Karte(id2)) = (liste[0].wahl, liste[1].wahl) else { panic!() };
+        b.waehlen(Some(Wahl::Karte(id1)));
+        let p = liste[0].pos + DVec3::new(2.0, 0.0, 0.0);
+        v.drag(&mut b.ed, DVec3::new(p.x, p.y, v.terrain_height(p.x, p.y).unwrap()));
+        assert!(v.hidden_objects().iter().any(|x| x.0 == id1 && (x.1.x - liste[0].pos.x - 2.0).abs() < 0.05), "Hilfsansicht zeigt die alte Stelle");
+        b.waehlen(Some(Wahl::Karte(id2)));
+        v.edit(&mut b.ed, &openomsi_game::viewer::Action::Delete);
+        assert!(!v.hidden_objects().iter().any(|x| x.0 == id2));
+        let (staging, dateien) = crate::speichern::kacheln_schreiben(&v, &b.ed, "Grundorf").unwrap();
+        let (mut gefunden1, mut weg2) = (false, true);
+        for d in &dateien {
+            let Ok(t) = omsi_map::Tile::load(d) else { continue };
+            let n = d.file_name().unwrap().to_string_lossy().to_string();
+            let alt = omsi_map::Tile::load(&Path::new(OMSI).join("maps/Grundorf").join(&n)).unwrap();
+            if let (Some(a), Some(nn)) = (alt.objects.iter().find(|x| x.id == id1), t.objects.iter().find(|x| x.id == id1)) {
+                assert!((nn.pos[0] - a.pos[0] - 2.0).abs() < 1e-2, "{:?} -> {:?}", a.pos, nn.pos);
+                gefunden1 = true;
+            }
+            if t.objects.iter().any(|x| x.id == id2) {
+                weg2 = false;
+            }
+        }
+        assert!(gefunden1 && weg2, "verschoben {gefunden1}, geloescht {weg2}");
         let _ = std::fs::remove_dir_all(staging);
     }
 

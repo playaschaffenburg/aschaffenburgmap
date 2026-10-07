@@ -142,7 +142,9 @@ weitere bekommen neue IDs, Nachfolger werden umgehängt (`Aendern::umlegen` in `
 Linien mit Pfeil in Fahrtrichtung – blau Fahrspuren der Straßen, gelb Pfade der Kreuzungsobjekte, grün Gehwege, orange
 Gleise, lila unsichtbare Straßen (`[onlyeditor]`-Splines) – und die Objekte, die das Spiel nicht zeichnet
 (`[onlyeditor]`: Haltestellen-Marken, Einstiegspunkte, Schallquellen …) mit ihrem Editor-Modell und einer Raute
-(Name beim Darüberfahren).
+(Name beim Darüberfahren). Solange die Hilfsansicht an ist, lassen sich diese Objekte im Werkzeug „Objekte“
+wählen, verschieben, drehen, kopieren und löschen; im Platzieren-Katalog zeigt der Filter **Art → Editor-Objekte**
+nur sie (z. B. `Generic\entrypoint_bus.sco`, Haltestellen-Marken, Schallquellen).
 
 **Rückgängig/Wiederholen** (Strg+Z / Strg+Y) gilt über alle Werkzeuge: der jeweils letzte Schritt, egal in welchem
 Werkzeug man gerade ist (eine gebaute Straße samt Kreuzungen und aufgeschnittenen Straßen ist ein Schritt).
