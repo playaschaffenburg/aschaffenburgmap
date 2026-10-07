@@ -1,7 +1,7 @@
 From 6a28afa52f391b1e21dd812a7f86f94221f673a7 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 16:01:32 +0200
-Subject: [PATCH 01/13] editor-api: oeffentliche Viewer-Schnittstelle, OpenXR
+Subject: [PATCH 01/14] editor-api: oeffentliche Viewer-Schnittstelle, OpenXR
  zur Laufzeit laden
 
 ---
@@ -210,7 +210,7 @@ index 0000000..f57565c
 From cc51e3c693d2333dc4ee49c47f6e37c20ab516e8 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 16:22:56 +0200
-Subject: [PATCH 02/13] editor-api: Hintergrund-Streaming und Kartenwechsel mit
+Subject: [PATCH 02/14] editor-api: Hintergrund-Streaming und Kartenwechsel mit
  demselben Renderer
 
 ---
@@ -316,7 +316,7 @@ index f57565c..ebd8833 100644
 From 596e460251b086f739871a8134343aea3f22e5e0 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 16:35:56 +0200
-Subject: [PATCH 03/13] editor-api: Objekte bearbeiten und Kacheln schreiben
+Subject: [PATCH 03/14] editor-api: Objekte bearbeiten und Kacheln schreiben
  ueber den Viewer
 
 ---
@@ -391,7 +391,7 @@ index ebd8833..e926a15 100644
 From 0cb9086cbb9faad1472cd454cb3fd12000216701 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 16:54:59 +0200
-Subject: [PATCH 04/13] editor-api: freie Objekte setzen, naechste freie ID,
+Subject: [PATCH 04/14] editor-api: freie Objekte setzen, naechste freie ID,
  Kacheldatei
 
 ---
@@ -448,7 +448,7 @@ index e926a15..61f58bb 100644
 From 237ec37d6957dab1787c4d67d58d7803945fd3f5 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 17:10:18 +0200
-Subject: [PATCH 05/13] editor-api: Objektausmasse und Vorschaubilder
+Subject: [PATCH 05/14] editor-api: Objektausmasse und Vorschaubilder
 
 ---
  crates/omsi-app/src/viewer.rs | 34 ++++++++++++++++++++++++++++++++++
@@ -504,7 +504,7 @@ index 61f58bb..e92c3f2 100644
 From 9988917031be8d360dab043f72364f777791de76 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 17:24:46 +0200
-Subject: [PATCH 06/13] editor-api: Splines frei zeichnen (Live-Vorschau),
+Subject: [PATCH 06/14] editor-api: Splines frei zeichnen (Live-Vorschau),
  Spuren einer .sli
 
 ---
@@ -614,7 +614,7 @@ index e92c3f2..d50c032 100644
 From d35054e68c9b423943fb69c23c58cdc2d8efbd2b Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 17:43:57 +0200
-Subject: [PATCH 07/13] editor-api: Vorschaubild fuer Strassen-Splines
+Subject: [PATCH 07/14] editor-api: Vorschaubild fuer Strassen-Splines
 
 ---
  crates/omsi-app/src/viewer.rs | 23 +++++++++++++++++++++++
@@ -659,7 +659,7 @@ index d50c032..95495df 100644
 From 75a2e1b33f1c31ba93373732ec3a2bea0cca2a96 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 17:59:02 +0200
-Subject: [PATCH 08/13] editor-api: Spurnetz der geladenen Kacheln, freie
+Subject: [PATCH 08/14] editor-api: Spurnetz der geladenen Kacheln, freie
  Spline-Enden
 
 ---
@@ -767,7 +767,7 @@ index 95495df..39d3a19 100644
 From 1f9802294094922bdb9a50fdec716db6f2ac445b Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 18:19:59 +0200
-Subject: [PATCH 09/13] editor-api: Sitzungsebene fuer geaenderte Kacheln,
+Subject: [PATCH 09/14] editor-api: Sitzungsebene fuer geaenderte Kacheln,
  Kacheln neu laden
 
 ---
@@ -865,7 +865,7 @@ index 39d3a19..0dab235 100644
 From 19d1a75a1fe8c3035a4da58ecacc0944c1bf59e0 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 18:36:54 +0200
-Subject: [PATCH 10/13] editor-api: Kacheln neu laden auch beim Streaming
+Subject: [PATCH 10/14] editor-api: Kacheln neu laden auch beim Streaming
  (Pfade, Zwischenspeicher, Spuren)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -942,7 +942,7 @@ index 0dab235..27eeea0 100644
 From 46577556082be58a6a5e4121521161d75fbadc0d Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 23:21:40 +0200
-Subject: [PATCH 11/13] editor-api: offene Objektarme, LaneKind,
+Subject: [PATCH 11/14] editor-api: offene Objektarme, LaneKind,
  Streaming-Neuladen ohne Wettlauf
 
 - object_free_lane_ends: Spuren von Objekten, die nirgends hinfuehren
@@ -1118,7 +1118,7 @@ index 27eeea0..7b984af 100644
 From e464c56366b8b4204e87f95e7e179faff2f40004 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 7 Oct 2026 08:09:46 +0200
-Subject: [PATCH 12/13] editor-api: Objekte mit absoluter Hoehe bearbeitbar
+Subject: [PATCH 12/14] editor-api: Objekte mit absoluter Hoehe bearbeitbar
  (behalten beim Ziehen ihre Hoehe)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -1204,7 +1204,7 @@ index 421cd69..6943b4c 100644
 From e4ef9c5f97dcc8ad0333c44feb3e7c41c2144674 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 7 Oct 2026 08:25:56 +0200
-Subject: [PATCH 13/13] editor-api: Baeume der Karte im Objekt-Editor
+Subject: [PATCH 13/14] editor-api: Baeume der Karte im Objekt-Editor
  (verschieben, drehen, loeschen)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -1266,6 +1266,106 @@ index 6943b4c..791651b 100644
                          pl.trees += 1;
                      }
                      pl.next = end;
+-- 
+2.55.0.windows.5
+
+
+From fe94f6cce870569c558992a177d3782813cebb6b Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 7 Oct 2026 16:53:35 +0200
+Subject: [PATCH 14/14] editor-api: unsichtbare Objekte der Karte fuer die
+ Hilfsansicht des Editors
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ crates/omsi-app/src/scene.rs  | 21 +++++++++++++++++++++
+ crates/omsi-app/src/viewer.rs |  6 ++++++
+ 2 files changed, 27 insertions(+)
+
+diff --git a/crates/omsi-app/src/scene.rs b/crates/omsi-app/src/scene.rs
+index 791651b..819e1fd 100644
+--- a/crates/omsi-app/src/scene.rs
++++ b/crates/omsi-app/src/scene.rs
+@@ -803,6 +803,19 @@ pub struct EditObject {
+     pub absolute: bool,
+ }
+ 
++/// A map object the game does not draw (`[onlyeditor]`, or without a mesh: sound sources,
++/// markers, invisible crossings) - shown by the editor's helper view (see
++/// [`World::hidden_objects`]).
++#[derive(Clone)]
++pub struct HiddenObject {
++    pub tile: (i32, i32),
++    pub pos: DVec3,
++    pub heading: f64,
++    pub sco: std::path::PathBuf,
++    /// It has a mesh (an `[onlyeditor]` object the editor can draw).
++    pub has_mesh: bool,
++}
++
+ /// What the object editor did to one object: moved by `moved` (m), turned by `turned`
+ /// (degrees clockwise, as a map object's heading), or taken away.
+ #[derive(Clone, Copy, Debug, Default, PartialEq)]
+@@ -2047,6 +2060,8 @@ pub struct World {
+     departed_objects: Mutex<std::collections::HashMap<i64, (ParkedObject, Vec<omsi_sim::collision::Obb>, Vec<omsi_sim::collision::Obb>)>>,
+     /// The loaded tiles' own objects by map id, for the object editor (`crate::editor`).
+     pub edit_objects: Mutex<HashMap<i64, EditObject>>,
++    /// The loaded tiles' objects the game does not draw, by map id (editor helper view).
++    pub hidden_objects: Mutex<HashMap<i64, HiddenObject>>,
+     /// What the object editor did this run, by map id: kept over tile reloads until saved.
+     pub object_edits: Mutex<HashMap<i64, ObjectEdit>>,
+     /// The ground as the editor's brush has left it, by tile (read instead of the file).
+@@ -2923,6 +2938,7 @@ impl World {
+             departed: Mutex::new(std::collections::HashSet::new()),
+             departed_objects: Mutex::new(std::collections::HashMap::new()),
+             edit_objects: Mutex::new(HashMap::new()),
++            hidden_objects: Mutex::new(HashMap::new()),
+             object_edits: Mutex::new(HashMap::new()),
+             terrain_edits: Mutex::new(HashMap::new()),
+             bus_stops: Mutex::new(Vec::new()),
+@@ -4984,6 +5000,9 @@ impl World {
+             // (a `[helparrow]` object goes on: it is put up hidden, and drawn while the route
+             // arrows are on - see `World::show_help_arrows`)
+             if ot.sco.only_editor || ot.meshes.is_empty() {
++                if o.map_object {
++                    self.hidden_objects.lock().insert(o.id, HiddenObject { tile: key, pos, heading, sco: ot.sco.path.clone(), has_mesh: !ot.meshes.is_empty() });
++                }
+                 // invisible sound sources (ambient sound objects) still run their script
+                 if let (Some(program), true) = (&ot.program, ot.sco.sound.is_some()) {
+                     let inst = omsi_sim::scenery::SceneryInstance::new(
+@@ -6482,6 +6501,7 @@ impl World {
+             self.parked_objects.lock().retain(|_, p| p.tile != key);
+             self.departed_objects.lock().retain(|_, (p, _, _)| p.tile != key);
+             self.edit_objects.lock().retain(|_, o| o.tile != key);
++            self.hidden_objects.lock().retain(|_, o| o.tile != key);
+             freed = self.gpu.lock().release_tile(renderer, scene, tg) > 0;
+         }
+         freed |= self.unload_tile(renderer, scene, key, audio);
+@@ -8093,6 +8113,7 @@ impl World {
+         self.parked_objects.lock().retain(|_, p| p.tile != key);
+             self.departed_objects.lock().retain(|_, (p, _, _)| p.tile != key);
+         self.edit_objects.lock().retain(|_, o| o.tile != key);
++        self.hidden_objects.lock().retain(|_, o| o.tile != key);
+         {
+             // the posts' instances go back to the pool with the tile
+             let mut poles = self.poles.lock();
+diff --git a/crates/omsi-app/src/viewer.rs b/crates/omsi-app/src/viewer.rs
+index 7b984af..69d6350 100644
+--- a/crates/omsi-app/src/viewer.rs
++++ b/crates/omsi-app/src/viewer.rs
+@@ -222,6 +222,12 @@ impl Viewer {
+         self.world.object_edits.lock().get(&id).copied().unwrap_or_default()
+     }
+ 
++    /// Map objects of the loaded tiles the game does not draw (`[onlyeditor]` or without a
++    /// mesh): (id, position, heading in degrees, its .sco, has a mesh).
++    pub fn hidden_objects(&self) -> Vec<(i64, DVec3, f64, PathBuf, bool)> {
++        self.world.hidden_objects.lock().iter().map(|(id, o)| (*id, o.pos, o.heading, o.sco.clone(), o.has_mesh)).collect()
++    }
++
+     /// Objects of the loaded tiles: (id, where it stands now (edits included), heading in
+     /// degrees, its .sco), deleted ones left out.
+     pub fn objects(&self) -> Vec<(i64, DVec3, f64, PathBuf)> {
 -- 
 2.55.0.windows.5
 

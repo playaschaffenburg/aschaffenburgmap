@@ -96,7 +96,9 @@ laufen eben auf Kreuzungshöhe ein. Orange Markierungen zeigen in der Vorschau j
   sind. Offene Arme von Kreuzungsobjekten (Pfade, die nirgends hinführen) sind außerdem normale Anschlusspunkte.
 - **Kreisverkehr (Modus V):** Klick setzt die Mitte, die Maus die Größe (Durchmesser 24–120 m), Klick baut einen Ring
   aus Einbahn-Straßen gegen den Uhrzeigersinn (Querschnitt rechts wählbar, Vorschlag: Einbahn mit Gehweg). Zufahrten
-  auf den Ring ziehen: dort entstehen T-Kreuzungen. Straßen, die der Ring kreuzt, bekommen Kreuzungen.
+  auf den Ring ziehen: dort entstehen T-Kreuzungen. Liegt der Ring über vorhandenen Straßen (auch über einer
+  vorhandenen Kreuzung), fällt alles innerhalb weg – Straßenstücke, Kreuzungsobjekte mit Ampeln und Masten – und
+  jede Straße mündet außen mit einer T-Kreuzung ein; eigene Straßen, die er kreuzt, bekommen Kreuzungen.
 - **Vorfahrt (vermutet, später per Klick änderbar):** im Kreisverkehr der Ring; sonst die durchgehende Straße – eine
   vorhandene vor einer neuen, dann gleicher Querschnitt, dann die breitere; zwei gleichwertige: rechts vor links.
 - Ein Strg+Z nimmt Straße, Kreuzungen und aufgeschnittene vorhandene Straßen zurück. Beim Speichern kommen die
@@ -135,6 +137,12 @@ verschoben (nicht gedreht), die angeschlossenen Splines folgen. Eigene Knoten: a
 vorhandenen Straßen und an Anschlüssen werden deren Enden mitgezogen, das Kreuzungsobjekt wird neu erzeugt. Jeder Zug
 ist ein Rückgängig-Schritt. Technik: das erste neue Stück behält die Spline-ID (Vorgänger zeigen weiter darauf),
 weitere bekommen neue IDs, Nachfolger werden umgehängt (`Aendern::umlegen` in `knoten.rs`).
+
+**Hilfsansicht (Taste H, Schalter „Pfade“ oben)** wie „Show paths“ im nEditor: die Pfade der geladenen Kacheln als
+Linien mit Pfeil in Fahrtrichtung – blau Fahrspuren der Straßen, gelb Pfade der Kreuzungsobjekte, grün Gehwege, orange
+Gleise, lila unsichtbare Straßen (`[onlyeditor]`-Splines) – und die Objekte, die das Spiel nicht zeichnet
+(`[onlyeditor]`: Haltestellen-Marken, Einstiegspunkte, Schallquellen …) mit ihrem Editor-Modell und einer Raute
+(Name beim Darüberfahren).
 
 **Rückgängig/Wiederholen** (Strg+Z / Strg+Y) gilt über alle Werkzeuge: der jeweils letzte Schritt, egal in welchem
 Werkzeug man gerade ist (eine gebaute Straße samt Kreuzungen und aufgeschnittenen Straßen ist ein Schritt).

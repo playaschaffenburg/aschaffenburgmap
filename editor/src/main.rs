@@ -13,6 +13,7 @@
 mod aendern;
 mod anschluss;
 mod bearbeiten;
+mod hilfsansicht;
 mod kamera;
 mod karten;
 mod katalog;
@@ -226,6 +227,8 @@ struct App {
     aendern_warnung: Option<String>,
     /// Werkzeug "Knoten": Verlauf an Knoten ziehen
     knoten: knoten::Knotenwerkzeug,
+    /// Hilfsansicht (H): Pfade und unsichtbare Objekte
+    hilfe: hilfsansicht::Hilfsansicht,
 }
 
 /// was im Werkzeug "Kreuzungen" unter der Maus liegt
@@ -354,6 +357,7 @@ impl App {
             aendern: None,
             aendern_warnung: None,
             knoten: knoten::Knotenwerkzeug::default(),
+            hilfe: hilfsansicht::Hilfsansicht::default(),
         }
     }
 
@@ -458,6 +462,7 @@ impl App {
         let (ziel, weite) = (self.kam.ziel, self.sichtweite());
         if let Some(v) = self.viewer.as_mut() {
             v.stream(ziel, weite, std::time::Duration::from_millis(STREAM_BUDGET_MS));
+            self.hilfe.aktualisieren(v);
             if self.bearb.werkzeug == Werkzeug::Strasse {
                 self.anschluesse.aktualisieren(v);
             }
@@ -871,6 +876,8 @@ impl App {
                     }
                     ui.add_enabled(false, egui::Button::new("Gelaende"));
                     ui.separator();
+                    ui.checkbox(&mut self.hilfe.an, "Pfade (H)").on_hover_text("Pfade (blau Strasse, gelb Kreuzung, gruen Gehweg, orange Gleis, lila unsichtbare Strasse) und unsichtbare Objekte zeigen - wie \"Show paths\" im nEditor");
+                    ui.separator();
                     // ein Verlauf fuer alle Werkzeuge (neue Schritte kommen beim naechsten Bild dazu)
                     let neu = self.stapel_jetzt() != self.stapel;
                     let (kr, kw) = (!self.verlauf.is_empty() || neu, !self.verlauf_redo.is_empty() && !neu);
@@ -1272,6 +1279,55 @@ impl App {
             });
             // Markierungen ueber dem 3D-Bild (unter den Panels)
             let maler = ui_maler(ctx);
+            if let (true, Some(v)) = (self.hilfe.an, self.viewer.as_ref()) {
+                let r = (self.kam.abstand * 2.5 + 150.0).min(1500.0);
+                let pt = |p: DVec3| bearbeiten::projizieren(&self.kam, p + DVec3::Z * 0.15, bw, bh).map(|(x, y, _)| egui::pos2(x, y));
+                for pf in hilfsansicht::pfade(v, self.kam.ziel, r) {
+                    let farbe = egui::Color32::from_rgb(pf.farbe[0], pf.farbe[1], pf.farbe[2]);
+                    let strich = egui::Stroke::new(if pf.unsichtbar { 2.5 } else { 1.6 }, farbe);
+                    let mut linie: Vec<egui::Pos2> = Vec::new();
+                    for q in pf.punkte {
+                        match pt(*q) {
+                            Some(x) => linie.push(x),
+                            None => {
+                                if linie.len() > 1 {
+                                    maler.add(egui::Shape::line(std::mem::take(&mut linie), strich));
+                                }
+                                linie.clear();
+                            }
+                        }
+                    }
+                    // Pfeil in Fahrtrichtung in der Mitte
+                    if linie.len() > 1 {
+                        let i = (linie.len() - 1) / 2;
+                        let (a, b) = (linie[i], linie[i + 1]);
+                        let d = b - a;
+                        if d.length() > 0.5 {
+                            let d = d.normalized() * 7.0;
+                            let m = a + (b - a) * 0.5;
+                            let n = egui::vec2(-d.y, d.x) * 0.6;
+                            maler.add(egui::Shape::line(vec![m - d + n, m, m - d - n], strich));
+                        }
+                        maler.add(egui::Shape::line(linie, strich));
+                    }
+                }
+                let maus = self.boden_unter_maus;
+                for (pos, richtung, name, modell) in &self.hilfe.objekte {
+                    if (pos.truncate() - self.kam.ziel.truncate()).length() > r {
+                        continue;
+                    }
+                    let Some(m) = pt(*pos) else { continue };
+                    let c = if *modell { egui::Color32::from_rgb(120, 230, 255) } else { egui::Color32::from_rgb(235, 80, 235) };
+                    let e = 6.0;
+                    maler.add(egui::Shape::closed_line(vec![m + egui::vec2(0.0, -e), m + egui::vec2(e, 0.0), m + egui::vec2(0.0, e), m + egui::vec2(-e, 0.0)], egui::Stroke::new(2.0, c)));
+                    if let Some(q) = pt(*pos + (crate::netz::dir(*richtung) * 2.0).extend(0.0)) {
+                        maler.line_segment([m, q], egui::Stroke::new(1.5, c));
+                    }
+                    if maus.is_some_and(|g| (g.truncate() - pos.truncate()).length() < 15.0) {
+                        maler.text(m + egui::vec2(9.0, -9.0), egui::Align2::LEFT_BOTTOM, name, egui::FontId::proportional(13.0), c);
+                    }
+                }
+            }
             if let Some(w) = self.bearb.unter_maus.filter(|w| Some(*w) != self.bearb.wahl) {
                 if let Some(o) = objekte.iter().find(|o| o.wahl == w) {
                     bearbeiten::markieren(&maler, &self.kam, o, bw, bh, egui::Color32::from_rgba_unmultiplied(255, 255, 255, 170), 1.5);
@@ -1902,6 +1958,9 @@ impl App {
         self.eigene_maus = None;
         self.aendern_warnung = None;
         self.knoten = knoten::Knotenwerkzeug::default();
+        if let Some(v) = self.viewer.as_mut() {
+            self.hilfe.leeren(v);
+        }
     }
 
     /// Tasten des Bearbeitens (nur beim Druecken, nicht wenn egui die Tastatur hat)
@@ -1923,6 +1982,11 @@ impl App {
             }
             KeyCode::Escape if self.bearb.werkzeug == Werkzeug::Kreuzung && self.kreuzung_wahl.is_some() => {
                 self.kreuzung_wahl = None;
+                None
+            }
+            KeyCode::KeyH if !self.strg => {
+                self.hilfe.an = !self.hilfe.an;
+                self.meldung = if self.hilfe.an { "Hilfsansicht: Pfade und unsichtbare Objekte".into() } else { "Hilfsansicht aus".into() };
                 None
             }
             KeyCode::KeyN if !self.strg => {
@@ -2290,6 +2354,7 @@ impl ApplicationHandler for App {
                         // Knoten: Stelle auf der Strasse vom Aendern-Test 3 m zur Seite ziehen, dann rueckgaengig (die
                         // Kachel ist inzwischen wieder geladen)
                         let id = self.testlauf_knoten.take().unwrap();
+                        self.hilfe.an = true;
                         self.ausfuehren(UiAktion::Werkzeug(Werkzeug::Knoten));
                         let mut m = String::from("kein Griff");
                         if let (Some(v), Some(a)) = (self.viewer.as_mut(), self.aendern.as_mut()) {
@@ -2298,7 +2363,7 @@ impl ApplicationHandler for App {
                                 let p = sp.kurve.point_at(sp.kurve.length / 2.0);
                                 self.knoten.suchen(v, a, &self.strasse, p, 1.0, 80.0);
                                 if self.knoten.greifen(p, true) {
-                                    let q = p.truncate() + crate::netz::rechts(sp.kurve.heading_at(sp.kurve.length / 2.0)) * 3.0;
+                                    let q = p.truncate() + crate::netz::rechts(sp.kurve.heading_at(sp.kurve.length / 2.0)) * 1.0;
                                     self.knoten.ziehen(v, a, &self.strasse, Some(q.extend(p.z)));
                                     m = self.knoten.loslassen(v, a, &mut self.strasse).unwrap_or_default();
                                 }
@@ -2311,6 +2376,12 @@ impl ApplicationHandler for App {
                         println!("Testlauf Knoten: {m} | {}", self.meldung);
                     } else if s > t * 0.36 && self.testlauf_abzweig.is_some() {
                         let id = self.testlauf_abzweig.take().unwrap();
+                        if let Some(v) = self.viewer.as_ref() {
+                            let n = hilfsansicht::pfade(v, self.kam.ziel, 1500.0).len();
+                            println!("Testlauf Hilfsansicht: {n} Pfade, {} unsichtbare Objekte ({} mit Modell gezeigt)", self.hilfe.objekte.len(),
+                                     self.hilfe.objekte.iter().filter(|o| o.3).count());
+                        }
+                        self.hilfe.an = false;
                         // Abzweig mitten aus dieser Strasse (Kreuzung), dann rueckgaengig
                         self.ausfuehren(UiAktion::Werkzeug(Werkzeug::Strasse));
                         let mut m = Vec::new();

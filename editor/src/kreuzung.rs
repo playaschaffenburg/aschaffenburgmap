@@ -249,75 +249,7 @@ impl Aendern {
     /// Masten, daran haengende Objekte). Ein Rueckgaengig-Schritt.
     pub fn objekt_entfernen(&mut self, v: &mut Viewer, kachel: (i32, i32), id: i64) -> Result<usize> {
         log::info!("vorhandenes Kreuzungsobjekt {id} (Kachel {} {}) wird durch eine eigene Kreuzung ersetzt", kachel.0, kachel.1);
-        self.kacheln_aendern(v, &[kachel], |_, zeilen| {
-            // Eintraege: (Anfang inkl. "Object Nr."-Zeile, Ende, ID, Eltern ueber varparent/attachObj)
-            let mut eintraege: Vec<(usize, usize, i64, Vec<i64>)> = Vec::new();
-            let mut lagen: Vec<Option<(f64, f64)>> = Vec::new();
-            let mut i = 0;
-            while i < zeilen.len() {
-                let w = zeilen[i].trim().to_ascii_lowercase();
-                if w == "[object]" || w == "[attachobj]" {
-                    let anfang = if i > 0 && zeilen[i - 1].trim_start().starts_with("Object Nr.") { i - 1 } else { i };
-                    let mut j = i + 1;
-                    while j < zeilen.len() && !ist_eintrag(&zeilen[j]) {
-                        j += 1;
-                    }
-                    let oid = zeilen.get(i + 3).and_then(|z| z.trim().parse::<i64>().ok()).unwrap_or(-1);
-                    let mut eltern = Vec::new();
-                    if w == "[attachobj]" {
-                        if let Some(e) = zeilen.get(i + 4).and_then(|z| z.trim().parse::<i64>().ok()) {
-                            eltern.push(e);
-                        }
-                    }
-                    for k in i..j {
-                        if zeilen[k].trim().eq_ignore_ascii_case("[varparent]") {
-                            if let Some(e) = zeilen.get(k + 1).and_then(|z| z.trim().parse::<i64>().ok()) {
-                                eltern.push(e);
-                            }
-                        }
-                    }
-                    let x = zeilen.get(i + 4).and_then(|z| z.trim().parse::<f64>().ok());
-                    let y = zeilen.get(i + 5).and_then(|z| z.trim().parse::<f64>().ok());
-                    lagen.push(x.zip(y).filter(|_| w == "[object]"));
-                    eintraege.push((anfang, j, oid, eltern));
-                    i = j;
-                } else {
-                    i += 1;
-                }
-            }
-            let mut weg: std::collections::HashSet<i64> = [id].into();
-            loop {
-                let n = weg.len();
-                for e in &eintraege {
-                    if e.3.iter().any(|x| weg.contains(x)) {
-                        weg.insert(e.2);
-                    }
-                }
-                if weg.len() == n {
-                    break;
-                }
-            }
-            // Masten der entfernten Ampeln: eigene Objekte genau an deren Stelle (ohne Verknuepfung)
-            let ampeln: Vec<(f64, f64)> = eintraege.iter().zip(&lagen).filter(|(e, _)| e.2 != id && weg.contains(&e.2)).filter_map(|(_, l)| *l).collect();
-            for (e, l) in eintraege.iter().zip(&lagen) {
-                if let Some((x, y)) = l {
-                    if ampeln.iter().any(|(ax, ay)| (ax - x).hypot(ay - y) < 0.6) {
-                        weg.insert(e.2);
-                    }
-                }
-            }
-            if !eintraege.iter().any(|e| e.2 == id) {
-                bail!("Kreuzungsobjekt {id} nicht in seiner Kachel");
-            }
-            let mut bereiche: Vec<(usize, usize)> = eintraege.iter().filter(|e| weg.contains(&e.2)).map(|e| (e.0, e.1)).collect();
-            bereiche.sort();
-            bereiche.reverse();
-            for (a, b) in &bereiche {
-                zeilen.drain(*a..*b);
-            }
-            log::info!("  {} Eintraege entfernt (Objekt und Ampeln/Masten)", bereiche.len());
-            Ok(bereiche.len())
-        })
+        self.kacheln_aendern(v, &[kachel], |_, zeilen| objekte_aus_zeilen(zeilen, &[id]))
     }
 
     /// Abzweig-Stelle unter dem Bodenpunkt (mitten auf einer Strasse)
@@ -557,6 +489,199 @@ impl Aendern {
         Ok(arme)
     }
 
+    /// Kreisverkehr (Mitte mit Ringhoehe, Radius) ueber vorhandenen Strassen: was von ihnen innerhalb des Rings liegt,
+    /// faellt weg - Strassenstuecke und Kreuzungsobjekte mit ihren Ampeln -, an jeder Querung (Abzweig, Platz davor,
+    /// dahinter) bleibt das aeussere Ende so weit vor dem Ring, dass die Einmuendung Platz hat, eben auf Ringhoehe.
+    /// Alles in einem Schreibvorgang (ein Rueckgaengig-Schritt). -> je Querung der Arm fuer die Kreuzung am Ring
+    pub fn ring_ausschneiden(&mut self, v: &mut Viewer, mitte: DVec3, r: f64, querungen: &[(Abzweig, f64, f64)]) -> Result<Vec<crate::netz::Kartenarm>> {
+        let m2 = mitte.truncate();
+        let hoehe = mitte.z;
+        log::info!("Kreisverkehr bei {:.1} {:.1} (R {r:.1}) ueber {} vorhandene Strasse(n)", m2.x, m2.y, querungen.len());
+        crate::protokoll::aktion("Kreisverkehr ueber vorhandenen Strassen");
+        // je Querung: Schnittstelle (Spline, Meter) und ob es auf der Kette mit steigenden Metern nach innen geht
+        let mut punkte: Vec<(i64, f64, bool)> = Vec::new();
+        let mut arme = Vec::new();
+        for (ab, vor, nach) in querungen {
+            let sp = self.spline(ab.spline_id).context("Spline nicht geladen")?.clone();
+            let k = &sp.kurve;
+            let abstand = |x: f64| (k.point_at(x.clamp(0.0, k.length)).truncate() - m2).length();
+            let plus = abstand(ab.s + 1.0) < abstand(ab.s - 1.0);
+            let d = if plus { *vor } else { *nach };
+            let kette = self.kette_um(ab.spline_id, d + 10.0);
+            let g0 = kette.iter().find(|g| g.s.id == ab.spline_id).context("Spline nicht in seiner Kette")?;
+            let x = g0.von + ab.s + if plus { -d } else { d };
+            let (anfang, ende) = (kette.first().unwrap().von, kette.last().unwrap().bis());
+            if (plus && x < anfang + MIN_REST) || (!plus && x > ende - MIN_REST) {
+                bail!("die Strasse bei {:.0} {:.0} ist ausserhalb des Rings zu kurz fuer die Einmuendung", ab.pos.x, ab.pos.y);
+            }
+            // das bleibende Stueck liegt aussen: bei "plus" davor (endet an der Schnittstelle), sonst dahinter
+            let aussen = if plus { x - 1e-6 } else { x + 1e-6 };
+            let g = kette.iter().find(|g| aussen >= g.von - 1e-6 && aussen <= g.bis() + 1e-6).context("Schnittstelle nicht auf der Strasse")?;
+            let si = (x - g.von).clamp(0.0, g.s.kurve.length);
+            let h = g.s.kurve.heading_at(si);
+            let pos = g.s.kurve.point_at(si).truncate().extend(hoehe);
+            let (l, rr) = self.breite(v, &g.s.sli);
+            arme.push(crate::netz::Kartenarm {
+                pos, richtung: if plus { (h + 180.0).rem_euclid(360.0) } else { h.rem_euclid(360.0) },
+                sli: g.s.sli.clone(), weg: if plus { g.s.gespiegelt } else { !g.s.gespiegelt }, halb: l.max(rr) as f64,
+            });
+            punkte.push((g.s.id, si, plus));
+        }
+        // wegfallende Bereiche je Spline (Meter von, bis): von jeder Schnittstelle nach innen bis zur Schnittstelle der
+        // Gegenseite (die Strasse fuehrt durch den Ring) oder zum Ende der Kette (Kreuzung oder Ende im Ring)
+        let mut weg: HashMap<i64, Vec<(f64, f64)>> = HashMap::new();
+        for (i, &(id, si, plus)) in punkte.iter().enumerate() {
+            let kette = self.kette_um(id, 4.0 * r + 200.0);
+            let x0 = kette.iter().find(|g| g.s.id == id).map(|g| g.von + si).context("Spline nicht in seiner Kette")?;
+            let mut x1 = if plus { kette.last().unwrap().bis() } else { kette.first().unwrap().von };
+            for (j, &(id2, s2, plus2)) in punkte.iter().enumerate() {
+                let Some(g) = kette.iter().find(|g| g.s.id == id2) else { continue };
+                let x2 = g.von + s2;
+                if j != i && plus && !plus2 && x2 > x0 {
+                    x1 = x1.min(x2);
+                }
+                if j != i && !plus && plus2 && x2 < x0 {
+                    x1 = x1.max(x2);
+                }
+            }
+            let (lo, hi) = if plus { (x0, x1) } else { (x1, x0) };
+            for g in &kette {
+                let (a, b) = (lo.max(g.von), hi.min(g.bis()));
+                if b - a > 1e-6 {
+                    weg.entry(g.s.id).or_default().push((a - g.von, b - g.von));
+                }
+            }
+        }
+        // Reste ganz im Ring (Stummel an einer Kreuzung im Ring) fallen auch weg
+        let kandidaten: Vec<KartenSpline> = self.kacheln.values().flatten().filter(|x| (x.kurve.start.truncate() - m2).length() < r + x.kurve.length).cloned().collect();
+        for sp in &kandidaten {
+            if weg.contains_key(&sp.id) || !v.spline_lanes(&sp.sli).is_some_and(|(l, _)| l.iter().any(|x| x.0 == 0)) {
+                continue;
+            }
+            if sp.punkte().iter().all(|(q, _)| (q.truncate() - m2).length() < r) {
+                weg.insert(sp.id, vec![(0.0, sp.kurve.length)]);
+            }
+        }
+        // Kreuzungsobjekte im Ring (Mitte ihrer Fahrpfade innerhalb)
+        let mut objekte: BTreeMap<(i32, i32), Vec<i64>> = BTreeMap::new();
+        {
+            let mut je: HashMap<i64, ((i32, i32), DVec2, usize)> = HashMap::new();
+            for l in &v.lanes.lanes {
+                if l.kind != omsi_sim_lanekind_strasse() || l.name.to_ascii_lowercase().ends_with(".sli") {
+                    continue;
+                }
+                let Some(k) = l.key else { continue };
+                let e = je.entry(k.id).or_insert((k.tile, DVec2::ZERO, 0));
+                for q in &l.points {
+                    e.1 += q.truncate();
+                    e.2 += 1;
+                }
+            }
+            for (id, (kachel, summe, n)) in je {
+                if n > 0 && (summe / n as f64 - m2).length() < r - 1.0 {
+                    objekte.entry(kachel).or_default().push(id);
+                }
+            }
+        }
+        // Splines umschreiben: bleibende Stuecke
+        let ts = omsi_map::tile_size();
+        let kachel_von = |p: DVec2| ((p.x / ts).floor() as i32, (p.y / ts).floor() as i32);
+        let mut ids = v.next_object_id();
+        let mut aendern: BTreeMap<(i32, i32), Vec<(i64, Option<Vec<String>>)>> = BTreeMap::new();
+        let mut anhaengen: BTreeMap<(i32, i32), Vec<Vec<String>>> = BTreeMap::new();
+        let mut prev_neu: BTreeMap<(i32, i32), Vec<(i64, i64)>> = BTreeMap::new();
+        for (id, mut bereiche) in weg {
+            let Some(sp) = self.spline(id).cloned() else { continue };
+            let l = sp.kurve.length;
+            bereiche.sort_by(|a, b| a.0.total_cmp(&b.0));
+            // bleibende Stuecke: das Komplement (Reste unter 0.3 m fallen weg)
+            let mut bleibt: Vec<(f64, f64)> = Vec::new();
+            let mut x = 0.0;
+            for (a, b) in &bereiche {
+                if *a - x > 0.3 {
+                    bleibt.push((x, *a));
+                }
+                x = x.max(*b);
+            }
+            if l - x > 0.3 {
+                bleibt.push((x, l));
+            }
+            let mut an_ort = false;
+            let n = bleibt.len();
+            for (i, (a, b)) in bleibt.iter().enumerate() {
+                let nid = if i == 0 { sp.id } else { ids += 1; ids - 1 };
+                let prev = if *a <= 1e-6 { sp.prev } else { 0 };
+                let next = if *b >= l - 1e-6 { sp.next } else { 0 };
+                let k = kachel_von(sp.kurve.point_at(*a).truncate());
+                let za = (*a > 1e-6).then_some(hoehe);
+                let zb = (*b < l - 1e-6).then_some(hoehe);
+                let z = datensatz(&sp, *a, *b, nid, prev, next, k, za, zb);
+                if nid == sp.id && k == sp.kachel {
+                    aendern.entry(sp.kachel).or_default().push((sp.id, Some(z)));
+                    an_ort = true;
+                } else {
+                    anhaengen.entry(k).or_default().push(z);
+                }
+                // der Nachfolger zeigte mit prev auf diesen Spline: jetzt auf das Stueck am Ende
+                if i + 1 == n && *b >= l - 1e-6 && nid != sp.id && sp.next != 0 {
+                    if let Some(nb) = self.spline(sp.next).filter(|nb| nb.prev == sp.id) {
+                        prev_neu.entry(nb.kachel).or_default().push((nb.id, nid));
+                    }
+                }
+            }
+            if !an_ort {
+                aendern.entry(sp.kachel).or_default().push((sp.id, None));
+            }
+        }
+        let mut kacheln: Vec<(i32, i32)> = aendern.keys().chain(anhaengen.keys()).chain(prev_neu.keys()).chain(objekte.keys()).copied().collect();
+        kacheln.sort();
+        kacheln.dedup();
+        log::info!("  {} Spline(s) gekuerzt/entfernt, {} Kreuzungsobjekt(e) im Ring entfernt, Kacheln {kacheln:?}",
+                   aendern.values().map(|x| x.len()).sum::<usize>(), objekte.values().map(|x| x.len()).sum::<usize>());
+        self.kacheln_aendern(v, &kacheln, |k, zeilen| {
+            if !zeilen.iter().take(20).position(|l| l.trim().eq_ignore_ascii_case("[version]"))
+                .and_then(|i| zeilen.get(i + 1)).and_then(|l| l.trim().parse::<i32>().ok()).is_some_and(|x| x >= 11) {
+                bail!("Kachel {} {}: altes Kachelformat (vor Version 11) wird nicht umgeschrieben", k.0, k.1);
+            }
+            if let Some(ids) = objekte.get(&k) {
+                objekte_aus_zeilen(zeilen, ids)?;
+            }
+            for (id, neu) in prev_neu.get(&k).into_iter().flatten() {
+                let i = eintrag_finden(zeilen, *id).context("Nachbar-Spline nicht in seiner Kachel")?;
+                zeilen[i + 4] = neu.to_string();
+            }
+            for (id, ersatz) in aendern.get(&k).into_iter().flatten() {
+                let i = eintrag_finden(zeilen, *id).with_context(|| format!("Spline {id} nicht in seiner Kachel"))?;
+                let j = eintrag_ende(zeilen, i);
+                match ersatz {
+                    Some(z) => {
+                        let mut z = z.clone();
+                        z[1] = zeilen[i + 1].clone();
+                        zeilen.splice(i..j, z);
+                    }
+                    None => {
+                        let mut j = j;
+                        while j < zeilen.len() && !ist_eintrag(&zeilen[j]) {
+                            j += 1;
+                        }
+                        zeilen.drain(i..j);
+                    }
+                }
+            }
+            while zeilen.last().is_some_and(|l| l.trim().is_empty()) {
+                zeilen.pop();
+            }
+            for z in anhaengen.get(&k).into_iter().flatten() {
+                zeilen.push(String::new());
+                zeilen.extend(z.iter().cloned());
+            }
+            zeilen.push(String::new());
+            Ok(1)
+        })?;
+        crate::protokoll::aktion("");
+        Ok(arme)
+    }
+
     /// Kreuzungsstellen der Kurve `punkte` (alle ~1 m: Lage mit Hoehe, Meter ab Anfang) mit vorhandenen Strassen
     /// (Splines mit Fahrspuren) auf gleicher Hoehe (bis 3 m; darueber: Bruecke/Tunnel, keine Kreuzung)
     /// -> (Meter auf der Kurve, Abzweig auf der vorhandenen Strasse), nach Lage sortiert
@@ -646,6 +771,78 @@ fn omsi_sim_lanekind_strasse() -> openomsi_game::viewer::LaneKind {
 }
 
 /// beginnt mit dieser Zeile ein neuer Eintrag der Kachel (Spline, Objekt, ...)?
+/// Objekte `ids` aus den Zeilen einer Kachel nehmen, mit allem, was an ihnen haengt ([varparent]: Ampeln, ihre
+/// Masten, daran haengende Objekte) -> Anzahl entfernter Eintraege
+fn objekte_aus_zeilen(zeilen: &mut Vec<String>, ids: &[i64]) -> Result<usize> {
+        // Eintraege: (Anfang inkl. "Object Nr."-Zeile, Ende, ID, Eltern ueber varparent/attachObj)
+        let mut eintraege: Vec<(usize, usize, i64, Vec<i64>)> = Vec::new();
+        let mut lagen: Vec<Option<(f64, f64)>> = Vec::new();
+        let mut i = 0;
+        while i < zeilen.len() {
+            let w = zeilen[i].trim().to_ascii_lowercase();
+            if w == "[object]" || w == "[attachobj]" {
+                let anfang = if i > 0 && zeilen[i - 1].trim_start().starts_with("Object Nr.") { i - 1 } else { i };
+                let mut j = i + 1;
+                while j < zeilen.len() && !ist_eintrag(&zeilen[j]) {
+                    j += 1;
+                }
+                let oid = zeilen.get(i + 3).and_then(|z| z.trim().parse::<i64>().ok()).unwrap_or(-1);
+                let mut eltern = Vec::new();
+                if w == "[attachobj]" {
+                    if let Some(e) = zeilen.get(i + 4).and_then(|z| z.trim().parse::<i64>().ok()) {
+                        eltern.push(e);
+                    }
+                }
+                for k in i..j {
+                    if zeilen[k].trim().eq_ignore_ascii_case("[varparent]") {
+                        if let Some(e) = zeilen.get(k + 1).and_then(|z| z.trim().parse::<i64>().ok()) {
+                            eltern.push(e);
+                        }
+                    }
+                }
+                let x = zeilen.get(i + 4).and_then(|z| z.trim().parse::<f64>().ok());
+                let y = zeilen.get(i + 5).and_then(|z| z.trim().parse::<f64>().ok());
+                lagen.push(x.zip(y).filter(|_| w == "[object]"));
+                eintraege.push((anfang, j, oid, eltern));
+                i = j;
+            } else {
+                i += 1;
+            }
+        }
+        let mut weg: std::collections::HashSet<i64> = ids.iter().copied().collect();
+        loop {
+            let n = weg.len();
+            for e in &eintraege {
+                if e.3.iter().any(|x| weg.contains(x)) {
+                    weg.insert(e.2);
+                }
+            }
+            if weg.len() == n {
+                break;
+            }
+        }
+        // Masten der entfernten Ampeln: eigene Objekte genau an deren Stelle (ohne Verknuepfung)
+        let ampeln: Vec<(f64, f64)> = eintraege.iter().zip(&lagen).filter(|(e, _)| !ids.contains(&e.2) && weg.contains(&e.2)).filter_map(|(_, l)| *l).collect();
+        for (e, l) in eintraege.iter().zip(&lagen) {
+            if let Some((x, y)) = l {
+                if ampeln.iter().any(|(ax, ay)| (ax - x).hypot(ay - y) < 0.6) {
+                    weg.insert(e.2);
+                }
+            }
+        }
+        if !ids.iter().all(|id| eintraege.iter().any(|e| e.2 == *id)) {
+            bail!("Kreuzungsobjekt {ids:?} nicht in seiner Kachel");
+        }
+        let mut bereiche: Vec<(usize, usize)> = eintraege.iter().filter(|e| weg.contains(&e.2)).map(|e| (e.0, e.1)).collect();
+        bereiche.sort();
+        bereiche.reverse();
+        for (a, b) in &bereiche {
+            zeilen.drain(*a..*b);
+        }
+        log::info!("  {} Eintraege entfernt (Objekt und Ampeln/Masten)", bereiche.len());
+        Ok(bereiche.len())
+}
+
 pub(crate) fn ist_eintrag(z: &str) -> bool {
     let w = z.trim().to_ascii_lowercase();
     w.starts_with("object nr.") || ["[spline]", "[spline_h]", "[object]", "[splineattachement]", "[splineattachement_repeater]", "[attachobj]"].contains(&w.as_str())
@@ -1374,6 +1571,52 @@ pub(crate) mod tests {
         }
         let n = speichern_laden_pruefen(v, &s, a, "Grundorf_kreisel", &zufahrten, &[]);
         assert_eq!(n, 9, "3 Kreuzungen mit je 3 Armen");
+    }
+
+    /// Kreisverkehr auf die Ampelkreuzung von Grundorf (414/215): die Kreuzung mit Ampeln und die Strassenstuecke im
+    /// Ring fallen weg, die drei Strassen muenden aussen in den Ring (3 T-Kreuzungen); gespeichert und geladen haengen
+    /// sie an den Kreuzungen, Rueckgaengig stellt alles wieder her
+    #[test]
+    #[ignore]
+    fn kreisverkehr_ueber_vorhandener_kreuzung() {
+        let _sperre = crate::bearbeiten::tests::sperre();
+        use crate::anschluss::Anschluesse;
+        use crate::strasse::{Modus, Strassenbau};
+        let mut v = crate::bearbeiten::tests::grundorf();
+        v.tiles_around(DVec3::new(150.0, 150.0, 0.0), 8).unwrap();
+        let mut a = Aendern::neu(&v);
+        a.aktualisieren(&v);
+        let k = a.kreuzungsobjekt_bei(&v, DVec2::new(414.0, 215.0)).expect("Kreuzung");
+        let ans = Anschluesse::default();
+        let mut s = Strassenbau::neu(Some("Splines\\Marcel\\str_2spur_8m_altonaer1.sli".into()), Modus::Kreisel);
+        s.kreisel_sli = crate::strasse::kreisel_vorschlag(&crate::strasse::querschnitte(Path::new(crate::bearbeiten::tests::OMSI)));
+        let mitte = k.pos.truncate().extend(v.terrain_height(k.pos.x, k.pos.y).unwrap());
+        let kam = crate::kamera::Kamera { ziel: mitte, gier: 200.0, neigung: -60.0, abstand: 95.0, fov: 50.0 };
+        if let Some(b) = std::env::var_os("OMSI_BILD_VORHER") {
+            let px = v.render_image(1280, 800, &kam.camera()).unwrap();
+            image::save_buffer(b, &px, 1280, 800, image::ColorType::Rgba8).unwrap();
+        }
+        s.klick(&mut v, mitte, 2.0, &ans, Some(&mut a));
+        let rand = mitte + DVec3::new(24.0, 0.0, 0.0);
+        s.maus(&mut v, rand, 2.0, &ans, Some(&mut a));
+        println!("Plan: {:?}", s.plan.as_ref().map(|p| (p.kreuzungen.len(), p.warnung.clone())));
+        let m = s.klick(&mut v, rand, 2.0, &ans, Some(&mut a)).unwrap();
+        println!("{m}");
+        assert!(m.contains("Kreisverkehr") || m.contains("gebaut"), "{m}");
+        a.aktualisieren(&v);
+        // die Kreuzung ist weg, an ihrer Stelle keine vorhandene Strasse mehr
+        assert!(a.kreuzungsobjekt_bei(&v, k.pos.truncate()).is_none(), "Kreuzung im Ring noch da");
+        assert!(a.abzweig_bei(&v, k.pos.truncate()).is_none(), "Strasse im Ring noch da");
+        let einmuendungen: Vec<_> = s.netz.knoten.iter().filter(|x| x.kartenarme.len() == 1).collect();
+        assert_eq!(einmuendungen.len(), 3, "drei Einmuendungen am Ring");
+        assert_eq!(s.gesetzte_kreuzungen().len(), 3, "{:?}", s.kreuzung_fehler);
+        if let Some(b) = std::env::var_os("OMSI_BILD") {
+            let px = v.render_image(1280, 800, &kam.camera()).unwrap();
+            image::save_buffer(b, &px, 1280, 800, image::ColorType::Rgba8).unwrap();
+        }
+        let karten: Vec<DVec2> = einmuendungen.iter().map(|x| x.kartenarme[0].pos.truncate()).collect();
+        let n = speichern_laden_pruefen(v, &s, a, "Grundorf_kreisel_karte", &[], &karten);
+        assert_eq!(n, 6, "4 Ringstuecke an 3 Kreuzungen: 6 Enden");
     }
 
     /// Fall des Nutzers (Screenshot 6.10.): neue Strasse an die Ampelkreuzung von Grundorf (x 412, y 223, 3 Arme)

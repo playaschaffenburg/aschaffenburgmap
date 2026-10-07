@@ -479,7 +479,7 @@ impl Strassenbau {
     /// Anfang/Ende zaehlt nichts (die Kreuzungen dort). -> (Querungen, Markierungen) oder warum es nicht geht
     #[allow(clippy::too_many_arguments)]
     fn querungen_suchen(&self, v: &Viewer, ae: Option<&mut Aendern>, el: &[netz::Element], halb_neu: f64, ohne: &[u32],
-                        frei_a: f64, frei_b: f64) -> Result<(Vec<(f64, Querung)>, Vec<KreuzungsVorschau>, Vec<(f64, f64)>), String> {
+                        frei_a: f64, frei_b: f64, ring: bool) -> Result<(Vec<(f64, Querung)>, Vec<KreuzungsVorschau>, Vec<(f64, f64)>), String> {
         let punkte = netz::abtasten(el, 1.0);
         let laenge = punkte.last().map(|p| p.1).unwrap_or(0.0);
         let mut gefunden: Vec<(f64, Querung, f64, f64)> = Vec::new(); // (s, Querung, Richtung der anderen, ihre halbe Breite)
@@ -514,10 +514,13 @@ impl Strassenbau {
                 }
                 let h = netz::punkt_auf(&el.iter().map(|x| x.stueck).collect::<Vec<_>>(), s).map(|x| x.1).unwrap_or(0.0);
                 let (vor, nach) = Aendern::schnitte(&ab, &[(h, halb_neu), ((h + 180.0).rem_euclid(360.0), halb_neu)]);
-                // die Stelle steht fest: passt die Kreuzung dort nicht (Ende/Kreuzung der vorhandenen Strasse zu nah), geht es nicht
-                match ae.abzweig_einpassen(&ab, vor, nach) {
-                    Ok(x) if (x.pos - ab.pos).length() < 0.5 => {}
-                    _ => return Err("die Strasse kreuzt eine vorhandene zu nah an deren Ende oder an einer Kreuzung".into()),
+                // die Stelle steht fest: passt die Kreuzung dort nicht (Ende/Kreuzung der vorhandenen Strasse zu nah), geht es
+                // nicht - am Kreisverkehr faellt das Innere weg, dort zaehlt nur der Platz aussen (beim Bauen geprueft)
+                if !ring {
+                    match ae.abzweig_einpassen(&ab, vor, nach) {
+                        Ok(x) if (x.pos - ab.pos).length() < 0.5 => {}
+                        _ => return Err("die Strasse kreuzt eine vorhandene zu nah an deren Ende oder an einer Kreuzung".into()),
+                    }
                 }
                 let (hq, halb) = (ab.richtung, ab.halb);
                 gefunden.push((s, Querung::Karte { ab, vor, nach }, hq, halb));
@@ -717,26 +720,65 @@ impl Strassenbau {
     /// Strassen, die den Ring kreuzen
     fn kreisel_bauen(&mut self, v: &mut Viewer, mut ae: Option<&mut Aendern>, mitte: DVec3, r: f64, sli: &str, p: &Plan) -> Result<(u32, usize), (String, usize)> {
         let mut schritte = 0;
+        // vorhandene Strassen unter dem Ring: das Innere faellt weg, aussen bleibt je Querung ein Arm (Einmuendung)
+        let karte: Vec<(kreuzung::Abzweig, f64, f64)> = p.querungen.iter().filter_map(|(_, q)| match q {
+            Querung::Karte { ab, vor, nach } => Some((ab.clone(), *vor, *nach)),
+            Querung::Kante { .. } => None,
+        }).collect();
+        let mut karten_arme = std::collections::VecDeque::new();
+        if !karte.is_empty() {
+            let a = ae.as_deref_mut().ok_or(("Aendern-Werkzeug nicht bereit".to_string(), schritte))?;
+            karten_arme = a.ring_ausschneiden(v, mitte, r, &karte).map_err(|e| (format!("{e:#}"), schritte))?.into();
+            schritte += 1;
+        }
         let lage = |phi: f64| (mitte.truncate() + netz::dir(phi) * r).extend(mitte.z);
-        let ring: Vec<u32> = (0..4).map(|i| self.netz.knoten_neu(lage(-90.0 * i as f64))).collect();
-        // Querungen nach Lage auf dem Ring (Meter ab Knoten 0, gegen den Uhrzeigersinn)
-        let viertel = std::f64::consts::FRAC_PI_2 * r;
-        for i in 0..4 {
-            let (phi_a, phi_b) = (-90.0 * i as f64, -90.0 * (i + 1) as f64);
-            let mut kn = vec![(ring[i], (phi_a - 90.0).rem_euclid(360.0))];
-            for (s, q) in p.querungen.iter().filter(|(s, _)| *s >= viertel * i as f64 && *s < viertel * (i + 1) as f64) {
-                let (k, n) = self.knoten_querung(v, ae.as_deref_mut(), q).map_err(|e| (e, schritte))?;
-                schritte += n;
-                let h = netz::punkt_auf(&p.stuecke, *s).map(|x| x.1).unwrap_or(0.0);
-                kn.push((k, h));
-            }
-            kn.push((ring[(i + 1) % 4], (phi_b - 90.0).rem_euclid(360.0)));
-            for w in kn.windows(2) {
-                self.netz.kante_neu(w[0].0, w[1].0, sli, w[0].1, w[1].1);
-                self.netz.kanten.last_mut().unwrap().ring = true;
+        // Knoten des Rings: die Querungen (Meter ab Norden, gegen den Uhrzeigersinn), dazwischen Zwischenknoten nur in
+        // Luecken ueber 100 Grad - feste Viertelknoten laegen sonst oft dicht neben einer Querung und liessen
+        // zwischen den Kreuzungen kein Stueck Strasse
+        let umfang = std::f64::consts::TAU * r;
+        let max_luecke = umfang * 100.0 / 360.0;
+        let mut stellen: Vec<(f64, Option<&Querung>)> = p.querungen.iter().map(|(s, q)| (*s, Some(q))).collect();
+        stellen.sort_by(|a, b| a.0.total_cmp(&b.0));
+        if stellen.is_empty() {
+            stellen.push((0.0, None));
+        }
+        let mut alle: Vec<(f64, Option<&Querung>)> = Vec::new();
+        for i in 0..stellen.len() {
+            let (a, q) = stellen[i];
+            alle.push((a, q));
+            let b = if i + 1 < stellen.len() { stellen[i + 1].0 } else { stellen[0].0 + umfang };
+            let n = ((b - a) / max_luecke).ceil().max(1.0) as usize;
+            for j in 1..n {
+                alle.push(((a + (b - a) * j as f64 / n as f64).rem_euclid(umfang), None));
             }
         }
-        Ok((ring[0], schritte))
+        // Knoten anlegen: (Knoten, Richtung gegen den Uhrzeigersinn dort)
+        let mut ring: Vec<(u32, f64)> = Vec::new();
+        for (s, q) in alle {
+            let phi = -(s / r).to_degrees();
+            let h = (phi - 90.0).rem_euclid(360.0);
+            let k = match q {
+                None => self.netz.knoten_neu(lage(phi)),
+                // Einmuendung einer vorhandenen Strasse: Knoten auf dem Ring mit ihrem aeusseren Ende als Arm
+                Some(Querung::Karte { .. }) => {
+                    let arm = karten_arme.pop_front().ok_or(("Arm der vorhandenen Strasse fehlt".to_string(), schritte))?;
+                    self.netz.breiten.insert(arm.sli.clone(), arm.halb);
+                    self.netz.knoten_mit_kartenarmen(lage(phi), vec![arm])
+                }
+                Some(q @ Querung::Kante { .. }) => {
+                    let (k, n) = self.knoten_querung(v, ae.as_deref_mut(), q).map_err(|e| (e, schritte))?;
+                    schritte += n;
+                    k
+                }
+            };
+            ring.push((k, h));
+        }
+        for i in 0..ring.len() {
+            let (a, b) = (ring[i], ring[(i + 1) % ring.len()]);
+            self.netz.kante_neu(a.0, b.0, sli, a.1, b.1);
+            self.netz.kanten.last_mut().unwrap().ring = true;
+        }
+        Ok((ring[0].0, schritte))
     }
 
     /// Zug beenden (Rechtsklick/Esc)
@@ -880,7 +922,7 @@ impl Strassenbau {
             }
         }
         let halb_neu = self.halb(v, &sli);
-        let (querungen, marken, abschnitte) = match self.querungen_suchen(v, ae.as_deref_mut(), &el, halb_neu, &ohne, sa.kuerzung + 1.0, zb.kuerzung + 1.0) {
+        let (querungen, marken, abschnitte) = match self.querungen_suchen(v, ae.as_deref_mut(), &el, halb_neu, &ohne, sa.kuerzung + 1.0, zb.kuerzung + 1.0, false) {
             Ok(x) => x,
             Err(e) => {
                 fehler.get_or_insert(e);
@@ -949,7 +991,7 @@ impl Strassenbau {
         let laenge: f64 = stuecke.iter().map(|s| s.laenge).sum();
         let el = netz::mit_hoehe(&stuecke, mitte.z, 0.0, mitte.z, 0.0);
         let halb = self.halb(v, &sli);
-        let (querungen, marken, blockiert) = match self.querungen_suchen(v, ae, &el, halb, &[], 0.0, 0.0) {
+        let (querungen, marken, blockiert) = match self.querungen_suchen(v, ae, &el, halb, &[], 0.0, 0.0, true) {
             Ok((q, m, _)) => (q, m, None),
             Err(e) => (vec![], vec![], Some(e)),
         };
