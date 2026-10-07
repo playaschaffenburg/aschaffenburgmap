@@ -20,6 +20,94 @@ pub fn aufraeumen() {
     }
 }
 
+/// Markierungsdatei in Karten, die der Editor angelegt hat
+pub const MARKE: &str = "omsi-editor.txt";
+
+/// eigene Karte (vom Editor angelegt oder von omsigen erzeugt): darf ohne Rueckfrage ueberschrieben werden
+pub fn eigene_karte(root: &Path, karte: &str) -> bool {
+    let d = root.join("maps").join(karte);
+    d.join(MARKE).exists() || d.join("LIESMICH_omsigen.txt").exists()
+}
+
+/// Ordner der Sicherungen beim Ueberschreiben
+pub fn sicherungen() -> PathBuf {
+    std::env::var_os("LOCALAPPDATA").map(PathBuf::from).unwrap_or_else(std::env::temp_dir).join("omsi-editor").join("sicherungen")
+}
+
+/// Teil 2 fuer "Speichern": die Karte selbst ueberschreiben. Jede ersetzte Datei (und global.cfg) kommt vorher nach
+/// sicherungen()/<Karte>/<Zeit>/ (die letzten 10 bleiben); Kreuzungsobjekte in den Objektordner der Karte (nie
+/// ueberschreibend). -> Ordner der Sicherung
+pub fn karte_ueberschreiben(root: &Path, karte: &str, paket: &Paket) -> Result<PathBuf> {
+    let ziel = root.join("maps").join(karte);
+    if !ziel.join("global.cfg").exists() {
+        bail!("{} ist keine Karte", ziel.display());
+    }
+    let objekte = root.join("Sceneryobjects").join("Aschaffenburg_KI").join(karte);
+    // erst pruefen, dann schreiben: kein Kreuzungsobjekt darf ein vorhandenes ersetzen
+    if let Some((ordner, _)) = &paket.kreuzungen {
+        for e in std::fs::read_dir(ordner)?.flatten() {
+            if e.path().is_file() && objekte.join(e.file_name()).exists() {
+                bail!("{} gibt es schon - nichts geschrieben", objekte.join(e.file_name()).display());
+            }
+        }
+    }
+    let stempel = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let basis = sicherungen().join(karte);
+    let sicherung = basis.join(format!("{stempel}"));
+    std::fs::create_dir_all(&sicherung).with_context(|| format!("{} anlegen", sicherung.display()))?;
+    let mut namen: Vec<std::ffi::OsString> = paket.dateien.iter().filter_map(|d| d.file_name().map(|n| n.to_owned())).collect();
+    namen.push("global.cfg".into());
+    for n in &namen {
+        let alt = ziel.join(n);
+        if alt.exists() {
+            std::fs::copy(&alt, sicherung.join(n)).with_context(|| format!("{} sichern", alt.display()))?;
+        }
+    }
+    for d in &paket.dateien {
+        let name = d.file_name().context("Datei ohne Namen")?;
+        std::fs::copy(d, ziel.join(name)).with_context(|| format!("{} schreiben", ziel.join(name).display()))?;
+    }
+    if let Some((ordner, tag)) = &paket.kreuzungen {
+        ordner_zusammenfuehren(ordner, &objekte).with_context(|| format!("Kreuzungsobjekte nach {} kopieren", objekte.display()))?;
+        let alt_rel = format!("Aschaffenburg_KI\\{tag}\\");
+        let neu_rel = format!("Aschaffenburg_KI\\{karte}\\");
+        for d in &paket.dateien {
+            let datei = ziel.join(d.file_name().context("Datei ohne Namen")?);
+            let (text, utf16) = dekodieren(&std::fs::read(&datei)?);
+            if text.contains(&alt_rel) {
+                std::fs::write(&datei, kodieren(&text.replace(&alt_rel, &neu_rel), utf16))?;
+            }
+        }
+    }
+    if let Some(id) = paket.naechste_id {
+        global_setzen(&ziel.join("global.cfg"), &[("[NextIDCode]", id.to_string())])?;
+    }
+    let _ = std::fs::remove_dir_all(&paket.staging);
+    // die letzten 10 Sicherungen behalten (eigene Ordner, nach Zeit benannt)
+    let mut alle: Vec<PathBuf> = std::fs::read_dir(&basis).map(|r| r.flatten().map(|e| e.path()).filter(|p| p.is_dir()).collect()).unwrap_or_default();
+    alle.sort();
+    while alle.len() > 10 {
+        let _ = std::fs::remove_dir_all(alle.remove(0));
+    }
+    log::info!("Karte {karte} gespeichert ({} Dateien), Sicherung in {}", paket.dateien.len(), sicherung.display());
+    Ok(sicherung)
+}
+
+/// Dateien von `von` nach `nach` kopieren, vorhandene nicht ersetzen (Texturen sind gleich)
+fn ordner_zusammenfuehren(von: &Path, nach: &Path) -> Result<()> {
+    std::fs::create_dir_all(nach)?;
+    for e in std::fs::read_dir(von)? {
+        let e = e?;
+        let p = e.path();
+        if e.file_type()?.is_dir() {
+            ordner_zusammenfuehren(&p, &nach.join(e.file_name()))?;
+        } else if !nach.join(e.file_name()).exists() {
+            std::fs::copy(&p, nach.join(e.file_name()))?;
+        }
+    }
+    Ok(())
+}
+
 /// Kartenname fuer einen neuen Ordner: Buchstaben, Ziffern, _ - und Leerzeichen
 pub fn name_ok(n: &str) -> bool {
     !n.trim().is_empty() && n.chars().all(|c| c.is_alphanumeric() || "_- ".contains(c)) && !n.starts_with(' ')
@@ -261,6 +349,7 @@ pub fn karte_anlegen(root: &Path, alt: &str, neu: &str, paket: &Paket) -> Result
         werte.push(("[NextIDCode]", id.to_string()));
     }
     global_setzen(&ziel.join("global.cfg"), &werte)?;
+    let _ = std::fs::write(ziel.join(MARKE), format!("Mit dem OMSI-Editor (aschaffenburgmap) angelegt aus der Karte \"{alt}\".\r\nDiese Karte darf der Editor beim Speichern ueberschreiben (mit Sicherung).\r\n"));
     let _ = std::fs::remove_dir_all(&paket.staging);
     Ok(ziel)
 }

@@ -6,7 +6,8 @@ Projekt: `omsigen` erzeugt OMSI-2-Karten aus OpenStreetMap (siehe README.md). Sp
 ## Arbeitsweise
 
 - **Nie bestehende Karten oder OMSI-Dateien verändern.** Neue Karten immer in einen neuen Ordner
-  (`--name …_v2` usw.). Eigene Splines nur in `Splines/Aschaffenburg_KI/`, eigene Objekte
+  (`--name …_v2` usw.). Ausnahme auf Wunsch des Nutzers: „Speichern“ im Rust-Editor überschreibt die geöffnete
+  Karte (eigene ohne Rückfrage, fremde nach Rückfrage), immer mit Sicherung der ersetzten Dateien. Eigene Splines nur in `Splines/Aschaffenburg_KI/`, eigene Objekte
   (Kreuzungen) nur in `Sceneryobjects/Aschaffenburg_KI/<Kartenname>/`.
 - Nach jeder Änderung: `python -m pytest` und einen Beispiellauf mit `--osm-datei samples/...` und
   `--vorschau`. Ziel: „ohne Anschluss: 0“. Das PNG ansehen.

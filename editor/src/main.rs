@@ -118,7 +118,14 @@ struct App {
     umschalt: bool,
     /// Speichern-Dialog offen: Name der neuen Karte
     speichern_name: Option<String>,
-    speichern_job: Option<std::thread::JoinHandle<Result<PathBuf>>>,
+    /// Speichern im Hintergrund -> (Ergebnis-Ordner, true wenn die Karte selbst ueberschrieben wurde)
+    speichern_job: Option<std::thread::JoinHandle<Result<(PathBuf, bool)>>>,
+    /// Rueckfrage: fremde Karte ueberschreiben?
+    ueberschreiben_frage: bool,
+    /// Kamera beim Neuladen nach dem Speichern behalten
+    kamera_merken: Option<Kamera>,
+    /// Meldung nach dem Speichern (ueberlebt das Neuladen der Karte)
+    speichern_meldung: Option<String>,
     /// Kartenwechsel mit ungespeicherten Aenderungen: erst fragen
     verwerfen_frage: Option<usize>,
     /// Objektkatalog (wird im Hintergrund eingelesen)
@@ -175,6 +182,9 @@ enum UiAktion {
     Wiederholen,
     Abwaehlen,
     SpeichernDialog,
+    /// "Speichern": die geoeffnete Karte ueberschreiben (eigene sofort, fremde nach Rueckfrage)
+    SpeichernHier,
+    Ueberschreiben,
     Speichern(String),
     Verwerfen(usize),
     FrageZu,
@@ -235,6 +245,9 @@ impl App {
             umschalt: false,
             speichern_name: None,
             speichern_job: None,
+            ueberschreiben_frage: false,
+            kamera_merken: None,
+            speichern_meldung: None,
             verwerfen_frage: None,
             katalog: None,
             katalog_job: None,
@@ -408,14 +421,22 @@ impl App {
         }
         if self.speichern_job.as_ref().map(|j| j.is_finished()).unwrap_or(false) {
             match self.speichern_job.take().unwrap().join() {
-                Ok(Ok(ziel)) => {
-                    self.meldung = format!("gespeichert als neue Karte: {}", ziel.display());
+                Ok(Ok((ziel, ueberschrieben))) => {
                     self.bearb.aenderungen = 0;
                     self.strasse.aenderungen = 0;
                     if let Some(a) = self.aendern.as_mut() {
                         a.aenderungen = 0;
                     }
                     self.karten = karten_finden(&self.root);
+                    if ueberschrieben {
+                        // die Aenderungen stehen jetzt in der Karte: frisch laden (Sitzung, Netz, Verlauf von vorn), Kamera bleibt
+                        self.kamera_merken = Some(self.kam.clone());
+                        self.zu_laden = self.karte.as_ref().and_then(|k| self.karten.iter().position(|x| &x.ordner == k));
+                        self.meldung = format!("gespeichert - Sicherung der ersetzten Dateien: {}", ziel.display());
+                        self.speichern_meldung = Some(self.meldung.clone());
+                    } else {
+                        self.meldung = format!("gespeichert als neue Karte: {}", ziel.display());
+                    }
                 }
                 Ok(Err(e)) => self.meldung = format!("Speichern fehlgeschlagen: {e:#}"),
                 Err(_) => self.meldung = "Speichern fehlgeschlagen (Absturz im Hintergrund)".into(),
@@ -424,7 +445,15 @@ impl App {
         if let Some(i) = self.zu_laden.take() {
             protokoll::aktion_lang(&format!("Karte oeffnen: {}", self.karten[i].ordner));
             match self.karte_oeffnen(i) {
-                Ok(()) => log::info!("{}", self.meldung),
+                Ok(()) => {
+                    log::info!("{}", self.meldung);
+                    if let Some(k) = self.kamera_merken.take() {
+                        self.kam = k;
+                    }
+                    if let Some(m) = self.speichern_meldung.take() {
+                        self.meldung = m;
+                    }
+                }
                 Err(e) => {
                     self.meldung = format!("Karte nicht geladen: {e:#}");
                     log::error!("{}", self.meldung);
@@ -511,8 +540,13 @@ impl App {
                         aktionen.push(UiAktion::Wiederholen);
                     }
                     ui.separator();
-                    let txt = if self.bearb.aenderungen + self.strasse.aenderungen + self.aendern.as_ref().map(|a| a.aenderungen).unwrap_or(0) > 0 { "Als neue Karte speichern *" } else { "Als neue Karte speichern" };
-                    if ui.add_enabled(self.viewer.is_some() && self.speichern_job.is_none(), egui::Button::new(txt)).on_hover_text("Strg+S").clicked() {
+                    let geaendert = self.bearb.aenderungen + self.strasse.aenderungen + self.aendern.as_ref().map(|a| a.aenderungen).unwrap_or(0) > 0;
+                    let frei = self.viewer.is_some() && self.speichern_job.is_none();
+                    if ui.add_enabled(frei && geaendert, egui::Button::new(if geaendert { "Speichern *" } else { "Speichern" }))
+                        .on_hover_text("Strg+S: die geoeffnete Karte ueberschreiben (die ersetzten Dateien werden vorher gesichert)").clicked() {
+                        aktionen.push(UiAktion::SpeichernHier);
+                    }
+                    if ui.add_enabled(frei, egui::Button::new("Als neue Karte ...")).on_hover_text("Strg+Umschalt+S: Kopie unter neuem Namen, die geoeffnete Karte bleibt unveraendert").clicked() {
                         aktionen.push(UiAktion::SpeichernDialog);
                     }
                     if ui.button("Protokolle").on_hover_text("Ordner mit Logdateien, Absturz- und Haenger-Berichten oeffnen").clicked() {
@@ -1046,6 +1080,27 @@ impl App {
                     self.speichern_name = None;
                 }
             }
+            if self.ueberschreiben_frage {
+                let karte = self.karte.clone().unwrap_or_default();
+                egui::Window::new("Karte ueberschreiben?").collapsible(false).resizable(false).show(ctx, |ui| {
+                    ui.label(format!("\"{karte}\" wurde nicht mit diesem Editor angelegt (Standard- oder Fremdkarte)."));
+                    ui.label("Beim Ueberschreiben werden die ersetzten Dateien vorher gesichert:");
+                    ui.label(egui::RichText::new(speichern::sicherungen().join(&karte).display().to_string()).small().weak());
+                    ui.label("Fuer Standardkarten ist \"Als neue Karte\" meist besser (Steam kann die Originale bei einer Pruefung zuruecksetzen).");
+                    ui.horizontal(|ui| {
+                        if ui.button("Ueberschreiben").clicked() {
+                            aktionen.push(UiAktion::Ueberschreiben);
+                        }
+                        if ui.button("Als neue Karte ...").clicked() {
+                            self.ueberschreiben_frage = false;
+                            aktionen.push(UiAktion::SpeichernDialog);
+                        }
+                        if ui.button("Abbrechen").clicked() {
+                            self.ueberschreiben_frage = false;
+                        }
+                    });
+                });
+            }
             if let Some(i) = self.verwerfen_frage {
                 egui::Window::new("Ungespeicherte Aenderungen").collapsible(false).resizable(false).show(ctx, |ui| {
                     ui.label(format!("{} Aenderungen an {} gehen verloren.", self.bearb.aenderungen, self.karte.as_deref().unwrap_or("-")));
@@ -1234,6 +1289,34 @@ impl App {
                     self.speichern_name = Some(speichern::vorschlag(&self.root, k));
                 }
             }
+            UiAktion::SpeichernHier => {
+                let Some(k) = self.karte.clone() else { return };
+                if self.speichern_job.is_some() {
+                    return;
+                }
+                if self.bearb.aenderungen + self.strasse.aenderungen + self.aendern.as_ref().map(|a| a.aenderungen).unwrap_or(0) == 0 {
+                    self.meldung = "nichts zu speichern".into();
+                } else if speichern::eigene_karte(&self.root, &k) {
+                    self.ausfuehren(UiAktion::Ueberschreiben);
+                } else {
+                    self.ueberschreiben_frage = true;
+                }
+            }
+            UiAktion::Ueberschreiben => {
+                self.ueberschreiben_frage = false;
+                let (Some(v), Some(karte)) = (self.viewer.as_ref(), self.karte.clone()) else { return };
+                let kopien = self.aendern.as_ref().map(|a| a.kopien(&karte)).unwrap_or_default();
+                let kreuzungen = self.aendern.as_ref().map(|a| a.kreuzungs_ordner());
+                match speichern::vorbereiten(v, &self.bearb, &self.strasse.netz, &self.strasse.gesetzte_kreuzungen(), &kopien, kreuzungen, &karte) {
+                    Ok(paket) => {
+                        let root = self.root.clone();
+                        self.meldung = format!("speichere {karte} ({} geaenderte Dateien) ...", paket.dateien.len());
+                        protokoll::aktion(&format!("Speichern: {karte} ueberschreiben"));
+                        self.speichern_job = Some(std::thread::spawn(move || speichern::karte_ueberschreiben(&root, &karte, &paket).map(|p| (p, true))));
+                    }
+                    Err(e) => self.meldung = format!("Speichern fehlgeschlagen: {e:#}"),
+                }
+            }
             UiAktion::Speichern(neu) => {
                 self.speichern_name = None;
                 let (Some(v), Some(alt)) = (self.viewer.as_ref(), self.karte.clone()) else { return };
@@ -1243,7 +1326,7 @@ impl App {
                     Ok(paket) => {
                         let root = self.root.clone();
                         self.meldung = format!("speichere {neu} ({} geaenderte Dateien, {} neue Objekte, {} neue Splines) ...", paket.dateien.len(), paket.neue_objekte, paket.neue_splines);
-                        self.speichern_job = Some(std::thread::spawn(move || speichern::karte_anlegen(&root, &alt, &neu, &paket)));
+                        self.speichern_job = Some(std::thread::spawn(move || speichern::karte_anlegen(&root, &alt, &neu, &paket).map(|p| (p, false))));
                     }
                     Err(e) => self.meldung = format!("Speichern fehlgeschlagen: {e:#}"),
                 }
@@ -1398,7 +1481,8 @@ impl App {
             }
             KeyCode::KeyZ if self.strg => Some(UiAktion::Rueckgaengig),
             KeyCode::KeyY if self.strg => Some(UiAktion::Wiederholen),
-            KeyCode::KeyS if self.strg => Some(UiAktion::SpeichernDialog),
+            KeyCode::KeyS if self.strg && self.umschalt => Some(UiAktion::SpeichernDialog),
+            KeyCode::KeyS if self.strg => Some(UiAktion::SpeichernHier),
             KeyCode::Escape => Some(UiAktion::Abwaehlen),
             _ if self.bearb.werkzeug != Werkzeug::Objekte => None,
             KeyCode::Delete => Some(UiAktion::Objekt(Action::Delete)),

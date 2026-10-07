@@ -31,7 +31,9 @@ target\release\omsi-editor.exe Grundorf --testlauf 20           # Fenster, nach 
 Kamera: rechte Maustaste drehen/neigen, mittlere verschieben, Mausrad zoomen (zum Mauszeiger), W A S D / Pfeile,
 Q / E drehen, R / F neigen. Koordinaten wie in openOMSI: x Ost, y Nord, z hoch.
 
-**Objekte bearbeiten (Werkzeug „Objekte“, Taste O):** Klick wählt das Objekt unter der Maus (weißer Ring = unter der
+**Objekte bearbeiten (Werkzeug „Objekte“, Taste O):** alle `[object]`-Einträge der Karte, auch die mit absoluter Höhe
+(Kreuzungen, Straßenteile, `[absheight]` – sie behalten beim Ziehen ihre Höhe); angehängte Objekte (`[attachObj]`,
+z. B. Signale am Mast) und Spline-Anhänge (Laternenreihen) noch nicht. Klick wählt das Objekt unter der Maus (weißer Ring = unter der
 Maus, magenta = gewählt), Ziehen schiebt es über das Gelände, Strg+Mausrad oder `,` `.` dreht (Umschalt: fein),
 Bild ↑/↓ hebt/senkt, Entf löscht, „Kopieren“ legt eine Kopie 3 m daneben (danach gewählt); Position und Richtung
 auch als Zahlen rechts. Strg+Z / Strg+Y.
@@ -113,9 +115,15 @@ Technik: die geänderte Kachel wird in einen Sitzungsordner geschrieben, den ope
 Installation liest, und neu geladen – sofort sichtbar, die Originalkarte bleibt unverändert; beim Speichern als
 neue Karte kommen diese Kacheln mit.
 
-**Strg+S: als neue Karte speichern** – der Kartenordner wird kopiert, geänderte Kacheln (UTF-16 bleibt) kommen
+**Speichern (Strg+S)** überschreibt die geöffnete Karte: jede Datei, die dabei ersetzt wird (Kacheln, `global.cfg`),
+kommt vorher nach `%LOCALAPPDATA%\omsi-editor\sicherungen\<Karte>\<Zeit>\` (die letzten 10 je Karte bleiben). Eigene
+Karten (vom Editor angelegt – Markierung `omsi-editor.txt` – oder von omsigen erzeugt) werden ohne Rückfrage
+gespeichert, bei Standard- und Fremdkarten fragt der Editor nach und bietet „Als neue Karte“ an. Danach wird die Karte
+frisch geladen (Kamera bleibt). Kreuzungsobjekte kommen in `Sceneryobjects\Aschaffenburg_KI\<Karte>\` (eindeutige
+Namen je Sitzung, nichts Vorhandenes wird ersetzt).
+**Als neue Karte (Strg+Umschalt+S)**: der Kartenordner wird kopiert, geänderte Kacheln (UTF-16 bleibt) kommen
 darüber, neue Objekte stehen als `[object]`-Einträge mit eindeutigen IDs in ihrer Kachel, `global.cfg` bekommt den
-neuen Namen und `[NextIDCode]`; die Originalkarte bleibt unverändert.
+neuen Namen und `[NextIDCode]`; die geöffnete Karte bleibt unverändert.
 
 **Protokoll und Berichte** (Knopf „Protokolle“ oben öffnet den Ordner `%LOCALAPPDATA%\omsi-editor\logs`): jede
 Sitzung schreibt eine Logdatei (die letzten 10 bleiben; Stufe über `RUST_LOG`, Standard `warn,omsi_editor=info`),

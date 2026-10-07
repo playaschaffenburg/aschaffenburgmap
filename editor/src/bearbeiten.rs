@@ -460,6 +460,32 @@ pub mod tests {
         String::from_utf16_lossy(&b[2..].chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect::<Vec<_>>())
     }
 
+    /// Objekte mit absoluter Hoehe (Kreuzungen, [absheight]) lassen sich bearbeiten und behalten beim Ziehen ihre Hoehe
+    #[test]
+    #[ignore]
+    fn objekt_mit_absoluter_hoehe_ziehen() {
+        let _sperre = sperre();
+        let mut v = grundorf();
+        v.tiles_around(DVec3::new(150.0, 150.0, 0.0), 8).unwrap();
+        let mut b = Bearbeiten::neu(Werkzeug::Objekte);
+        // die Ampelkreuzung (Kreuz_MC\Einm_See.sco, Objekt 10, Pfade -> absolute Hoehe)
+        let o = b.objekte(&v).into_iter().find(|o| o.wahl == Wahl::Karte(10)).expect("Kreuzungsobjekt 10 nicht bearbeitbar");
+        println!("Objekt 10: {} bei {:?}", o.sco.display(), o.pos);
+        b.waehlen(Some(Wahl::Karte(10)));
+        let ziel = DVec3::new(o.pos.x + 1.0, o.pos.y, v.terrain_height(o.pos.x + 1.0, o.pos.y).unwrap() - 3.0);
+        v.drag(&mut b.ed, ziel);
+        let e = v.object_edit(10);
+        assert!((e.moved.x - 1.0).abs() < 1e-6 && e.moved.y.abs() < 1e-6 && e.moved.z.abs() < 1e-9, "Hoehe muss bleiben: {:?}", e.moved);
+        // gespeichert: x um 1 m verschoben, Hoehe wie vorher
+        let (staging, dateien) = crate::speichern::kacheln_schreiben(&v, &b.ed, "Grundorf").unwrap();
+        let datei = dateien.iter().find(|d| d.file_name().unwrap().to_string_lossy() == "tile_1_0.map").expect("Kachel 1 0");
+        let t = omsi_map::Tile::load(datei).unwrap();
+        let alt = omsi_map::Tile::load(&Path::new(OMSI).join("maps/Grundorf/tile_1_0.map")).unwrap();
+        let (n, a) = (t.objects.iter().find(|x| x.id == 10).unwrap(), alt.objects.iter().find(|x| x.id == 10).unwrap());
+        assert!((n.pos[0] - a.pos[0] - 1.0).abs() < 1e-3 && (n.pos[1] - a.pos[1]).abs() < 1e-3 && (n.pos[2] - a.pos[2]).abs() < 1e-3, "{:?} -> {:?}", a.pos, n.pos);
+        let _ = std::fs::remove_dir_all(staging);
+    }
+
     #[test]
     #[ignore]
     fn bearbeiten_kopieren_platzieren_speichern() {

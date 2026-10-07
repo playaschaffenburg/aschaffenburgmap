@@ -905,7 +905,9 @@ impl Strassenbau {
         let (kuerz_a, kuerz_b) = (sa.kuerzung, zb.kuerzung);
         self.plan = Some(Plan { a, b, ha, hb, start: sa, ziel: zb, querungen, stuecke: stuecke.clone(), kreisel: None, angeschlossen,
                                 kreuzungen, blockiert: fehler, warnung, laenge, min_radius, steigung });
-        self.vorschau_weg(v);
+        // die alte Vorschau erst nach dem Zeichnen der neuen wegnehmen: so bleibt der Spline-Typ (seine Texturen) auf
+        // der Grafikkarte, statt bei jeder Mausbewegung neu geladen zu werden
+        let alt = std::mem::take(&mut self.vorschau);
         // an Kreuzungen beginnt/endet die Vorschau am Arm
         let st = if kuerz_a > 0.0 || kuerz_b > 0.0 { netz::schneiden(&stuecke, kuerz_a, laenge - kuerz_b) } else { stuecke };
         let el = netz::mit_hoehe(&st, a.z, ga, b.z, gb);
@@ -916,11 +918,17 @@ impl Strassenbau {
             }
             cum += e.stueck.laenge;
         }
+        for g in alt {
+            v.remove_object(g);
+        }
     }
 
     /// Vorschau des Kreisverkehrs: Mitte (erster Klick), Halbmesser bis zur Maus
     fn kreisel_vorschau(&mut self, v: &mut Viewer, boden: DVec3, ae: Option<&mut Aendern>) {
-        self.vorschau_weg(v);
+        let alt = std::mem::take(&mut self.vorschau);
+        for g in alt {
+            v.remove_object(g);
+        }
         let Some(Start { ende: Ende::Frei(mitte), .. }) = self.start.clone() else {
             self.plan = None;
             return;
@@ -981,11 +989,8 @@ impl Strassenbau {
 
     /// alle Kanten neu zeichnen (nach jeder Aenderung: die Hoehen an Verbindungsknoten haengen von beiden Seiten ab)
     pub fn zeichnen_alle(&mut self, v: &mut Viewer) {
-        for (_, gs) in self.gezeichnet.drain() {
-            for g in gs {
-                v.remove_object(g);
-            }
-        }
+        // die alten Stuecke erst nach den neuen wegnehmen (Spline-Typen bleiben geladen)
+        let alt: Vec<TileGpu> = self.gezeichnet.drain().flat_map(|(_, gs)| gs).collect();
         for e in self.netz.kanten.clone() {
             let mut gs = Vec::new();
             let mut cum = 0.0;
@@ -996,6 +1001,9 @@ impl Strassenbau {
                 cum += el.stueck.laenge;
             }
             self.gezeichnet.insert(e.id, gs);
+        }
+        for g in alt {
+            v.remove_object(g);
         }
         self.kreuzungen_aktualisieren(v);
     }

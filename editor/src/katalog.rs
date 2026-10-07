@@ -218,3 +218,29 @@ mod tests {
         assert_eq!(herkunft("Irgendwas", &n), "ohne Karte");
     }
 }
+
+#[cfg(test)]
+mod laden_tests {
+    /// Stichprobe: welche Katalog-Objekte laesst openOMSI nicht laden (Platzieren scheitert dann)
+    #[test]
+    #[ignore]
+    fn katalog_objekte_laden() {
+        let _sperre = crate::bearbeiten::tests::sperre();
+        let root = std::path::Path::new(crate::bearbeiten::tests::OMSI);
+        let k = super::einlesen(root);
+        let v = crate::bearbeiten::tests::grundorf();
+        let mut fehler: std::collections::BTreeMap<String, Vec<String>> = Default::default();
+        let mut n = 0;
+        for e in k.eintraege.iter().step_by(10) {
+            n += 1;
+            if v.object_bounds(&e.rel).is_none() {
+                fehler.entry(e.ordner.clone()).or_default().push(e.rel.clone());
+            }
+        }
+        let summe: usize = fehler.values().map(|x| x.len()).sum();
+        println!("{n} geprueft, {summe} nicht ladbar");
+        for (o, l) in &fehler {
+            println!("  {o}: {} z. B. {}", l.len(), l[0]);
+        }
+    }
+}

@@ -55,6 +55,10 @@ pub struct Aendern {
     redo: Vec<Vec<Schritt>>,
     pub aenderungen: usize,
     breiten: HashMap<String, (f32, f32)>,
+    /// abgetastete Mittellinien der Splines (alle ~1 m) mit Umriss-Rechteck, und ob ein Querschnitt Fahrspuren hat -
+    /// fuer die Suche nach Querungen bei jeder Mausbewegung (geleert, wenn Kacheln neu gelesen werden)
+    pub(crate) abgetastet: HashMap<i64, std::rc::Rc<(Vec<(DVec3, f64)>, DVec2, DVec2)>>,
+    pub(crate) mit_spuren: HashMap<String, bool>,
     /// Ordnername der Kreuzungsobjekte dieser Sitzung unter Sceneryobjects/Aschaffenburg_KI (beim Speichern wird
     /// daraus der Name der neuen Karte)
     pub tag: String,
@@ -69,7 +73,7 @@ impl Aendern {
         let _ = std::fs::create_dir_all(&sitzung);
         v.session_overlay(&sitzung);
         Aendern { sitzung, kacheln: HashMap::new(), stand: vec![], unter_maus: None, auswahl: vec![], undo: vec![], redo: vec![],
-                  aenderungen: 0, breiten: HashMap::new(), tag: format!("Editor_{}_{nr}", std::process::id()) }
+                  aenderungen: 0, breiten: HashMap::new(), abgetastet: HashMap::new(), mit_spuren: HashMap::new(), tag: format!("Editor_{:x}{nr}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)) }
     }
 
     /// Splines der geladenen Kacheln (neu lesen, wenn sich die geladenen Kacheln geaendert haben)
@@ -80,6 +84,7 @@ impl Aendern {
             return;
         }
         self.kacheln.retain(|x, _| k.contains(x));
+        self.abgetastet.clear();
         for t in &k {
             if !self.kacheln.contains_key(t) {
                 self.kacheln.insert(*t, lesen(v, *t));
@@ -196,6 +201,7 @@ impl Aendern {
             schritte.push(Schritt { kachel: k, datei: ziel, vorher, nachher: Some(neu) });
             self.kacheln.remove(&k);
             self.stand.clear();
+            self.abgetastet.clear();
         }
         let keys: Vec<(i32, i32)> = schritte.iter().map(|s| s.kachel).collect();
         v.reload_tiles(&keys)?;
@@ -282,6 +288,7 @@ impl Aendern {
                 }
             }
             self.kacheln.remove(&s.kachel);
+            self.abgetastet.clear();
         }
         self.stand.clear();
         let keys: Vec<(i32, i32)> = schritte.iter().map(|s| s.kachel).collect();
