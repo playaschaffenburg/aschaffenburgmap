@@ -32,7 +32,7 @@ Kamera: rechte Maustaste drehen/neigen, mittlere verschieben, Mausrad zoomen (zu
 Q / E drehen, R / F neigen. Koordinaten wie in openOMSI: x Ost, y Nord, z hoch.
 
 **Objekte bearbeiten (Werkzeug „Objekte“, Taste O):** alle `[object]`-Einträge der Karte, auch die mit absoluter Höhe
-(Kreuzungen, Straßenteile, `[absheight]` – sie behalten beim Ziehen ihre Höhe); angehängte Objekte (`[attachObj]`,
+(Kreuzungen, Straßenteile, `[absheight]` – sie behalten beim Ziehen ihre Höhe) und die Bäume; angehängte Objekte (`[attachObj]`,
 z. B. Signale am Mast) und Spline-Anhänge (Laternenreihen) noch nicht. Klick wählt das Objekt unter der Maus (weißer Ring = unter der
 Maus, magenta = gewählt), Ziehen schiebt es über das Gelände, Strg+Mausrad oder `,` `.` dreht (Umschalt: fein),
 Bild ↑/↓ hebt/senkt, Entf löscht, „Kopieren“ legt eine Kopie 3 m daneben (danach gewählt); Position und Richtung

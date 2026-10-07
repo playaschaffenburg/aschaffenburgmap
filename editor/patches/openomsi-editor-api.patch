@@ -1,7 +1,7 @@
 From 6a28afa52f391b1e21dd812a7f86f94221f673a7 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 16:01:32 +0200
-Subject: [PATCH 01/12] editor-api: oeffentliche Viewer-Schnittstelle, OpenXR
+Subject: [PATCH 01/13] editor-api: oeffentliche Viewer-Schnittstelle, OpenXR
  zur Laufzeit laden
 
 ---
@@ -210,7 +210,7 @@ index 0000000..f57565c
 From cc51e3c693d2333dc4ee49c47f6e37c20ab516e8 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 16:22:56 +0200
-Subject: [PATCH 02/12] editor-api: Hintergrund-Streaming und Kartenwechsel mit
+Subject: [PATCH 02/13] editor-api: Hintergrund-Streaming und Kartenwechsel mit
  demselben Renderer
 
 ---
@@ -316,7 +316,7 @@ index f57565c..ebd8833 100644
 From 596e460251b086f739871a8134343aea3f22e5e0 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 16:35:56 +0200
-Subject: [PATCH 03/12] editor-api: Objekte bearbeiten und Kacheln schreiben
+Subject: [PATCH 03/13] editor-api: Objekte bearbeiten und Kacheln schreiben
  ueber den Viewer
 
 ---
@@ -391,7 +391,7 @@ index ebd8833..e926a15 100644
 From 0cb9086cbb9faad1472cd454cb3fd12000216701 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 16:54:59 +0200
-Subject: [PATCH 04/12] editor-api: freie Objekte setzen, naechste freie ID,
+Subject: [PATCH 04/13] editor-api: freie Objekte setzen, naechste freie ID,
  Kacheldatei
 
 ---
@@ -448,7 +448,7 @@ index e926a15..61f58bb 100644
 From 237ec37d6957dab1787c4d67d58d7803945fd3f5 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 17:10:18 +0200
-Subject: [PATCH 05/12] editor-api: Objektausmasse und Vorschaubilder
+Subject: [PATCH 05/13] editor-api: Objektausmasse und Vorschaubilder
 
 ---
  crates/omsi-app/src/viewer.rs | 34 ++++++++++++++++++++++++++++++++++
@@ -504,7 +504,7 @@ index 61f58bb..e92c3f2 100644
 From 9988917031be8d360dab043f72364f777791de76 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 17:24:46 +0200
-Subject: [PATCH 06/12] editor-api: Splines frei zeichnen (Live-Vorschau),
+Subject: [PATCH 06/13] editor-api: Splines frei zeichnen (Live-Vorschau),
  Spuren einer .sli
 
 ---
@@ -614,7 +614,7 @@ index e92c3f2..d50c032 100644
 From d35054e68c9b423943fb69c23c58cdc2d8efbd2b Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 17:43:57 +0200
-Subject: [PATCH 07/12] editor-api: Vorschaubild fuer Strassen-Splines
+Subject: [PATCH 07/13] editor-api: Vorschaubild fuer Strassen-Splines
 
 ---
  crates/omsi-app/src/viewer.rs | 23 +++++++++++++++++++++++
@@ -659,7 +659,7 @@ index d50c032..95495df 100644
 From 75a2e1b33f1c31ba93373732ec3a2bea0cca2a96 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 17:59:02 +0200
-Subject: [PATCH 08/12] editor-api: Spurnetz der geladenen Kacheln, freie
+Subject: [PATCH 08/13] editor-api: Spurnetz der geladenen Kacheln, freie
  Spline-Enden
 
 ---
@@ -767,7 +767,7 @@ index 95495df..39d3a19 100644
 From 1f9802294094922bdb9a50fdec716db6f2ac445b Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 18:19:59 +0200
-Subject: [PATCH 09/12] editor-api: Sitzungsebene fuer geaenderte Kacheln,
+Subject: [PATCH 09/13] editor-api: Sitzungsebene fuer geaenderte Kacheln,
  Kacheln neu laden
 
 ---
@@ -865,7 +865,7 @@ index 39d3a19..0dab235 100644
 From 19d1a75a1fe8c3035a4da58ecacc0944c1bf59e0 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 18:36:54 +0200
-Subject: [PATCH 10/12] editor-api: Kacheln neu laden auch beim Streaming
+Subject: [PATCH 10/13] editor-api: Kacheln neu laden auch beim Streaming
  (Pfade, Zwischenspeicher, Spuren)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -942,7 +942,7 @@ index 0dab235..27eeea0 100644
 From 46577556082be58a6a5e4121521161d75fbadc0d Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 23:21:40 +0200
-Subject: [PATCH 11/12] editor-api: offene Objektarme, LaneKind,
+Subject: [PATCH 11/13] editor-api: offene Objektarme, LaneKind,
  Streaming-Neuladen ohne Wettlauf
 
 - object_free_lane_ends: Spuren von Objekten, die nirgends hinfuehren
@@ -1118,7 +1118,7 @@ index 27eeea0..7b984af 100644
 From e464c56366b8b4204e87f95e7e179faff2f40004 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 7 Oct 2026 08:09:46 +0200
-Subject: [PATCH 12/12] editor-api: Objekte mit absoluter Hoehe bearbeitbar
+Subject: [PATCH 12/13] editor-api: Objekte mit absoluter Hoehe bearbeitbar
  (behalten beim Ziehen ihre Hoehe)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -1197,6 +1197,75 @@ index 421cd69..6943b4c 100644
                          // an object edited before its tile went shows the edit again
                          if let Some(e) = self.object_edits.lock().get(&map_id).copied() {
                              show_edit(renderer, scene, &eo, e);
+-- 
+2.55.0.windows.5
+
+
+From e4ef9c5f97dcc8ad0333c44feb3e7c41c2144674 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Wed, 7 Oct 2026 08:25:56 +0200
+Subject: [PATCH 13/13] editor-api: Baeume der Karte im Objekt-Editor
+ (verschieben, drehen, loeschen)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ crates/omsi-app/src/scene.rs | 21 ++++++++++++++++-----
+ 1 file changed, 16 insertions(+), 5 deletions(-)
+
+diff --git a/crates/omsi-app/src/scene.rs b/crates/omsi-app/src/scene.rs
+index 6943b4c..791651b 100644
+--- a/crates/omsi-app/src/scene.rs
++++ b/crates/omsi-app/src/scene.rs
+@@ -848,8 +848,9 @@ pub struct Prepared {
+     /// Terrain-mapped spline faces pooled across types within spatial cells.
+     ground_splines: Vec<Arc<MeshData>>,
+     objects: Vec<PlacedObject>,
+-    /// (type, texture, position, height, width, heading)
+-    trees: Vec<(Arc<ObjectType>, String, DVec3, f64, f64, f64)>,
++    /// (type, texture, position, height, width, heading, map id when it is a tile's own
++    /// `[object]` record - editor-api: the object editor may move or delete it)
++    trees: Vec<(Arc<ObjectType>, String, DVec3, f64, f64, f64, Option<i64>)>,
+     origin: DVec3,
+     light_map: Option<TextureData>,
+     /// The cut the roads make into the ground (alpha 0 = cut), in tile space.
+@@ -4957,7 +4958,8 @@ impl World {
+                     .map(|s| omsi_cfg::parse_f64(s))
+                     .filter(|r| *r > 0.0)
+                     .unwrap_or(if mid_r > 0.0 { mid_r } else { 1.0 });
+-                trees.push((ot.clone(), texture, pos, height, height * ratio, heading));
++                let editable = (o.map_object && matches!(o.place, Placement::Ground { .. })).then_some(o.id);
++                trees.push((ot.clone(), texture, pos, height, height * ratio, heading, editable));
+                 continue;
+             }
+             // Stock junctions carry a light program even where the map places no signals.
+@@ -7075,7 +7077,7 @@ impl World {
+                     }
+                     // trees are cheap: a few dozen at a time
+                     let end = (pl.next + 64).min(p.trees.len());
+-                    for (ot, texture, pos, height, width, heading) in &p.trees[pl.next..end] {
++                    for (ot, texture, pos, height, width, heading, map_id) in &p.trees[pl.next..end] {
+                         let tkey = texture.to_ascii_lowercase();
+                         if !gpu.trees.contains_key(&tkey) {
+                             let dirs = ot.texture_dirs(&self.root);
+@@ -7120,8 +7122,17 @@ impl World {
+                                 *width as f32,
+                                 *height as f32,
+                             ));
+-                        let _ =
++                        let inst =
+                             instance!(renderer.add_instance(scene, tree_mesh, *pos, xf, vec![mat]));
++                        // editor-api: a tree of the map's own records can be moved and deleted like
++                        // an object (it has no collision boxes: its id stands in for the key)
++                        if let Some(id) = map_id {
++                            let eo = EditObject { tile: key, pos: *pos, xf, key: *id, instances: vec![inst], sco: ot.sco.path.clone(), absolute: false };
++                            if let Some(e) = self.object_edits.lock().get(id).copied() {
++                                show_edit(renderer, scene, &eo, e);
++                            }
++                            self.edit_objects.lock().insert(*id, eo);
++                        }
+                         pl.trees += 1;
+                     }
+                     pl.next = end;
 -- 
 2.55.0.windows.5
 

@@ -139,7 +139,8 @@ impl Bearbeiten {
             if (o.pos - kam.ziel).length() > kam.abstand * 4.0 + 300.0 {
                 continue;
             }
-            for dz in [0.3, 2.0] {
+            // auch in Kronenhoehe (Baeume)
+            for dz in [0.3, 2.0, 6.0] {
                 let Some((x, y, tiefe)) = projizieren(kam, o.pos + DVec3::Z * dz, breite, hoehe) else { continue };
                 let d = ((x - maus.0).powi(2) + (y - maus.1).powi(2)).sqrt();
                 if d < 28.0 {
@@ -483,6 +484,46 @@ pub mod tests {
         let alt = omsi_map::Tile::load(&Path::new(OMSI).join("maps/Grundorf/tile_1_0.map")).unwrap();
         let (n, a) = (t.objects.iter().find(|x| x.id == 10).unwrap(), alt.objects.iter().find(|x| x.id == 10).unwrap());
         assert!((n.pos[0] - a.pos[0] - 1.0).abs() < 1e-3 && (n.pos[1] - a.pos[1]).abs() < 1e-3 && (n.pos[2] - a.pos[2]).abs() < 1e-3, "{:?} -> {:?}", a.pos, n.pos);
+        let _ = std::fs::remove_dir_all(staging);
+    }
+
+    /// Baeume der Karte (Baum-Objekte, als Billboards gezeichnet) lassen sich verschieben und loeschen
+    #[test]
+    #[ignore]
+    fn baeume_verschieben_und_loeschen() {
+        let _sperre = sperre();
+        let mut v = grundorf();
+        v.tiles_around(DVec3::new(150.0, 150.0, 0.0), 8).unwrap();
+        let mut b = Bearbeiten::neu(Werkzeug::Objekte);
+        // Baum-Objekte: .sco mit [tree]
+        let baum = |p: &Path| std::fs::read(p).map(|x| String::from_utf8_lossy(&x).to_ascii_lowercase().contains("[tree]")).unwrap_or(false);
+        let baeume: Vec<Objekt> = b.objekte(&v).into_iter().filter(|o| baum(&o.sco)).collect();
+        println!("{} Baeume bearbeitbar, z. B. {:?}", baeume.len(), baeume.first().map(|o| o.sco.display().to_string()));
+        assert!(baeume.len() > 20, "Baeume fehlen in den bearbeitbaren Objekten");
+        let (Wahl::Karte(id1), Wahl::Karte(id2)) = (baeume[0].wahl, baeume[1].wahl) else { panic!() };
+        // verschieben (2 m nach Osten) und loeschen
+        b.waehlen(Some(Wahl::Karte(id1)));
+        let p = baeume[0].pos + DVec3::new(2.0, 0.0, 0.0);
+        v.drag(&mut b.ed, DVec3::new(p.x, p.y, v.terrain_height(p.x, p.y).unwrap()));
+        b.waehlen(Some(Wahl::Karte(id2)));
+        v.edit(&mut b.ed, &openomsi_game::viewer::Action::Delete);
+        assert!(v.object_edit(id2).deleted);
+        let (staging, dateien) = crate::speichern::kacheln_schreiben(&v, &b.ed, "Grundorf").unwrap();
+        let mut gefunden1 = false;
+        let mut weg2 = true;
+        for d in &dateien {
+            let Ok(t) = omsi_map::Tile::load(d) else { continue };
+            let n = d.file_name().unwrap().to_string_lossy().to_string();
+            let alt = omsi_map::Tile::load(&Path::new(OMSI).join("maps/Grundorf").join(&n)).unwrap();
+            if let (Some(a), Some(nn)) = (alt.objects.iter().find(|x| x.id == id1), t.objects.iter().find(|x| x.id == id1)) {
+                assert!((nn.pos[0] - a.pos[0] - 2.0).abs() < 1e-2, "{:?} -> {:?}", a.pos, nn.pos);
+                gefunden1 = true;
+            }
+            if t.objects.iter().any(|x| x.id == id2) {
+                weg2 = false;
+            }
+        }
+        assert!(gefunden1 && weg2, "verschoben {gefunden1}, geloescht {weg2}");
         let _ = std::fs::remove_dir_all(staging);
     }
 
