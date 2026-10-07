@@ -22,11 +22,20 @@ der Generator für OSM-Import, Kreuzungen, Gelände, Brücken und Tunnel.
 ## Starten
 
 ```powershell
-target\release\omsi-editor.exe                                   # Kartenliste, erste Karte
+target\release\omsi-editor.exe                                   # Startbildschirm mit der Kartenauswahl
 target\release\omsi-editor.exe Grundorf                          # Karte direkt
 target\release\omsi-editor.exe Grundorf --bild b.png --cam=x,y,gier,neigung,abstand   # Bild ohne Fenster
 target\release\omsi-editor.exe Grundorf --testlauf 20           # Fenster, nach 20 s beenden, Bildrate ausgeben
 ```
+
+**Start und Karten:** ohne Kartenangabe zeigt der Editor die Kartenauswahl (Liste mit Suche, rechts Vorschaubild
+`picture.jpg`, Anzeigename, Beschreibung, Kachelzahl; „eigene“ = vom Editor angelegt oder von omsigen erzeugt).
+Doppelklick oder „Öffnen“ lädt die Karte; im Editor öffnet „Karten …“ (oben) dieselbe Auswahl. **Umbenennen …**:
+Anzeigename (`[friendlyname]` in global.cfg und allen `global_<Sprache>.dsc` – so heißt die Karte in OMSI) und/oder
+Ordner (`maps\<Ordner>`, `[name]`; die eigenen Ordner unter `Aschaffenburg_KI\` und die Verweise der Kacheln darauf
+werden mitgenommen; Spielstände der Karte passen danach nicht mehr). **Löschen …**: zwei Rückfragen (die zweite
+verlangt den Ordnernamen), dann kommen die Karte und ihre eigenen Ordner unter `Aschaffenburg_KI\` in den
+Papierkorb. Die geöffnete Karte lässt sich weder umbenennen noch löschen.
 
 Kamera: rechte Maustaste drehen/neigen, mittlere verschieben, Mausrad zoomen (zum Mauszeiger), W A S D / Pfeile,
 Q / E drehen, R / F neigen. Koordinaten wie in openOMSI: x Ost, y Nord, z hoch.

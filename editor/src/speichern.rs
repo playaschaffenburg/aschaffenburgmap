@@ -294,7 +294,7 @@ fn zahl(v: f64) -> String {
     if s == "-0" { "0".into() } else { s.to_string() }
 }
 
-fn dekodieren(bytes: &[u8]) -> (String, bool) {
+pub(crate) fn dekodieren(bytes: &[u8]) -> (String, bool) {
     if bytes.starts_with(&[0xFF, 0xFE]) {
         let u: Vec<u16> = bytes[2..].chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect();
         (String::from_utf16_lossy(&u), true)
@@ -303,7 +303,7 @@ fn dekodieren(bytes: &[u8]) -> (String, bool) {
     }
 }
 
-fn kodieren(text: &str, utf16: bool) -> Vec<u8> {
+pub(crate) fn kodieren(text: &str, utf16: bool) -> Vec<u8> {
     if utf16 {
         [0xFF, 0xFE].into_iter().chain(text.encode_utf16().flat_map(|u| u.to_le_bytes())).collect()
     } else {

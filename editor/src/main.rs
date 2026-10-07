@@ -14,6 +14,7 @@ mod aendern;
 mod anschluss;
 mod bearbeiten;
 mod kamera;
+mod karten;
 mod katalog;
 mod kreuzung;
 mod netz;
@@ -42,23 +43,81 @@ const STANDARD_OMSI: &str = r"C:\Program Files (x86)\Steam\steamapps\common\OMSI
 const KACHEL_RADIUS: i32 = 3;          // nur fuer --bild (alles auf einmal laden)
 const STREAM_BUDGET_MS: u64 = 6;       // je Bild fuer das Hochladen gestreamter Kacheln
 
-struct Karte {
-    ordner: String,
-    global: PathBuf,
+/// Grafik nur fuer die Oberflaeche, solange keine Karte offen ist (Startbildschirm mit der Kartenauswahl)
+struct Startbild {
+    surface: wgpu::Surface<'static>,
+    device: wgpu::Device,
+    queue: wgpu::Queue,
+    config: wgpu::SurfaceConfiguration,
 }
 
-fn karten_finden(root: &Path) -> Vec<Karte> {
-    let mut v = Vec::new();
-    if let Ok(rd) = std::fs::read_dir(root.join("maps")) {
-        for e in rd.flatten() {
-            let g = e.path().join("global.cfg");
-            if g.is_file() {
-                v.push(Karte { ordner: e.file_name().to_string_lossy().into_owned(), global: g });
-            }
-        }
+impl Startbild {
+    fn neu(window: Arc<Window>) -> Result<Startbild> {
+        let instance = viewer::instance();
+        let surface = instance.create_surface(window.clone()).context("Flaeche anlegen")?;
+        let adapter = pollster::block_on(instance.request_adapter(&wgpu::RequestAdapterOptions {
+            compatible_surface: Some(&surface), ..Default::default()
+        })).context("keine Grafikkarte fuer die Oberflaeche")?;
+        let (device, queue) = pollster::block_on(adapter.request_device(&wgpu::DeviceDescriptor::default())).context("Grafikgeraet")?;
+        let caps = surface.get_capabilities(&adapter);
+        // egui zeichnet in eine Flaeche ohne sRGB (wie im Kartenfenster)
+        let format = caps.formats.iter().copied().find(|f| !f.is_srgb()).unwrap_or(caps.formats[0]);
+        let size = window.inner_size();
+        let config = wgpu::SurfaceConfiguration {
+            usage: wgpu::TextureUsages::RENDER_ATTACHMENT, format, width: size.width.max(1), height: size.height.max(1),
+            present_mode: wgpu::PresentMode::Fifo, desired_maximum_frame_latency: 2, alpha_mode: caps.alpha_modes[0], view_formats: vec![],
+        };
+        surface.configure(&device, &config);
+        Ok(Startbild { surface, device, queue, config })
     }
-    v.sort_by_key(|k| k.ordner.to_lowercase());
-    v
+
+    fn groesse(&mut self, w: u32, h: u32) {
+        self.config.width = w.max(1);
+        self.config.height = h.max(1);
+        self.surface.configure(&self.device, &self.config);
+    }
+}
+
+/// egui-Ausgabe in eine Flaeche zeichnen (`leeren`: vorher mit dem Hintergrund fuellen)
+fn egui_malen(gui: &mut Gui, device: &wgpu::Device, queue: &wgpu::Queue, view: &wgpu::TextureView, w: u32, h: u32, out: egui::FullOutput, leeren: bool) {
+    let jobs = gui.ctx.tessellate(out.shapes, out.pixels_per_point);
+    let sd = egui_wgpu::ScreenDescriptor { size_in_pixels: [w, h], pixels_per_point: out.pixels_per_point };
+    for (id, delta) in &out.textures_delta.set {
+        gui.renderer.update_texture(device, queue, *id, delta);
+    }
+    let mut enc = device.create_command_encoder(&wgpu::CommandEncoderDescriptor { label: Some("egui") });
+    let extra = gui.renderer.update_buffers(device, queue, &mut enc, &jobs, &sd);
+    {
+        let load = if leeren { wgpu::LoadOp::Clear(wgpu::Color { r: 0.07, g: 0.07, b: 0.08, a: 1.0 }) } else { wgpu::LoadOp::Load };
+        let pass = enc.begin_render_pass(&wgpu::RenderPassDescriptor {
+            label: Some("egui"),
+            color_attachments: &[Some(wgpu::RenderPassColorAttachment {
+                view,
+                resolve_target: None,
+                depth_slice: None,
+                ops: wgpu::Operations { load, store: wgpu::StoreOp::Store },
+            })],
+            depth_stencil_attachment: None,
+            timestamp_writes: None,
+            occlusion_query_set: None,
+            multiview_mask: None,
+        });
+        gui.renderer.render(&mut pass.forget_lifetime(), &jobs, &sd);
+    }
+    queue.submit(extra.into_iter().chain(std::iter::once(enc.finish())));
+    for id in &out.textures_delta.free {
+        gui.renderer.free_texture(id);
+    }
+}
+
+/// Dialoge der Kartenverwaltung
+enum KartenDialog {
+    /// Umbenennen: Karte, neuer Anzeigename, neuer Ordnername
+    Umbenennen(String, String, String),
+    /// Loeschen, erste Rueckfrage
+    Loeschen1(String),
+    /// Loeschen, zweite Rueckfrage: Name zur Bestaetigung eintippen
+    Loeschen2(String, String),
 }
 
 struct Gui {
@@ -69,7 +128,13 @@ struct Gui {
 
 struct App {
     root: PathBuf,
-    karten: Vec<Karte>,
+    karten: Vec<karten::Karte>,
+    /// Startbildschirm (ohne Karte) und die Kartenauswahl
+    start: Option<Startbild>,
+    kartenwahl_offen: bool,
+    kartenwahl: Option<String>,
+    karten_dialog: Option<KartenDialog>,
+    vorschaubilder: std::collections::HashMap<PathBuf, Option<egui::TextureHandle>>,
     start_karte: Option<String>,
     window: Option<Arc<Window>>,
     surface: Option<SurfaceState<'static>>,
@@ -182,6 +247,10 @@ enum UiAktion {
     Wiederholen,
     Abwaehlen,
     SpeichernDialog,
+    /// Karte umbenennen: (Ordner, neuer Anzeigename, neuer Ordner)
+    KarteUmbenennen(String, String, String),
+    /// Karte in den Papierkorb
+    KarteLoeschen(String),
     /// "Speichern": die geoeffnete Karte ueberschreiben (eigene sofort, fremde nach Rueckfrage)
     SpeichernHier,
     Ueberschreiben,
@@ -204,7 +273,7 @@ enum UiAktion {
 
 impl App {
     fn new(root: PathBuf, start_karte: Option<String>) -> Self {
-        let karten = karten_finden(&root);
+        let karten = karten::finden(&root);
         App {
             root,
             karten,
@@ -245,6 +314,11 @@ impl App {
             umschalt: false,
             speichern_name: None,
             speichern_job: None,
+            start: None,
+            kartenwahl_offen: false,
+            kartenwahl: None,
+            karten_dialog: None,
+            vorschaubilder: Default::default(),
             ueberschreiben_frage: false,
             kamera_merken: None,
             speichern_meldung: None,
@@ -294,10 +368,11 @@ impl App {
             window.set_title(&format!("{} - OMSI-Editor", self.karten[i].ordner));
             return Ok(());
         }
-        // erste Karte: Grafik starten (Pipelines kompilieren), Flaeche anlegen
+        // erste Karte: Grafik starten (Pipelines kompilieren), Flaeche anlegen; die Grafik des Startbildschirms geht
         self.surface = None;
         self.viewer = None;
         self.gui = None;
+        self.start = None;
         let instance = viewer::instance();
         let tmp = instance.create_surface(window.clone()).context("Flaeche anlegen")?;
         let (mut v, cam) = Viewer::open(&instance, Some(&tmp), &self.root, &self.karten[i].global)?;
@@ -384,6 +459,224 @@ impl App {
         }
     }
 
+    /// Startbildschirm: Kartenauswahl ohne 3D (eigene kleine Grafik nur fuer die Oberflaeche)
+    fn startbild_zeichnen(&mut self, window: &Arc<Window>) {
+        if self.start.is_none() {
+            match Startbild::neu(window.clone()) {
+                Ok(st) => {
+                    self.gui = Some(Self::gui_neu(window, &st.device, st.config.format));
+                    self.start = Some(st);
+                }
+                Err(e) => {
+                    log::error!("Startbildschirm: {e:#}");
+                    // ohne Oberflaeche: wie frueher die erste Karte oeffnen
+                    self.zu_laden = (!self.karten.is_empty()).then_some(0);
+                    return;
+                }
+            }
+        }
+        let st = self.start.as_mut().unwrap();
+        let frame = match st.surface.get_current_texture() {
+            wgpu::CurrentSurfaceTexture::Success(f) | wgpu::CurrentSurfaceTexture::Suboptimal(f) => f,
+            _ => {
+                let size = window.inner_size();
+                st.groesse(size.width, size.height);
+                return;
+            }
+        };
+        let (w, h) = (st.config.width, st.config.height);
+        let view = frame.texture.create_view(&Default::default());
+        let Some(mut gui) = self.gui.take() else { return };
+        let input = gui.state.take_egui_input(window);
+        let mut aktionen: Vec<UiAktion> = Vec::new();
+        let out = gui.ctx.run_ui(input, |ctx| {
+            egui::Panel::bottom("status_start").show(ctx, |ui| {
+                ui.label(&self.meldung);
+            });
+            egui::CentralPanel::default().show(ctx, |ui| {
+                ui.heading("OMSI-Editor");
+                ui.label(egui::RichText::new(format!("{} Karten in {}", self.karten.len(), self.root.join("maps").display())).weak());
+                ui.separator();
+                self.kartenwahl_ui(ui, &mut aktionen);
+            });
+            self.karten_dialoge(ctx, &mut aktionen);
+        });
+        gui.state.handle_platform_output(window, out.platform_output.clone());
+        let st = self.start.as_ref().unwrap();
+        egui_malen(&mut gui, &st.device, &st.queue, &view, w, h, out, true);
+        frame.present();
+        self.gui = Some(gui);
+        for a in aktionen {
+            self.ausfuehren(a);
+        }
+        // Testlauf ohne Startkarte: nach 2 s die Karte aus --wechsel ueber die Auswahl oeffnen
+        if self.beenden_nach.is_some() && self.gestartet.elapsed().as_secs_f32() > 2.0 {
+            if let Some(z) = self.wechsel.take() {
+                if let Some(i) = self.karten.iter().position(|k| k.ordner == z) {
+                    println!("Testlauf Startbildschirm: oeffne {z}");
+                    self.ausfuehren(UiAktion::Karte(i));
+                }
+            }
+        }
+        window.request_redraw();
+    }
+
+    /// Vorschaubild einer Karte (picture.jpg) als Textur, einmal geladen
+    fn vorschaubild(&mut self, ctx: &egui::Context, k: &karten::Karte) -> Option<egui::TextureHandle> {
+        let p = k.bild.clone()?;
+        if let Some(t) = self.vorschaubilder.get(&p) {
+            return t.clone();
+        }
+        let t = image::open(&p).ok().map(|i| {
+            let i = i.thumbnail(640, 400).to_rgba8();
+            let (w, h) = (i.width() as usize, i.height() as usize);
+            ctx.load_texture(p.to_string_lossy(), egui::ColorImage::from_rgba_unmultiplied([w, h], i.as_raw()), Default::default())
+        });
+        self.vorschaubilder.insert(p, t.clone());
+        t
+    }
+
+    /// Kartenauswahl: Liste mit Suche, rechts Vorschaubild, Beschreibung, Oeffnen/Umbenennen/Loeschen
+    fn kartenwahl_ui(&mut self, ui: &mut egui::Ui, aktionen: &mut Vec<UiAktion>) {
+        let ctx = &ui.ctx().clone();
+        let f = self.filter.to_lowercase();
+        let gewaehlt = self.kartenwahl.clone().or_else(|| self.karte.clone());
+        let mut liste_breite = 320.0f32.min(ui.available_width() * 0.45);
+        if liste_breite < 200.0 {
+            liste_breite = ui.available_width();
+        }
+        ui.horizontal_top(|ui| {
+            ui.vertical(|ui| {
+                ui.set_width(liste_breite);
+                ui.add(egui::TextEdit::singleline(&mut self.filter).hint_text("suchen (Ordner oder Name)"));
+                egui::ScrollArea::vertical().id_salt("kartenliste").max_height(ui.available_height() - 10.0).show(ui, |ui| {
+                    for (i, k) in self.karten.iter().enumerate() {
+                        if !f.is_empty() && !k.ordner.to_lowercase().contains(&f) && !k.anzeige.to_lowercase().contains(&f) {
+                            continue;
+                        }
+                        let offen = self.karte.as_deref() == Some(k.ordner.as_str());
+                        let text = format!("{}{}{}", k.ordner, if k.eigene { "  (eigene)" } else if k.standard { "  (Standard)" } else { "" }, if offen { "  - offen" } else { "" });
+                        let r = ui.selectable_label(gewaehlt.as_deref() == Some(k.ordner.as_str()), text);
+                        if r.clicked() {
+                            self.kartenwahl = Some(k.ordner.clone());
+                        }
+                        if r.double_clicked() && !offen {
+                            aktionen.push(UiAktion::Karte(i));
+                        }
+                    }
+                });
+            });
+            ui.separator();
+            ui.vertical(|ui| {
+                let Some(i) = gewaehlt.as_ref().and_then(|g| self.karten.iter().position(|k| &k.ordner == g)) else {
+                    ui.label("Karte links waehlen (Doppelklick oeffnet sie).");
+                    return;
+                };
+                let k = self.karten[i].clone();
+                ui.heading(&k.anzeige);
+                ui.label(egui::RichText::new(format!("Ordner: maps\\{}   {} Kacheln{}", k.ordner, k.kacheln,
+                    if k.eigene { "   eigene Karte (Speichern ohne Rueckfrage)" } else if k.standard { "   Standardkarte von OMSI 2" } else { "" })).weak());
+                if let Some(t) = self.vorschaubild(ctx, &k) {
+                    let s = t.size_vec2();
+                    let b = ui.available_width().min(560.0);
+                    ui.image((t.id(), egui::vec2(b, b * s.y / s.x.max(1.0))));
+                }
+                if !k.beschreibung.is_empty() {
+                    egui::ScrollArea::vertical().id_salt("beschreibung").max_height(140.0).show(ui, |ui| {
+                        ui.label(&k.beschreibung);
+                    });
+                }
+                ui.add_space(8.0);
+                let offen = self.karte.as_deref() == Some(k.ordner.as_str());
+                ui.horizontal(|ui| {
+                    if ui.add_enabled(!offen, egui::Button::new(egui::RichText::new("Oeffnen").strong())).clicked() {
+                        aktionen.push(UiAktion::Karte(i));
+                    }
+                    if ui.add_enabled(!offen, egui::Button::new("Umbenennen ...")).clicked() {
+                        self.karten_dialog = Some(KartenDialog::Umbenennen(k.ordner.clone(), k.anzeige.clone(), k.ordner.clone()));
+                    }
+                    if ui.add_enabled(!offen, egui::Button::new("Loeschen ...")).clicked() {
+                        self.karten_dialog = Some(KartenDialog::Loeschen1(k.ordner.clone()));
+                    }
+                });
+                if offen {
+                    ui.label(egui::RichText::new("Die Karte ist gerade offen: zum Umbenennen oder Loeschen zuerst eine andere oeffnen.").small().weak());
+                }
+            });
+        });
+    }
+
+    /// Dialoge Umbenennen / Loeschen (zwei Rueckfragen)
+    fn karten_dialoge(&mut self, ctx: &egui::Context, aktionen: &mut Vec<UiAktion>) {
+        let Some(d) = self.karten_dialog.as_mut() else { return };
+        let mut zu = false;
+        match d {
+            KartenDialog::Umbenennen(karte, anzeige, ordner) => {
+                egui::Window::new("Karte umbenennen").collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
+                    egui::Grid::new("umbenennen").num_columns(2).show(ui, |ui| {
+                        ui.label("Anzeigename");
+                        ui.text_edit_singleline(anzeige);
+                        ui.end_row();
+                        ui.label("Ordner (maps\\...)");
+                        ui.text_edit_singleline(ordner);
+                        ui.end_row();
+                    });
+                    ui.label(egui::RichText::new("Der Anzeigename steht in OMSIs Kartenauswahl. Der Ordner ist der interne Name: Spielstaende dieser Karte passen danach nicht mehr.").small().weak());
+                    let ordner_ok = ordner == karte || (speichern::name_ok(ordner) && !self.root.join("maps").join(ordner.as_str()).exists());
+                    if !ordner_ok {
+                        ui.colored_label(egui::Color32::from_rgb(255, 120, 90), "Ordnername ungueltig oder schon vorhanden");
+                    }
+                    ui.horizontal(|ui| {
+                        if ui.add_enabled(ordner_ok && !anzeige.trim().is_empty(), egui::Button::new("Umbenennen")).clicked() {
+                            aktionen.push(UiAktion::KarteUmbenennen(karte.clone(), anzeige.trim().to_string(), ordner.trim().to_string()));
+                            zu = true;
+                        }
+                        if ui.button("Abbrechen").clicked() {
+                            zu = true;
+                        }
+                    });
+                });
+            }
+            KartenDialog::Loeschen1(karte) => {
+                let karte = karte.clone();
+                let standard = self.karten.iter().any(|k| k.ordner == karte && k.standard);
+                egui::Window::new("Karte loeschen?").collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
+                    ui.label(format!("Soll die Karte \"{karte}\" wirklich geloescht werden?"));
+                    ui.label("Sie kommt mit ihren eigenen Objekten (Aschaffenburg_KI) in den Papierkorb.");
+                    if standard {
+                        ui.colored_label(egui::Color32::from_rgb(255, 120, 90), "Das ist eine Standardkarte von OMSI 2 (Steam stellt sie nur ueber \"Dateien pruefen\" wieder her).");
+                    }
+                    ui.horizontal(|ui| {
+                        if ui.button("Ja, weiter ...").clicked() {
+                            self.karten_dialog = Some(KartenDialog::Loeschen2(karte.clone(), String::new()));
+                        }
+                        if ui.button("Abbrechen").clicked() {
+                            zu = true;
+                        }
+                    });
+                });
+            }
+            KartenDialog::Loeschen2(karte, eingabe) => {
+                egui::Window::new("Wirklich loeschen? (zweite Rueckfrage)").collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
+                    ui.label(format!("Zur Bestaetigung den Ordnernamen eintippen: {karte}"));
+                    ui.text_edit_singleline(eingabe);
+                    ui.horizontal(|ui| {
+                        if ui.add_enabled(eingabe.trim() == karte.as_str(), egui::Button::new("Endgueltig in den Papierkorb")).clicked() {
+                            aktionen.push(UiAktion::KarteLoeschen(karte.clone()));
+                            zu = true;
+                        }
+                        if ui.button("Abbrechen").clicked() {
+                            zu = true;
+                        }
+                    });
+                });
+            }
+        }
+        if zu {
+            self.karten_dialog = None;
+        }
+    }
+
     /// Ladeweite in Metern: weiter, je hoeher die Kamera steht
     fn sichtweite(&self) -> f64 {
         (self.kam.abstand * 2.5).clamp(900.0, 3000.0)
@@ -427,7 +720,7 @@ impl App {
                     if let Some(a) = self.aendern.as_mut() {
                         a.aenderungen = 0;
                     }
-                    self.karten = karten_finden(&self.root);
+                    self.karten = karten::finden(&self.root);
                     if ueberschrieben {
                         // die Aenderungen stehen jetzt in der Karte: frisch laden (Sitzung, Netz, Verlauf von vorn), Kamera bleibt
                         self.kamera_merken = Some(self.kam.clone());
@@ -467,13 +760,17 @@ impl App {
             }
         }
         if self.surface.is_none() {
-            // noch keine Karte: nur die Oberflaeche ohne 3D (Flaeche ueber einen leeren Viewer
-            // gibt es erst mit der Karte) - die erste Karte waehlen
-            if self.zu_laden.is_none() && !self.karten.is_empty() {
-                let i = self.start_karte.as_ref().and_then(|s| self.karten.iter().position(|k| &k.ordner == s)).unwrap_or(0);
-                self.start_karte = None;
-                self.zu_laden = Some(i);
+            // noch keine Karte: eine auf der Kommandozeile genannte oeffnen, sonst der Startbildschirm mit der Auswahl
+            if let Some(s) = self.start_karte.take() {
+                self.zu_laden = self.karten.iter().position(|k| k.ordner == s);
+                if self.zu_laden.is_none() {
+                    self.meldung = format!("Karte {s} nicht gefunden");
+                }
                 window.request_redraw();
+                return;
+            }
+            if self.zu_laden.is_none() {
+                self.startbild_zeichnen(&window);
             }
             return;
         }
@@ -522,6 +819,10 @@ impl App {
             egui::Panel::top("werkzeuge").show(ctx, |ui| {
                 ui.horizontal(|ui| {
                     ui.strong("OMSI-Editor");
+                    if ui.button("Karten ...").on_hover_text("Karte waehlen, oeffnen, umbenennen, loeschen").clicked() {
+                        self.kartenwahl_offen = !self.kartenwahl_offen;
+                        self.kartenwahl = self.karte.clone();
+                    }
                     ui.separator();
                     for (wz, t) in [(Werkzeug::Ansehen, "Ansehen"), (Werkzeug::Objekte, "Objekte (O)"), (Werkzeug::Platzieren, "Platzieren (P)"), (Werkzeug::Strasse, "Strasse bauen (B)"), (Werkzeug::Aendern, "Aendern (U)"), (Werkzeug::Kreuzung, "Kreuzungen (X)")] {
                         if ui.selectable_label(self.bearb.werkzeug == wz, t).clicked() {
@@ -554,22 +855,14 @@ impl App {
                     }
                 });
             });
-            egui::Panel::left("karten").default_size(230.0).show(ctx, |ui| {
-                ui.heading("Karten");
-                ui.add(egui::TextEdit::singleline(&mut self.filter).hint_text("suchen"));
-                egui::ScrollArea::vertical().show(ui, |ui| {
-                    let f = self.filter.to_lowercase();
-                    for (i, k) in self.karten.iter().enumerate() {
-                        if !f.is_empty() && !k.ordner.to_lowercase().contains(&f) {
-                            continue;
-                        }
-                        let aktiv = self.karte.as_deref() == Some(k.ordner.as_str());
-                        if ui.selectable_label(aktiv, &k.ordner).clicked() && !aktiv {
-                            aktionen.push(UiAktion::Karte(i));
-                        }
-                    }
+            if self.kartenwahl_offen {
+                let mut offen = true;
+                egui::Window::new("Karten").open(&mut offen).default_size([900.0, 560.0]).show(ctx, |ui| {
+                    self.kartenwahl_ui(ui, &mut aktionen);
                 });
-            });
+                self.kartenwahl_offen = offen;
+            }
+            self.karten_dialoge(ctx, &mut aktionen);
             if self.bearb.werkzeug == Werkzeug::Objekte {
                 egui::Panel::right("eigenschaften").default_size(270.0).show(ctx, |ui| {
                     ui.heading("Objekt");
@@ -1289,6 +1582,38 @@ impl App {
                     self.speichern_name = Some(speichern::vorschlag(&self.root, k));
                 }
             }
+            UiAktion::KarteUmbenennen(karte, anzeige, ordner) => {
+                if self.karte.as_deref() == Some(karte.as_str()) {
+                    self.meldung = "die offene Karte laesst sich nicht umbenennen".into();
+                    return;
+                }
+                let alt_anzeige = self.karten.iter().find(|k| k.ordner == karte).map(|k| k.anzeige.clone()).unwrap_or_default();
+                let mut erg = Ok(());
+                if anzeige != alt_anzeige {
+                    erg = karten::anzeigename_setzen(&self.root, &karte, &anzeige);
+                }
+                if erg.is_ok() && ordner != karte {
+                    erg = karten::umbenennen(&self.root, &karte, &ordner);
+                }
+                self.meldung = match erg {
+                    Ok(()) => format!("Karte umbenannt: {ordner} (\"{anzeige}\")"),
+                    Err(e) => format!("Umbenennen fehlgeschlagen: {e:#}"),
+                };
+                self.karten = karten::finden(&self.root);
+                self.kartenwahl = Some(ordner);
+            }
+            UiAktion::KarteLoeschen(karte) => {
+                if self.karte.as_deref() == Some(karte.as_str()) {
+                    self.meldung = "die offene Karte laesst sich nicht loeschen".into();
+                    return;
+                }
+                self.meldung = match karten::in_papierkorb(&self.root, &karte) {
+                    Ok(w) => format!("Karte {karte} in den Papierkorb verschoben ({} Ordner)", w.len()),
+                    Err(e) => format!("Loeschen fehlgeschlagen: {e:#}"),
+                };
+                self.karten = karten::finden(&self.root);
+                self.kartenwahl = None;
+            }
             UiAktion::SpeichernHier => {
                 let Some(k) = self.karte.clone() else { return };
                 if self.speichern_job.is_some() {
@@ -1653,6 +1978,9 @@ impl ApplicationHandler for App {
             WindowEvent::Resized(size) => {
                 if let (Some(s), Some(v)) = (self.surface.as_mut(), self.viewer.as_ref()) {
                     s.resize(&v.renderer, size.width, size.height);
+                }
+                if let Some(st) = self.start.as_mut() {
+                    st.groesse(size.width, size.height);
                 }
             }
             WindowEvent::RedrawRequested => {
