@@ -646,7 +646,7 @@ fn omsi_sim_lanekind_strasse() -> openomsi_game::viewer::LaneKind {
 }
 
 /// beginnt mit dieser Zeile ein neuer Eintrag der Kachel (Spline, Objekt, ...)?
-fn ist_eintrag(z: &str) -> bool {
+pub(crate) fn ist_eintrag(z: &str) -> bool {
     let w = z.trim().to_ascii_lowercase();
     w.starts_with("object nr.") || ["[spline]", "[spline_h]", "[object]", "[splineattachement]", "[splineattachement_repeater]", "[attachobj]"].contains(&w.as_str())
 }
@@ -682,7 +682,7 @@ fn datensatz(s: &KartenSpline, a: f64, b: f64, id: i64, prev: i64, next: i64, k:
     z
 }
 
-fn zahl(v: f64) -> String {
+pub(crate) fn zahl(v: f64) -> String {
     let s = format!("{v:.4}");
     let s = s.trim_end_matches('0').trim_end_matches('.');
     if s == "-0" { "0".into() } else { s.to_string() }
@@ -754,7 +754,7 @@ pub fn erzeugen(root: &Path, ordner: &Path, rel_ordner: &str, name: &str, arme: 
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::netz;
 

@@ -22,6 +22,8 @@ pub enum Werkzeug {
     Aendern,
     /// Vorfahrt und Ampel an Kreuzungen
     Kreuzung,
+    /// Verlauf von Strassen und Kreuzungen an Knoten ziehen
+    Knoten,
 }
 
 /// Was gewaehlt ist: ein Objekt der Karte (id) oder ein neues (Index in `neue`)

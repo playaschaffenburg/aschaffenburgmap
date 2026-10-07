@@ -119,6 +119,21 @@ Straßenenden neu (so lassen sich ältere Kreuzungen mit schief angesetzter Plat
 und umkehren, löschen oder auf einen anderen Querschnitt setzen. Wird eine Straße gelöscht, an der eine vorhandene
 aufgeschnitten war, schließt ein Stück in deren Querschnitt die Lücke wieder.
 
+**Verlauf ändern (Werkzeug „Knoten“, Taste N)** wie in Transport Fever 2: Knoten greifen und ziehen, die Straße legt
+sich in glatten Bögen neu. Griffe (im Umkreis der Maus): blau die Verbindung zweier Splines einer Karte oder ein
+freies Straßenende, grün die Knoten eigener Straßen, orange Quadrat eine vorhandene Kreuzung; irgendwo auf einer
+Straße greifen setzt dort einen neuen Knoten (der Spline wird geteilt). Ersetzt werden nur die Splines am gezogenen
+Knoten: durch Bögen (`netz::verbinden`, Bogen oder Bogenpaar), die an ihren festen Enden in Lage, Richtung, Steigung
+und Querneigung genau wie vorher anschließen – die Spuren zu den Nachbarn bleiben verbunden, Querschnitt und
+`mirror` bleiben. Am Knoten bleibt der Verlauf knickfrei (die Richtung dreht sich mit den Sehnen zu den festen
+Enden), die Höhe folgt dem Gelände. Beim Ziehen: **Mausrad** dreht die Richtung am Knoten (Umschalt: fein), **Bild
+↑/↓** hebt/senkt ihn, Pos1 setzt zurück, Esc bricht ab. Vorschau blau, orange bei engen Kurven (R < 12 m), rot wenn
+es so nicht geht (Schleife, Knoten hinter dem festen Ende). Eine **Kreuzung** wird mit ihren Ampeln und Masten
+verschoben (nicht gedreht), die angeschlossenen Splines folgen. Eigene Knoten: an Kreuzungen mit aufgeschnittenen
+vorhandenen Straßen und an Anschlüssen werden deren Enden mitgezogen, das Kreuzungsobjekt wird neu erzeugt. Jeder Zug
+ist ein Rückgängig-Schritt. Technik: das erste neue Stück behält die Spline-ID (Vorgänger zeigen weiter darauf),
+weitere bekommen neue IDs, Nachfolger werden umgehängt (`Aendern::umlegen` in `knoten.rs`).
+
 **Rückgängig/Wiederholen** (Strg+Z / Strg+Y) gilt über alle Werkzeuge: der jeweils letzte Schritt, egal in welchem
 Werkzeug man gerade ist (eine gebaute Straße samt Kreuzungen und aufgeschnittenen Straßen ist ein Schritt).
 
@@ -155,10 +170,10 @@ Tests: `cargo test --release` (ohne OMSI), `cargo test --release -- --include-ig
 1. **Betrachter** (fertig): beliebige Karte, Darstellung wie im Spiel, Kacheln werden im Hintergrund um den
    Blickpunkt gestreamt (Worker-Thread, 6 ms Hochladen je Bild), Kartenwechsel ohne neuen Renderer
 2. **Bearbeiten** (Objekte fertig): auswählen, ziehen, drehen, heben, löschen, kopieren, aus dem Katalog
-   platzieren, Rückgängig, Speichern als neue Karte. Splines verschieben kommt mit dem Netz-Kern (Schritt 3) – das kann auch openOMSI selbst noch nicht
+   platzieren, Rückgängig, Speichern als neue Karte. Splines verschieben: Werkzeug „Knoten“ (Schritt 3)
 3. **Straßen** (in Arbeit): Netz-Kern (Knoten, Kanten aus Geraden/Bögen, glatte Höhe), Werkzeug Gerade/Kurve mit
    Live-Vorschau und Einrasten, Speichern als Splines, Anschluss an freie Enden vorhandener Straßen, Ändern/Upgrade,
    allgemeine Kreuzungslogik: T, Kreuzen (4+ Arme), Kreisverkehr, über eigene und vorhandene Straßen (fertig);
-   Vorfahrt/Ampel per Klick (fertig); Kreisverkehr-Optik (Platten am gebogenen Ring), Knoten ziehen, Ampelzeiten
-   einstellen, Fußgängerampeln (offen)
+   Vorfahrt/Ampel per Klick (fertig); Knoten ziehen für vorhandene und eigene Straßen und Kreuzungen (fertig);
+   Kreisverkehr-Optik (Platten am gebogenen Ring), Kreuzungen drehen, Ampelzeiten einstellen, Fußgängerampeln (offen)
 4. omsigen-Funktionen: OSM-Import, Kreuzungsgenerator, DGM-Gelände, Luftbild

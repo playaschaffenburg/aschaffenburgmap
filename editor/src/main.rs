@@ -16,6 +16,7 @@ mod bearbeiten;
 mod kamera;
 mod karten;
 mod katalog;
+mod knoten;
 mod kreuzung;
 mod netz;
 mod protokoll;
@@ -172,6 +173,8 @@ struct App {
     bericht_melden: Option<Option<PathBuf>>,
     /// Testlauf: Strasse, an der spaeter eine Kreuzung gebaut wird
     testlauf_abzweig: Option<i64>,
+    /// Testlauf: Strasse, an der spaeter ein Knoten gezogen wird
+    testlauf_knoten: Option<i64>,
     /// --testlauf: nach so vielen Sekunden beenden und Bildrate ausgeben
     beenden_nach: Option<f32>,
     gestartet: Instant,
@@ -221,6 +224,8 @@ struct App {
     /// Aendern vorhandener Strassen (Sitzungsordner je Karte)
     aendern: Option<aendern::Aendern>,
     aendern_warnung: Option<String>,
+    /// Werkzeug "Knoten": Verlauf an Knoten ziehen
+    knoten: knoten::Knotenwerkzeug,
 }
 
 /// was im Werkzeug "Kreuzungen" unter der Maus liegt
@@ -300,6 +305,7 @@ impl App {
             filter: String::new(),
             beenden_nach: None,
             testlauf_abzweig: None,
+            testlauf_knoten: None,
             bericht_melden: Some(protokoll::neuer_bericht()),
             eigene_auswahl: vec![],
             eigene_maus: None,
@@ -347,6 +353,7 @@ impl App {
             anschluesse: anschluss::Anschluesse::default(),
             aendern: None,
             aendern_warnung: None,
+            knoten: knoten::Knotenwerkzeug::default(),
         }
     }
 
@@ -455,7 +462,7 @@ impl App {
                 self.anschluesse.aktualisieren(v);
             }
             // die Splines der Karte braucht auch das Strassenwerkzeug (Abzweige mitten aus vorhandenen Strassen)
-            if matches!(self.bearb.werkzeug, Werkzeug::Aendern | Werkzeug::Strasse | Werkzeug::Kreuzung) {
+            if matches!(self.bearb.werkzeug, Werkzeug::Aendern | Werkzeug::Strasse | Werkzeug::Kreuzung | Werkzeug::Knoten) {
                 if let Some(a) = self.aendern.as_mut() {
                     a.aktualisieren(v);
                 }
@@ -857,7 +864,7 @@ impl App {
                         self.kartenwahl = self.karte.clone();
                     }
                     ui.separator();
-                    for (wz, t) in [(Werkzeug::Ansehen, "Ansehen"), (Werkzeug::Objekte, "Objekte (O)"), (Werkzeug::Platzieren, "Platzieren (P)"), (Werkzeug::Strasse, "Strasse bauen (B)"), (Werkzeug::Aendern, "Aendern (U)"), (Werkzeug::Kreuzung, "Kreuzungen (X)")] {
+                    for (wz, t) in [(Werkzeug::Ansehen, "Ansehen"), (Werkzeug::Objekte, "Objekte (O)"), (Werkzeug::Platzieren, "Platzieren (P)"), (Werkzeug::Strasse, "Strasse bauen (B)"), (Werkzeug::Aendern, "Aendern (U)"), (Werkzeug::Knoten, "Knoten (N)"), (Werkzeug::Kreuzung, "Kreuzungen (X)")] {
                         if ui.selectable_label(self.bearb.werkzeug == wz, t).clicked() {
                             aktionen.push(UiAktion::Werkzeug(wz));
                         }
@@ -1100,6 +1107,25 @@ impl App {
                     ui.label(egui::RichText::new("Klick: Start / naechster Punkt (rastet an Knoten ein, gruen = freies Ende: tangential weiter). Bild auf/ab: Hoehe. Entf: Strasse unter der Maus loeschen.").small().weak());
                 });
             }
+            if self.bearb.werkzeug == Werkzeug::Knoten {
+                egui::Panel::right("knoten").default_size(360.0).show(ctx, |ui| {
+                    ui.heading("Knoten: Verlauf aendern");
+                    ui.label("Knoten mit der linken Maustaste greifen und ziehen - die Strasse legt sich in glatten Boegen neu, die Enden zu den Nachbarn bleiben verbunden.");
+                    ui.add_space(4.0);
+                    ui.label(egui::RichText::new("Griffe").strong());
+                    ui.label("blau: Verbindung zweier Splines oder freies Ende der Karte");
+                    ui.label("gruen: Knoten eigener Strassen");
+                    ui.label("orange Quadrat: Kreuzung - wird mit ihren Strassen verschoben");
+                    ui.label("irgendwo auf einer Strasse greifen: setzt dort einen neuen Knoten");
+                    ui.add_space(4.0);
+                    ui.label(egui::RichText::new("Beim Ziehen").strong());
+                    ui.label("Mausrad: Richtung am Knoten drehen (Umschalt: fein)");
+                    ui.label("Bild auf/ab: Hoehe (Umschalt: fein), Pos1: Hoehe zuruecksetzen");
+                    ui.label("Esc: abbrechen");
+                    ui.add_space(4.0);
+                    ui.label(egui::RichText::new("Die Vorschau ist blau; orange: enge Kurve; rot: so nicht moeglich. Strg+Z nimmt jeden Zug zurueck.").small().weak());
+                });
+            }
             if self.bearb.werkzeug == Werkzeug::Kreuzung {
                 egui::Panel::right("kreuzungen").default_size(360.0).show(ctx, |ui| {
                     ui.heading("Kreuzungen: Vorfahrt und Ampel");
@@ -1285,6 +1311,70 @@ impl App {
                             }
                         }
                         maler.text(egui::pos2(x + 14.0, y + 12.0), egui::Align2::LEFT_TOP, "vorhandene Kreuzung - Klick uebernimmt sie", egui::FontId::proportional(14.0), c);
+                    }
+                }
+            }
+            if self.bearb.werkzeug == Werkzeug::Knoten {
+                let pt = |p: DVec3| bearbeiten::projizieren(&self.kam, p + DVec3::Z * 0.3, bw, bh).map(|(x, y, _)| egui::pos2(x, y));
+                if let Some(plan) = &self.knoten.plan {
+                    let farbe = if plan.fehler.is_some() { egui::Color32::from_rgb(255, 70, 60) }
+                                else if plan.warnung.is_some() { egui::Color32::from_rgb(255, 170, 40) } else { egui::Color32::from_rgb(90, 220, 255) };
+                    for (punkte, w) in &plan.linien {
+                        for seite in [-*w, 0.0, *w] {
+                            let linie: Vec<egui::Pos2> = punkte.iter().filter_map(|(q, h)| pt(*q + (crate::netz::rechts(*h) * seite).extend(0.0))).collect();
+                            if linie.len() > 1 {
+                                maler.add(egui::Shape::line(linie, egui::Stroke::new(if seite == 0.0 { 1.0 } else { 2.5 }, farbe)));
+                            }
+                        }
+                    }
+                    if let Some(m) = pt(plan.ziel) {
+                        maler.circle_filled(m, 6.0, farbe);
+                        let mut text = String::new();
+                        if self.knoten.dreh != 0.0 {
+                            text.push_str(&format!("gedreht {:+.1} Grad  ", self.knoten.dreh));
+                        }
+                        if self.knoten.hoehe != 0.0 {
+                            text.push_str(&format!("Hoehe {:+.2} m  ", self.knoten.hoehe));
+                        }
+                        if let Some(f) = plan.fehler.as_ref().or(plan.warnung.as_ref()) {
+                            text.push_str(f);
+                        }
+                        if !text.is_empty() {
+                            maler.text(m + egui::vec2(12.0, 10.0), egui::Align2::LEFT_TOP, text, egui::FontId::proportional(14.0), farbe);
+                        }
+                    }
+                } else {
+                    for (i, g) in self.knoten.griffe.iter().enumerate() {
+                        let unter = Some(i) == self.knoten.unter_maus;
+                        let Some(m) = pt(g.pos()) else { continue };
+                        match g {
+                            knoten::Griff::Mitte { .. } => {
+                                if unter {
+                                    maler.circle_stroke(m, 6.0, egui::Stroke::new(2.0, egui::Color32::WHITE));
+                                    maler.text(m + egui::vec2(10.0, 8.0), egui::Align2::LEFT_TOP, g.text(), egui::FontId::proportional(13.0), egui::Color32::WHITE);
+                                }
+                            }
+                            knoten::Griff::Kreuzung { k, .. } => {
+                                let c = if unter { egui::Color32::WHITE } else { egui::Color32::from_rgb(255, 170, 40) };
+                                maler.rect_stroke(egui::Rect::from_center_size(m, egui::vec2(18.0, 18.0)), 2.0, egui::Stroke::new(2.5, c), egui::StrokeKind::Middle);
+                                for a in &k.arme {
+                                    if let Some(q) = pt(a.pos) {
+                                        maler.line_segment([m, q], egui::Stroke::new(1.5, c));
+                                    }
+                                }
+                                if unter {
+                                    maler.text(m + egui::vec2(14.0, 10.0), egui::Align2::LEFT_TOP, "Kreuzung - Ziehen verschiebt sie mit ihren Strassen", egui::FontId::proportional(13.0), c);
+                                }
+                            }
+                            _ => {
+                                let eigen = matches!(g, knoten::Griff::Netz { .. });
+                                let c = if unter { egui::Color32::WHITE } else if eigen { egui::Color32::from_rgb(120, 255, 140) } else { egui::Color32::from_rgb(90, 220, 255) };
+                                maler.circle_stroke(m, if unter { 8.0 } else { 5.0 }, egui::Stroke::new(if unter { 3.0 } else { 2.0 }, c));
+                                if unter {
+                                    maler.text(m + egui::vec2(10.0, 8.0), egui::Align2::LEFT_TOP, g.text(), egui::FontId::proportional(13.0), c);
+                                }
+                            }
+                        }
                     }
                 }
             }
@@ -1571,6 +1661,9 @@ impl App {
                 }
             }
             UiAktion::Werkzeug(w) => {
+                self.knoten.abbrechen();
+                self.knoten.griffe.clear();
+                self.knoten.unter_maus = None;
                 if w != Werkzeug::Strasse {
                     if let Some(v) = self.viewer.as_mut() {
                         self.strasse.beenden(v);
@@ -1779,6 +1872,25 @@ impl App {
         self.stapel = self.stapel_jetzt();
     }
 
+    /// Zug im Werkzeug "Knoten" mit der letzten Mausstelle neu rechnen (nach Drehen oder Hoehe)
+    fn knoten_neu_rechnen(&mut self) {
+        if let (Some(v), Some(a)) = (self.viewer.as_ref(), self.aendern.as_mut()) {
+            self.knoten.ziehen(v, a, &self.strasse, None);
+        }
+    }
+
+    /// Testlauf: ist die Strasse fuer den Knoten-Test (wieder) geladen? (nach Rueckgaengig kommt ihre Kachel aus dem
+    /// Hintergrund-Streaming zurueck)
+    fn testlauf_geladen(&mut self) -> bool {
+        match (self.viewer.as_ref(), self.aendern.as_mut(), self.testlauf_knoten) {
+            (Some(v), Some(a), Some(id)) => {
+                a.aktualisieren(v);
+                a.spline(id).is_some()
+            }
+            _ => false,
+        }
+    }
+
     fn sitzung_schliessen(&mut self) {
         self.kreuzung_wahl = None;
         self.kreuzung_maus = None;
@@ -1789,6 +1901,7 @@ impl App {
         self.eigene_auswahl.clear();
         self.eigene_maus = None;
         self.aendern_warnung = None;
+        self.knoten = knoten::Knotenwerkzeug::default();
     }
 
     /// Tasten des Bearbeitens (nur beim Druecken, nicht wenn egui die Tastatur hat)
@@ -1810,6 +1923,26 @@ impl App {
             }
             KeyCode::Escape if self.bearb.werkzeug == Werkzeug::Kreuzung && self.kreuzung_wahl.is_some() => {
                 self.kreuzung_wahl = None;
+                None
+            }
+            KeyCode::KeyN if !self.strg => {
+                let w = if self.bearb.werkzeug == Werkzeug::Knoten { Werkzeug::Ansehen } else { Werkzeug::Knoten };
+                Some(UiAktion::Werkzeug(w))
+            }
+            KeyCode::Escape if self.bearb.werkzeug == Werkzeug::Knoten => {
+                self.knoten.abbrechen();
+                self.meldung = "Knoten ziehen abgebrochen".into();
+                None
+            }
+            KeyCode::PageUp | KeyCode::PageDown | KeyCode::Home if self.bearb.werkzeug == Werkzeug::Knoten => {
+                if self.knoten.zieht() {
+                    self.knoten.hoehe = match k {
+                        KeyCode::Home => 0.0,
+                        KeyCode::PageUp => self.knoten.hoehe + if fein { 0.25 } else { 1.0 },
+                        _ => self.knoten.hoehe - if fein { 0.25 } else { 1.0 },
+                    };
+                    self.knoten_neu_rechnen();
+                }
                 None
             }
             KeyCode::KeyU if !self.strg => {
@@ -2144,6 +2277,7 @@ impl ApplicationHandler for App {
                             self.ausfuehren(UiAktion::Rueckgaengig);
                             println!("Testlauf Aendern: Spline {:?} | {} | {}", gefunden, m1, self.meldung);
                             self.testlauf_abzweig = gefunden;
+                            self.testlauf_knoten = gefunden;
                         } else {
                             println!("Testlauf Aendern: keine Strasse am Blickpunkt");
                         }
@@ -2152,6 +2286,29 @@ impl ApplicationHandler for App {
                                  kopie, self.katalog.as_ref().map(|k| k.eintraege.len()).unwrap_or(0), platziert);
                         println!("Testlauf Bearbeiten: {} Objekte, Objekt {:?} gewaehlt, Aenderungen {}, Meldung: {}",
                                  self.viewer.as_ref().map(|v| v.objects().len()).unwrap_or(0), gefunden, self.bearb.aenderungen, self.meldung);
+                    } else if s > t * 0.33 && self.testlauf_knoten.is_some() && (s > t * 0.5 || self.testlauf_geladen()) {
+                        // Knoten: Stelle auf der Strasse vom Aendern-Test 3 m zur Seite ziehen, dann rueckgaengig (die
+                        // Kachel ist inzwischen wieder geladen)
+                        let id = self.testlauf_knoten.take().unwrap();
+                        self.ausfuehren(UiAktion::Werkzeug(Werkzeug::Knoten));
+                        let mut m = String::from("kein Griff");
+                        if let (Some(v), Some(a)) = (self.viewer.as_mut(), self.aendern.as_mut()) {
+                            a.aktualisieren(v);
+                            if let Some(sp) = a.spline(id).cloned() {
+                                let p = sp.kurve.point_at(sp.kurve.length / 2.0);
+                                self.knoten.suchen(v, a, &self.strasse, p, 1.0, 80.0);
+                                if self.knoten.greifen(p) {
+                                    let q = p.truncate() + crate::netz::rechts(sp.kurve.heading_at(sp.kurve.length / 2.0)) * 3.0;
+                                    self.knoten.ziehen(v, a, &self.strasse, Some(q.extend(p.z)));
+                                    m = self.knoten.loslassen(v, a, &mut self.strasse).unwrap_or_default();
+                                }
+                            } else {
+                                m = format!("Spline {id} nicht geladen");
+                            }
+                        }
+                        self.verlauf_pruefen();
+                        self.ausfuehren(UiAktion::Rueckgaengig);
+                        println!("Testlauf Knoten: {m} | {}", self.meldung);
                     } else if s > t * 0.36 && self.testlauf_abzweig.is_some() {
                         let id = self.testlauf_abzweig.take().unwrap();
                         // Abzweig mitten aus dieser Strasse (Kreuzung), dann rueckgaengig
@@ -2250,6 +2407,17 @@ impl ApplicationHandler for App {
                             }
                         }
                     }
+                    if self.bearb.werkzeug == Werkzeug::Knoten {
+                        let fang = (12.0 * self.kam.m_pro_px(bh)).max(1.5);
+                        let umkreis = (self.kam.abstand * 0.6).clamp(60.0, 400.0);
+                        if let (Some(g), Some(v), Some(a)) = (self.boden_unter_maus, self.viewer.as_ref(), self.aendern.as_mut()) {
+                            if self.knoten.zieht() {
+                                self.knoten.ziehen(v, a, &self.strasse, Some(g));
+                            } else if !egui_will {
+                                self.knoten.suchen(v, a, &self.strasse, g, fang, umkreis);
+                            }
+                        }
+                    }
                     if self.bearb.werkzeug == Werkzeug::Aendern && !egui_will {
                         // eigene Strassen liegen ueber den vorhandenen: zuerst
                         self.eigene_maus = self.boden_unter_maus.and_then(|g| self.strasse.kante_unter(g.truncate()));
@@ -2303,6 +2471,13 @@ impl ApplicationHandler for App {
                                 self.kreuzung_maus = None;
                             }
                             None => self.kreuzung_wahl = None,
+                        }
+                    }
+                    if button == MouseButton::Left && self.bearb.werkzeug == Werkzeug::Knoten {
+                        if let Some(g) = self.boden_unter_maus {
+                            if self.knoten.greifen(g) {
+                                self.knoten_neu_rechnen();
+                            }
                         }
                     }
                     if button == MouseButton::Left && self.bearb.werkzeug == Werkzeug::Aendern && self.eigene_maus.is_some() {
@@ -2382,6 +2557,14 @@ impl ApplicationHandler for App {
                             self.bearb.loslassen(v);
                         }
                     }
+                    if button == MouseButton::Left && self.knoten.zieht() {
+                        if let (Some(v), Some(a)) = (self.viewer.as_mut(), self.aendern.as_mut()) {
+                            if let Some(m) = self.knoten.loslassen(v, a, &mut self.strasse) {
+                                self.meldung = m;
+                            }
+                        }
+                        self.anschluesse.vergessen();
+                    }
                     if button == MouseButton::Right && self.bearb.werkzeug == Werkzeug::Strasse {
                         let ohne_ziehen = match (self.rechts_start, self.maus) {
                             (Some(a), Some(b)) => (a.0 - b.0).abs() + (a.1 - b.1).abs() < 5.0,
@@ -2400,6 +2583,15 @@ impl ApplicationHandler for App {
                 };
                 let schritt = if self.umschalt { 0.5 } else { 5.0 };
                 self.ausfuehren(UiAktion::Objekt(Action::Turn(-(y as f64) * schritt)));
+            }
+            WindowEvent::MouseWheel { delta, .. } if self.knoten.zieht() => {
+                let y = match delta {
+                    MouseScrollDelta::LineDelta(_, y) => y,
+                    MouseScrollDelta::PixelDelta(p) => p.y as f32 / 60.0,
+                };
+                let schritt = if self.umschalt { 0.5 } else { 3.0 };
+                self.knoten.dreh = (self.knoten.dreh - y as f64 * schritt).clamp(-90.0, 90.0);
+                self.knoten_neu_rechnen();
             }
             WindowEvent::MouseWheel { delta, .. } if !egui_will => {
                 let y = match delta {

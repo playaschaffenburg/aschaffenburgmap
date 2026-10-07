@@ -578,7 +578,6 @@ impl Netz {
     }
 
     /// Knoten verschieben: die Kanten folgen; an Verbindungsknoten bleibt die Richtung durchgehend
-    #[allow(dead_code)] // Knoten ziehen: naechster Schritt
     pub fn knoten_setzen(&mut self, id: u32, pos: DVec3) {
         if let Some(k) = self.knoten.iter_mut().find(|k| k.id == id) {
             k.pos = pos;

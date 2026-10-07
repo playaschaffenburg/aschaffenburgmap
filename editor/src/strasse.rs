@@ -1175,6 +1175,18 @@ impl Strassenbau {
         Ok(id)
     }
 
+    /// Netz ersetzen (Werkzeug "Knoten": Knoten gezogen), ein Rueckgaengig-Schritt mit `schritte` Schritten des
+    /// Aendern-Werkzeugs (mitgezogene Strassen der Karte)
+    pub fn netz_setzen(&mut self, v: &mut Viewer, ae: &Aendern, netz: Netz, schritte: usize) {
+        if self.kreuzungs_ordner.is_none() {
+            self.kreuzungs_ordner = Some(ae.kreuzungs_ordner());
+        }
+        self.undo.push((std::mem::replace(&mut self.netz, netz), schritte));
+        self.redo.clear();
+        self.aenderungen += 1;
+        self.zeichnen_alle(v);
+    }
+
     fn merken(&mut self) {
         self.undo.push((self.netz.clone(), 0));
         self.redo.clear();
