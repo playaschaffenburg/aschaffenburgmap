@@ -222,6 +222,20 @@ impl Aendern {
             let (l, r) = self.breite(v, &sp.sli);
             arme.push(crate::netz::Kartenarm { pos, richtung: h.rem_euclid(360.0), sli: sp.sli.clone(), weg: (!am_ende) != sp.gespiegelt, halb: l.max(r) as f64 });
         }
+        // doppelte Enden derselben Zufahrt (zwei Splines dicht hintereinander, beide mit den Pfaden verbunden): nur das
+        // innere zaehlt
+        if arme.len() > 1 {
+            let n0 = arme.len() as f64;
+            let m = DVec2::new(arme.iter().map(|a| a.pos.x).sum::<f64>() / n0, arme.iter().map(|a| a.pos.y).sum::<f64>() / n0);
+            arme.sort_by(|a, b| (a.pos.truncate() - m).length().total_cmp(&(b.pos.truncate() - m).length()));
+            let mut einzeln: Vec<crate::netz::Kartenarm> = Vec::new();
+            for a in arme {
+                if !einzeln.iter().any(|b| (b.pos.truncate() - a.pos.truncate()).length() < 3.0 && norm180(b.richtung - a.richtung).abs() < 20.0) {
+                    einzeln.push(a);
+                }
+            }
+            arme = einzeln;
+        }
         if arme.len() < 2 {
             return None;
         }
@@ -1354,7 +1368,7 @@ mod tests {
         }
         assert_eq!(s.gesetzte_kreuzungen().len(), 3, "{:?}", s.kreuzung_fehler);
         if let Some(bild) = std::env::var_os("OMSI_BILD") {
-            let k = crate::kamera::Kamera { ziel: boden(&v, o), gier: 200.0, neigung: -60.0, abstand: 120.0, fov: 50.0 };
+            let k = crate::kamera::Kamera { ziel: boden(&v, o + DVec2::new(-12.0, -12.0)), gier: 225.0, neigung: -50.0, abstand: 55.0, fov: 50.0 };
             let px = v.render_image(1280, 800, &k.camera()).unwrap();
             image::save_buffer(bild, &px, 1280, 800, image::ColorType::Rgba8).unwrap();
         }
@@ -1666,6 +1680,51 @@ mod tests {
         a.aktualisieren(&v);
         assert!((a.spline(ab.spline_id).unwrap().kurve.length - alt.kurve.length).abs() < 1e-6);
         assert!(a.spline(hinten.id).is_none());
+        drop(a);
+    }
+}
+
+#[cfg(test)]
+mod nutzer_tests {
+    use super::*;
+
+    /// nur in der Sitzung (nichts gespeichert): eine gespeicherte Kreuzung der Karte des Nutzers neu bauen und zeigen
+    #[test]
+    #[ignore]
+    fn gespeicherte_kreuzung_neu_bauen() {
+        let _sperre = crate::bearbeiten::tests::sperre();
+        let Ok(karte) = std::env::var("OMSI_KARTE") else { return };
+        let x: f64 = std::env::var("OMSI_X").unwrap().parse().unwrap();
+        let y: f64 = std::env::var("OMSI_Y").unwrap().parse().unwrap();
+        let root = Path::new(crate::bearbeiten::tests::OMSI);
+        let (mut v, _) = Viewer::open(&openomsi_game::viewer::instance(), None, root, &root.join("maps").join(&karte).join("global.cfg")).unwrap();
+        v.tiles_around(DVec3::new(x, y, 0.0), 2).unwrap();
+        let mut a = Aendern::neu(&v);
+        a.aktualisieren(&v);
+        let k = (0..400).find_map(|i| {
+            let w = i as f64 * 0.7;
+            a.kreuzungsobjekt_bei(&v, DVec2::new(x + w.cos() * i as f64 * 0.3, y + w.sin() * i as f64 * 0.3)).filter(|k| k.arme.len() >= 3)
+        }).expect("keine Kreuzung");
+        println!("bei {:?}", k.pos);
+        println!("Kreuzung {} mit {} Armen", k.objekt, k.arme.len());
+        for x in &k.arme {
+            println!("  Arm bei {:.1} {:.1}, Richtung {:.1}, {}", x.pos.x, x.pos.y, x.richtung, x.sli);
+        }
+        let mut s = crate::strasse::Strassenbau::neu(None, crate::strasse::Modus::Gerade);
+        let kam = crate::kamera::Kamera { ziel: k.pos, gier: 200.0, neigung: -55.0, abstand: 45.0, fov: 50.0 };
+        if let Some(b) = std::env::var_os("OMSI_BILD_VORHER") {
+            let px = v.render_image(1280, 800, &kam.camera()).unwrap();
+            image::save_buffer(b, &px, 1280, 800, image::ColorType::Rgba8).unwrap();
+        }
+        s.vorhandene_uebernehmen(&mut v, &mut a, &k).unwrap();
+        v.tiles_around(DVec3::new(x, y, 0.0), 2).unwrap();
+        for _ in 0..3 {
+            v.tiles_around(DVec3::new(x, y, 0.0), 2).unwrap();
+        }
+        if let Some(b) = std::env::var_os("OMSI_BILD") {
+            let px = v.render_image(1280, 800, &kam.camera()).unwrap();
+            image::save_buffer(b, &px, 1280, 800, image::ColorType::Rgba8).unwrap();
+        }
         drop(a);
     }
 }

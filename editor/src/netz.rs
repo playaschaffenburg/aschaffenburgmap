@@ -482,6 +482,23 @@ impl Netz {
         arme
     }
 
+    /// Ende eines Arms, wie gezeichnet: Lage und Richtung von der Kreuzung weg am Ende der gekuerzten Kante (bei einer
+    /// gebogenen Kante nicht die Richtung am Knoten - an diese Kante muessen Platte und Abbiegespuren genau anschliessen)
+    pub fn arm_ende(&self, arm: &NetzArm) -> Option<(DVec3, f64)> {
+        if let Some(ka) = &arm.karte {
+            return Some((ka.pos, ka.richtung));
+        }
+        let el = self.elemente(self.kante(arm.kante)?);
+        if arm.weg {
+            el.first().map(|x| (x.stueck.start.extend(x.z), x.stueck.richtung.rem_euclid(360.0)))
+        } else {
+            el.last().map(|x| {
+                let (p, h) = x.stueck.ende();
+                (p.extend(x.z + x.dh), (h + 180.0).rem_euclid(360.0))
+            })
+        }
+    }
+
     /// Kuerzung der Kante `kante` am Knoten k (0: keine Kreuzung)
     pub fn kuerzung(&self, kante: u32, k: u32) -> f64 {
         if !self.ist_kreuzung(k) {
@@ -696,6 +713,15 @@ mod tests {
         let el = n.elemente(&vor);
         assert!((el.last().unwrap().stueck.ende().0 - DVec2::new(0.0, 29.0)).length() < 1e-6);
         // die Stelle auf einer Kante finden
+        // gebogene Kante an einer Kreuzung: das Armende hat die Richtung am Ende der gekuerzten Kante, nicht am Knoten
+        let d = n.knoten_neu(DVec3::new(-60.0, 70.0, 10.0));
+        let bogen = n.kante_neu(m, d, "neben", 300.0, 330.0);
+        let arm = n.arme(m).into_iter().find(|a| a.kante == bogen).unwrap();
+        let (p_arm, h_arm) = n.arm_ende(&arm).unwrap();
+        let el = n.elemente(n.kante(bogen).unwrap());
+        assert!((p_arm.truncate() - el[0].stueck.start).length() < 1e-9);
+        assert!((h_arm - el[0].stueck.richtung).abs() < 1e-9 && (h_arm - arm.richtung).abs() > 1.0, "Arm {h_arm} Knoten {}", arm.richtung);
+        n.kante_loeschen(bogen);
         let (id, s, p, h) = n.kante_bei(DVec2::new(1.0, 70.0)).unwrap();
         assert!(n.kante(id).unwrap().b == b && (s - 30.0).abs() < 0.3 && (p.y - 70.0).abs() < 0.3 && h.abs() < 1e-6);
     }

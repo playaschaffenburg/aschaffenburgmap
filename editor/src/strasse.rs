@@ -1034,14 +1034,9 @@ impl Strassenbau {
                     continue;
                 }
                 let Some(e) = self.netz.kante(arm.kante) else { continue };
-                let el = self.netz.elemente(e);
-                let pos = if arm.weg {
-                    el.first().map(|x| x.stueck.start.extend(x.z))
-                } else {
-                    el.last().map(|x| x.stueck.ende().0.extend(x.z + x.dh))
-                };
-                let Some(pos) = pos else { continue };
-                arme.push(kreuzung::Arm { pos, richtung: arm.richtung, sli: e.sli.clone(), weg: arm.weg, rolle: kreuzung::Rolle::Gleich });
+                // Lage und Richtung am Ende der gekuerzten Kante: Platte und Abbiegespuren schliessen genau dort an
+                let Some((pos, richtung)) = self.netz.arm_ende(&arm) else { continue };
+                arme.push(kreuzung::Arm { pos, richtung, sli: e.sli.clone(), weg: arm.weg, rolle: kreuzung::Rolle::Gleich });
                 info.push((self.netz.breiten.get(&e.sli).copied().unwrap_or(5.0), false, e.ring));
             }
             if arme.len() < 3 {

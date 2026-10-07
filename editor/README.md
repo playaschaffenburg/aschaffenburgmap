@@ -112,7 +112,8 @@ an jede Zufahrt Signal und Mast (Ampel_Kfz_1 auf whip_beam, Signal am Ausleger),
 auf die Kreuzung wie in den Standardkarten. Vorhandene Kreuzungen der Karte (orange beim Darüberfahren) werden beim
 Klick durch eine eigene mit denselben Armen ersetzt und lassen sich dann genauso einstellen. Die Regel hängt an den
 Armrichtungen und bleibt erhalten, wenn später Straßen dazukommen (neue Arme warten bzw. rechts vor links).
-Strg+Z nimmt jede Änderung zurück.
+Strg+Z nimmt jede Änderung zurück. Klick auf eine schon gespeicherte eigene Kreuzung baut sie aus den vorhandenen
+Straßenenden neu (so lassen sich ältere Kreuzungen mit schief angesetzter Platte reparieren).
 
 **Eigene Straßen ändern:** im Werkzeug „Ändern“ lassen sich auch die eigenen Straßen wählen (Umschalt+Klick: Kette)
 und umkehren, löschen oder auf einen anderen Querschnitt setzen. Wird eine Straße gelöscht, an der eine vorhandene
