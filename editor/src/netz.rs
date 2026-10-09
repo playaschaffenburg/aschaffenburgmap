@@ -256,6 +256,11 @@ impl Kreisel {
     pub fn arm_abstand(&self) -> f64 {
         self.r + self.breite / 2.0 + 10.0
     }
+
+    /// Aussenrand der Ringfahrbahn
+    pub fn aussen(&self) -> f64 {
+        self.r + self.breite / 2.0
+    }
 }
 
 /// Regel einer Kreuzung: Vorfahrt je Arm (Richtung von der Kreuzung weg; die Arme werden ueber die Richtung
@@ -595,7 +600,7 @@ impl Netz {
     pub fn kante_loeschen(&mut self, id: u32) {
         self.kanten.retain(|e| e.id != id);
         let benutzt: std::collections::HashSet<u32> = self.kanten.iter().flat_map(|e| [e.a, e.b]).collect();
-        self.knoten.retain(|k| benutzt.contains(&k.id) || !k.kartenarme.is_empty());
+        self.knoten.retain(|k| benutzt.contains(&k.id) || !k.kartenarme.is_empty() || k.kreisel.is_some());
     }
 
     /// Knoten verschieben: die Kanten folgen; an Verbindungsknoten bleibt die Richtung durchgehend

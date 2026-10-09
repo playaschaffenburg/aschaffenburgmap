@@ -34,6 +34,8 @@ pub const KREISEL_MIN: f64 = 12.0;
 pub const KREISEL_MAX: f64 = 60.0;
 /// Breite der Ringfahrbahn (einspurig mit Rand)
 pub const KREISEL_BREITE: f64 = 7.0;
+/// kleinster Winkel zwischen zwei Zufahrten eines Kreisverkehrs
+pub const KREISEL_ARM_WINKEL: f64 = 30.0;
 
 /// Querschnitt: eine .sli mit Fahrspuren
 #[derive(Clone, Debug)]
@@ -235,7 +237,7 @@ pub struct Plan {
     querungen: Vec<(f64, Querung)>,
     stuecke: Vec<netz::Stueck>,
     /// Kreisverkehr: Mitte und Halbmesser
-    kreisel: Option<(DVec3, f64)>,
+    pub kreisel: Option<(DVec3, f64)>,
     /// endet an etwas Vorhandenem (Knoten, Strassenende, Strasse)
     pub angeschlossen: bool,
     /// geplante Kreuzungen (Start, Ziel, unterwegs) fuer die Markierung
@@ -379,6 +381,9 @@ impl Strassenbau {
                 // Zufahrt eines Kreisverkehrs: radial, endet ausserhalb des Rings
                 let kn = self.netz.knoten(*k).unwrap();
                 let h = richtung(kn.pos.truncate(), gegen.truncate());
+                if let Some(x) = self.netz.arme(*k).iter().find(|x| norm180(x.richtung - h).abs() < KREISEL_ARM_WINKEL) {
+                    return Err(format!("zu nah an einer anderen Zufahrt ({:.0} Grad, mindestens {KREISEL_ARM_WINKEL:.0})", norm180(x.richtung - h).abs()));
+                }
                 a.richtung = Some(um(h));
                 a.steigung = Some(0.0);
                 a.kuerzung = kn.kreisel.unwrap().arm_abstand();
@@ -566,7 +571,10 @@ impl Strassenbau {
 
     /// Klick: Start setzen bzw. geplante Kante bauen
     pub fn klick(&mut self, v: &mut Viewer, boden: DVec3, fang: f64, ans: &Anschluesse, mut ae: Option<&mut Aendern>) -> Option<String> {
-        self.sli.as_ref()?;
+        // ein Kreisverkehr braucht keinen Strassen-Querschnitt (er ist ein Objekt)
+        if self.modus != Modus::Kreisel {
+            self.sli.as_ref()?;
+        }
         if let Some(a) = ae.as_deref() {
             self.kreuzungs_ordner = Some(a.kreuzungs_ordner());
         }
@@ -609,7 +617,7 @@ impl Strassenbau {
             self.zeiger = None;
             return Some(meldung);
         }
-        let sli = if self.modus == Modus::Kreisel { self.kreisel_sli.clone()? } else { self.sli.clone()? };
+        let sli = if self.modus == Modus::Kreisel { self.kreisel_sli.clone().unwrap_or_default() } else { self.sli.clone()? };
         let p = self.plan.clone()?;
         if let Some(b) = p.blockiert.as_ref() {
             return Some(format!("geht nicht: {b}"));
@@ -620,7 +628,9 @@ impl Strassenbau {
         self.undo.push((self.netz.clone(), 0));
         self.redo.clear();
         self.aenderungen += 1;
-        self.netz.breiten.insert(sli.clone(), self.halb(v, &sli));
+        if !sli.is_empty() {
+            self.netz.breiten.insert(sli.clone(), self.halb(v, &sli));
+        }
         let erg = match p.kreisel {
             Some((mitte, r)) => self.kreisel_bauen(v, ae.as_deref_mut(), mitte, r, &sli, &p),
             None => self.plan_bauen(v, ae.as_deref_mut(), &p, &sli),
@@ -648,9 +658,14 @@ impl Strassenbau {
             self.start = None;
             let zufahrten = self.netz.knoten.last().map(|k| k.kartenarme.len()).unwrap_or(0);
             let _ = neue_kreuzungen;
-            return Some(format!("Kreisverkehr gebaut: Durchmesser {:.0} m{}{}", 2.0 * p.kreisel.unwrap().1,
+            // weiter geht es mit Zufahrten: Strassen auf den Kreisverkehr ziehen
+            if self.sli.is_some() {
+                self.modus = Modus::Kurve;
+            }
+            return Some(format!("Kreisverkehr gebaut: Durchmesser {:.0} m{}{} - Zufahrten: Strasse auf den Kreisverkehr ziehen{}", 2.0 * p.kreisel.unwrap().1,
                                 if zufahrten > 0 { format!(", {zufahrten} vorhandene Strasse(n) als Zufahrt") } else { String::new() },
-                                self.kreuzung_fehler.as_ref().map(|f| format!(" - Objekt: {f}")).unwrap_or_default()));
+                                self.kreuzung_fehler.as_ref().map(|f| format!(" - Objekt: {f}")).unwrap_or_default(),
+                                if self.sli.is_none() { " (erst einen Querschnitt waehlen)" } else { "" }));
         }
         // weiter vom neuen Ende; endete der Zug an etwas Vorhandenem, ist er fertig
         let b_pos = self.netz.knoten(b).map(|k| k.pos).unwrap_or(p.b);
@@ -911,6 +926,14 @@ impl Strassenbau {
                 (vec![], vec![], vec![])
             }
         };
+        // quer durch einen Kreisverkehr (der nicht Start oder Ziel ist) geht es nicht
+        let enden: Vec<u32> = [&sa.ende, &zb.ende].into_iter().filter_map(|e| if let Ende::Knoten(k) = e { Some(*k) } else { None }).collect();
+        for kn in self.netz.knoten.iter().filter(|k| k.kreisel.is_some() && !enden.contains(&k.id)) {
+            let ra = kn.kreisel.unwrap().aussen() + 2.0;
+            if netz::abtasten(&el, 2.0).iter().any(|(q, _)| (q.truncate() - kn.pos.truncate()).length() < ra) && fehler.is_none() {
+                fehler = Some("die Strasse fuehrt durch einen Kreisverkehr - auf ihm enden lassen (sie wird eine Zufahrt)".into());
+            }
+        }
         // Kreuzungen hintereinander brauchen Platz: zwischen zwei Kreuzungen muss ein Stueck Strasse bleiben
         let mut stellen = vec![(0.0, 0.0, sa.kuerzung)];
         for ((s, _), (vor, nach)) in querungen.iter().zip(&abschnitte) {
@@ -957,10 +980,7 @@ impl Strassenbau {
             self.plan = None;
             return;
         };
-        let Some(sli) = self.kreisel_sli.clone() else {
-            self.plan = None;
-            return;
-        };
+        let sli = self.kreisel_sli.clone();
         let r = (boden.truncate() - mitte.truncate()).length().clamp(KREISEL_MIN, KREISEL_MAX);
         // vier Viertelboegen gegen den Uhrzeigersinn ab Norden
         let mut stuecke = Vec::new();
@@ -972,7 +992,7 @@ impl Strassenbau {
         }
         let laenge: f64 = stuecke.iter().map(|s| s.laenge).sum();
         let el = netz::mit_hoehe(&stuecke, mitte.z, 0.0, mitte.z, 0.0);
-        let halb = self.halb(v, &sli);
+        let halb = sli.as_deref().map(|x| self.halb(v, x)).unwrap_or(4.0);
         // vorhandene Strassen werden an der Armlinie (ausserhalb des Rings) abgeschnitten: dort die Querungen suchen
         let ra = netz::Kreisel { r, breite: KREISEL_BREITE }.arm_abstand();
         let mut kreis = Vec::new();
@@ -992,8 +1012,8 @@ impl Strassenbau {
                                 angeschlossen: false, kreuzungen: marken, warnung: blockiert.as_ref().map(|b| format!("geht nicht: {b}")), blockiert,
                                 laenge, min_radius: r, steigung: 0.0 });
         let mut cum = 0.0;
-        for e in &el {
-            if let Some(g) = v.add_spline(&sli, &e.kurve(1, cum)) {
+        for e in el.iter().filter(|_| sli.is_some()) {
+            if let Some(g) = v.add_spline(sli.as_deref().unwrap(), &e.kurve(1, cum)) {
                 self.vorschau.push(g);
             }
             cum += e.stueck.laenge;
@@ -1271,6 +1291,17 @@ impl Strassenbau {
 
     /// Kante unter dem Bodenpunkt (waagerecht in r Metern) loeschen
     pub fn loeschen_bei(&mut self, v: &mut Viewer, p: DVec2, r: f64) -> Option<String> {
+        // auf dem Ring: der ganze Kreisverkehr mit seinen Zufahrten
+        if let Some(k) = self.netz.knoten.iter().find(|k| k.kreisel.is_some_and(|kr| (k.pos.truncate() - p).length() < kr.aussen())).map(|k| k.id) {
+            self.merken();
+            let an: Vec<u32> = self.netz.an(k).iter().map(|e| e.id).collect();
+            for id in &an {
+                self.netz.kante_loeschen(*id);
+            }
+            self.netz.knoten.retain(|x| x.id != k);
+            self.zeichnen_alle(v);
+            return Some(format!("Kreisverkehr geloescht{}", if an.is_empty() { String::new() } else { format!(" mit {} Zufahrt(en)", an.len()) }));
+        }
         let mut best: Option<(f64, u32)> = None;
         for e in &self.netz.kanten {
             for el in self.netz.elemente(e) {
@@ -1409,6 +1440,10 @@ impl Strassenbau {
     }
 
     /// Hilfslinien: Knoten des Netzes (fuer die Markierung im Bild)
+    pub fn kreisel(&self) -> Vec<(DVec3, netz::Kreisel)> {
+        self.netz.knoten.iter().filter_map(|k| k.kreisel.map(|kr| (k.pos, kr))).collect()
+    }
+
     pub fn knoten_punkte(&self) -> Vec<(u32, DVec3, bool)> {
         self.netz.knoten.iter().map(|k| (k.id, k.pos, self.netz.weiter_richtung(k.id).is_some())).collect()
     }

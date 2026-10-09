@@ -1601,6 +1601,69 @@ pub(crate) mod tests {
         assert_eq!(n, 3, "3 Zufahrten am Kreisverkehr");
     }
 
+    /// Bedienung wie im Fenster: Kreisverkehr ohne gewaehlten Querschnitt bauen, danach Zufahrten; eine Strasse quer
+    /// hindurch und eine zu dicht an einer anderen Zufahrt werden abgelehnt; Loeschen einer anderen Strasse laesst ihn
+    /// stehen, Entf auf dem Ring loescht ihn mit seinen Zufahrten
+    #[test]
+    #[ignore]
+    fn kreisverkehr_bedienen() {
+        let _sperre = crate::bearbeiten::tests::sperre();
+        use crate::anschluss::Anschluesse;
+        use crate::strasse::{Modus, Strassenbau};
+        let mut v = crate::bearbeiten::tests::grundorf();
+        v.tiles_around(DVec3::new(150.0, 150.0, 0.0), 8).unwrap();
+        let mut a = Aendern::neu(&v);
+        let ans = Anschluesse::default();
+        let o = freie_flaeche(&v, &mut a, &[((-100.0, 0.0), (100.0, 0.0)), ((0.0, -100.0), (0.0, 100.0))]);
+        let boden = |v: &Viewer, p: DVec2| p.extend(v.terrain_height(p.x, p.y).unwrap());
+        // kein Querschnitt gewaehlt, kein Ring-Querschnitt
+        let mut s = Strassenbau::neu(None, Modus::Kreisel);
+        let mitte = boden(&v, o);
+        let m = s.klick(&mut v, mitte, 2.0, &ans, Some(&mut a)).expect("Mitte setzen ohne Querschnitt");
+        println!("{m}");
+        let rand = boden(&v, o + DVec2::new(20.0, 0.0));
+        s.maus(&mut v, rand, 2.0, &ans, Some(&mut a));
+        let m = s.klick(&mut v, rand, 2.0, &ans, Some(&mut a)).expect("bauen ohne Querschnitt");
+        println!("{m}");
+        assert!(m.contains("Kreisverkehr gebaut"), "{m}");
+        assert_eq!(s.kreisel().len(), 1);
+        // Zufahrt von Osten (Modus Kurve)
+        s.sli = Some("Splines\\Marcel\\str_2spur_8m_altonaer1.sli".into());
+        s.modus = Modus::Kurve;
+        let zug = |s: &mut Strassenbau, v: &mut Viewer, a: &mut Aendern, von: DVec2, nach: DVec2| -> String {
+            let (g1, g2) = (boden(v, von), boden(v, nach));
+            s.klick(v, g1, 2.0, &ans, Some(&mut *a));
+            s.maus(v, g2, 2.0, &ans, Some(&mut *a));
+            let m = s.klick(v, g2, 2.0, &ans, Some(&mut *a)).unwrap_or_default();
+            s.beenden(v);
+            m
+        };
+        let m = zug(&mut s, &mut v, &mut a, o + DVec2::new(90.0, 0.0), o + DVec2::new(15.0, 2.0));
+        println!("Ost: {m}");
+        assert!(m.contains("gebaut"), "{m}");
+        // zu dicht daneben (10 Grad)
+        let m = zug(&mut s, &mut v, &mut a, o + crate::netz::dir(80.0) * 90.0, o + crate::netz::dir(80.0) * 15.0);
+        println!("dicht: {m}");
+        assert!(m.contains("zu nah an einer anderen Zufahrt"), "{m}");
+        // quer hindurch (Nord nach Sued)
+        let m = zug(&mut s, &mut v, &mut a, o + DVec2::new(0.0, 90.0), o + DVec2::new(0.0, -90.0));
+        println!("quer: {m}");
+        assert!(m.contains("durch einen Kreisverkehr"), "{m}");
+        // Zufahrt von Westen; eine freie Strasse anderswo bauen und loeschen: der Kreisverkehr bleibt
+        let m = zug(&mut s, &mut v, &mut a, o + DVec2::new(-90.0, 0.0), o + DVec2::new(-15.0, 0.0));
+        assert!(m.contains("gebaut"), "{m}");
+        assert_eq!(s.gesetzte_kreuzungen().len(), 1, "{:?}", s.kreuzung_fehler);
+        let id = s.netz.kanten[0].id;
+        s.kanten_aendern(&mut v, &[id], &crate::strasse::KantenAenderung::Loeschen);
+        assert_eq!(s.kreisel().len(), 1, "Kreisverkehr verschwunden");
+        // Entf auf dem Ring
+        let m = s.loeschen_bei(&mut v, o + DVec2::new(0.0, 12.0), 3.0).unwrap();
+        println!("{m}");
+        assert!(s.kreisel().is_empty() && s.netz.kanten.is_empty() && s.gesetzte_kreuzungen().is_empty());
+        assert!(s.rueckgaengig(&mut v, Some(&mut a)));
+        assert_eq!(s.kreisel().len(), 1);
+    }
+
     /// Kreisverkehr auf die Ampelkreuzung von Grundorf (414/215): die Kreuzung mit Ampeln und die Strassenstuecke im
     /// Ring fallen weg, die drei Strassen muenden aussen in den Ring (3 T-Kreuzungen); gespeichert und geladen haengen
     /// sie an den Kreuzungen, Rueckgaengig stellt alles wieder her

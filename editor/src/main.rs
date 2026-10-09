@@ -1493,6 +1493,27 @@ impl App {
                         }
                     }
                 }
+                // Kreisverkehre: wo Zufahrten enden (Strasse hierher ziehen), in der Vorschau auch der geplante
+                let mut ringe: Vec<(DVec3, netz::Kreisel, bool)> = self.strasse.kreisel().into_iter().map(|(p, k)| (p, k, false)).collect();
+                if let Some((m, r)) = self.strasse.plan.as_ref().and_then(|p| p.kreisel).filter(|_| self.strasse.baut()) {
+                    ringe.push((m, netz::Kreisel { r, breite: strasse::KREISEL_BREITE }, true));
+                }
+                for (m, kr, geplant) in ringe {
+                    let c = if geplant { egui::Color32::from_rgb(255, 170, 40) } else { egui::Color32::from_rgb(90, 220, 255) };
+                    for (rad, dick) in [(kr.aussen(), 2.0), (kr.arm_abstand(), 1.0)] {
+                        let linie: Vec<egui::Pos2> = (0..=96).filter_map(|i| {
+                            let q = m + (netz::dir(i as f64 * 3.75) * rad).extend(0.3);
+                            bearbeiten::projizieren(&self.kam, q, bw, bh).map(|(x, y, _)| egui::pos2(x, y))
+                        }).collect();
+                        if linie.len() > 1 {
+                            maler.add(egui::Shape::line(linie, egui::Stroke::new(dick, c)));
+                        }
+                    }
+                    if let Some((x, y, _)) = bearbeiten::projizieren(&self.kam, m + DVec3::Z * 0.3, bw, bh) {
+                        let t = if geplant { "Kreisverkehr (Zufahrten enden am aeusseren Kreis)" } else { "Kreisverkehr - Strasse hierher ziehen: Zufahrt" };
+                        maler.text(egui::pos2(x, y), egui::Align2::CENTER_CENTER, t, egui::FontId::proportional(13.0), c);
+                    }
+                }
                 for (_, p, frei) in self.strasse.knoten_punkte() {
                     if let Some((x, y, _)) = bearbeiten::projizieren(&self.kam, p, bw, bh) {
                         let f = if frei { egui::Color32::from_rgb(90, 230, 120) } else { egui::Color32::WHITE };

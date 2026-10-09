@@ -100,6 +100,9 @@ laufen eben auf Kreuzungshöhe ein. Orange Markierungen zeigen in der Vorschau j
   Straße auf den Kreisverkehr ziehen (sie endet außerhalb des Rings). Liegt er über vorhandenen Straßen (auch über
   einer vorhandenen Kreuzung), fällt alles innerhalb weg – Straßenstücke, Kreuzungsobjekte mit Ampeln und Masten –
   und jede Straße wird eine Zufahrt. Mit dem Knoten-Werkzeug lässt er sich samt Zufahrten verschieben.
+  Kein Querschnitt nötig; nach dem Bau wechselt der Modus auf Kurve für die Zufahrten. Im Bild zeigen zwei blaue
+  Kreise Ringrand und Armlinie (dort enden die Zufahrten). Zufahrten brauchen mindestens 30° Abstand; eine Straße
+  quer durch den Kreisverkehr wird abgelehnt; Entf auf dem Ring löscht ihn mit seinen Zufahrten.
 - **Vorfahrt (vermutet, später per Klick änderbar):** im Kreisverkehr der Ring; sonst die durchgehende Straße – eine
   vorhandene vor einer neuen, dann gleicher Querschnitt, dann die breitere; zwei gleichwertige: rechts vor links.
 - Ein Strg+Z nimmt Straße, Kreuzungen und aufgeschnittene vorhandene Straßen zurück. Beim Speichern kommen die
