@@ -22,6 +22,7 @@ mod kreuzung;
 mod netz;
 mod protokoll;
 mod speichern;
+mod spuren;
 mod strasse;
 mod vorschau;
 
@@ -231,6 +232,10 @@ struct App {
     knoten: knoten::Knotenwerkzeug,
     /// Hilfsansicht (H): Pfade und unsichtbare Objekte
     hilfe: hilfsansicht::Hilfsansicht,
+    /// Werkzeug "Kreuzungen", Ansicht Spuren (Spurpfeile/Verbinder): an, gewaehlte Kreuzung, gewaehlte Zufahrtsspur
+    spur_modus: bool,
+    spur_ziel: Option<spuren::Ziel>,
+    spur_zufahrt: Option<usize>,
 }
 
 /// was im Werkzeug "Kreuzungen" unter der Maus liegt
@@ -277,6 +282,10 @@ enum UiAktion {
     SplineSpiegeln,
     /// Fahrtrichtungen der gewaehlten vorhandenen Strassen fuer die KI
     SplineEinbahn(netz::Einbahn),
+    /// Spurpfeile/Verbinder einer Kreuzung aendern
+    Spuren(spuren::Aenderung),
+    /// Abbiegespuren einer eigenen Kreuzung wieder wie vorgeschlagen
+    SpurenZurueck(u32),
     SplineLoeschen,
     StrassenModus(strasse::Modus),
     EigeneAendern(strasse::KantenAenderung),
@@ -362,6 +371,9 @@ impl App {
             aendern_warnung: None,
             knoten: knoten::Knotenwerkzeug::default(),
             hilfe: hilfsansicht::Hilfsansicht::default(),
+            spur_modus: false,
+            spur_ziel: None,
+            spur_zufahrt: None,
         }
     }
 
@@ -860,6 +872,7 @@ impl App {
         } else {
             Vec::new()
         };
+        let spur_ansicht = if self.bearb.werkzeug == Werkzeug::Kreuzung && self.spur_modus { self.spur_ansicht() } else { None };
         let gewaehlt = self.bearb.wahl.and_then(|w| objekte.iter().find(|o| o.wahl == w).cloned());
         let edit = match gewaehlt.as_ref().map(|o| o.wahl) {
             Some(Wahl::Karte(id)) => self.viewer.as_ref().map(|v| v.object_edit(id)),
@@ -1144,6 +1157,66 @@ impl App {
             }
             if self.bearb.werkzeug == Werkzeug::Kreuzung {
                 egui::Panel::right("kreuzungen").default_size(360.0).show(ctx, |ui| {
+                    ui.horizontal(|ui| {
+                        if ui.selectable_label(!self.spur_modus, "Vorfahrt und Ampel").clicked() {
+                            self.spur_modus = false;
+                        }
+                        if ui.selectable_label(self.spur_modus, "Spuren (Pfeile/Verbinder)").clicked() {
+                            self.spur_modus = true;
+                        }
+                    });
+                    ui.separator();
+                    if self.spur_modus {
+                        ui.heading("Spurpfeile und Verbinder");
+                        let Some(an) = spur_ansicht.as_ref() else {
+                            ui.label("Klick auf eine Kreuzung waehlt sie - eigene oder vorhandene der Karte (die wird dabei nicht ersetzt).");
+                            ui.label(egui::RichText::new("Wie Traffic Manager: President Edition: je Zufahrtsspur festlegen, wohin sie fahren darf; jede Abbiegespur einzeln an- und abschalten.").small().weak());
+                            return;
+                        };
+                        let eigen = matches!(an.ziel, spuren::Ziel::Netz(_));
+                        ui.label(egui::RichText::new(match an.ziel {
+                            spuren::Ziel::Netz(_) => "eigene Kreuzung".to_string(),
+                            spuren::Ziel::Karte { objekt, .. } => format!("Kreuzung der Karte (Objekt {objekt})"),
+                        }).strong());
+                        ui.label(format!("{} Zufahrtsspuren, {} Abbiegespuren ({} fuer die KI gesperrt)", an.zufahrten.len(), an.verbindungen.len(),
+                                         an.verbindungen.iter().filter(|x| !x.erlaubt).count()));
+                        ui.separator();
+                        match self.spur_zufahrt.filter(|z| *z < an.zufahrten.len()) {
+                            None => {
+                                ui.label("Klick auf einen weissen Punkt (Zufahrtsspur) waehlt sie; Klick auf eine Linie schaltet diese Abbiegespur an/aus.");
+                            }
+                            Some(z) => {
+                                ui.label(egui::RichText::new(format!("Zufahrtsspur {} - darf fahren:", z + 1)).strong());
+                                let jetzt = an.pfeile(z);
+                                let moeglich = an.moeglich(z);
+                                ui.horizontal_wrapped(|ui| {
+                                    for art in spuren::Art::ALLE {
+                                        if !moeglich.contains(&art) {
+                                            continue;
+                                        }
+                                        let ist = jetzt.contains(&art);
+                                        if ui.selectable_label(ist, art.zeichen()).clicked() {
+                                            if let Some(a) = an.pfeil(z, art, !ist) {
+                                                aktionen.push(UiAktion::Spuren(a));
+                                            }
+                                        }
+                                    }
+                                });
+                                if !eigen {
+                                    ui.label(egui::RichText::new("Kreuzung der Karte: nur vorhandene Abbiegespuren lassen sich sperren/freigeben ([rule] no_cars), neue gehen nicht.").small().weak());
+                                }
+                            }
+                        }
+                        if let (true, spuren::Ziel::Netz(k)) = (eigen, an.ziel) {
+                            ui.separator();
+                            if ui.button("Vorschlag wiederherstellen").on_hover_text("Abbiegespuren wieder so, wie der Editor sie bildet").clicked() {
+                                aktionen.push(UiAktion::SpurenZurueck(k));
+                            }
+                        }
+                        ui.separator();
+                        ui.label(egui::RichText::new("Im Bild: gruen = erlaubt, rot = fuer die KI gesperrt. Eigene Kreuzungen werden mit genau diesen Abbiegespuren neu gebaut. Strg+Z nimmt jede Aenderung zurueck.").small().weak());
+                        return;
+                    }
                     ui.heading("Kreuzungen: Vorfahrt und Ampel");
                     let info = self.kreuzung_wahl.and_then(|k| self.strasse.kreuzungen().into_iter().find(|x| x.knoten == k));
                     let Some(info) = info else {
@@ -1358,7 +1431,45 @@ impl App {
             if let Some(o) = gewaehlt.as_ref() {
                 bearbeiten::markieren(&maler, &self.kam, o, bw, bh, egui::Color32::from_rgb(255, 60, 220), 3.0);
             }
-            if self.bearb.werkzeug == Werkzeug::Kreuzung {
+            if let Some(an) = spur_ansicht.as_ref() {
+                let pt = |p: DVec3| bearbeiten::projizieren(&self.kam, p + DVec3::Z * 0.35, bw, bh).map(|(x, y, _)| egui::pos2(x, y));
+                for vb in &an.verbindungen {
+                    let gewaehlt = self.spur_zufahrt == Some(vb.zufahrt);
+                    let blass = self.spur_zufahrt.is_some() && !gewaehlt;
+                    let (r, g, b) = if vb.erlaubt { (70, 220, 90) } else { (235, 60, 60) };
+                    let farbe = if blass { egui::Color32::from_rgba_unmultiplied(r, g, b, 70) } else { egui::Color32::from_rgb(r, g, b) };
+                    let linie: Vec<egui::Pos2> = vb.punkte.iter().filter_map(|p| pt(*p)).collect();
+                    if linie.len() < 2 {
+                        continue;
+                    }
+                    let n = linie.len();
+                    let (a, e) = (linie[n.saturating_sub(3)], linie[n - 1]);
+                    let dick = if gewaehlt { 3.5 } else { 2.0 };
+                    maler.add(egui::Shape::line(linie, egui::Stroke::new(dick, farbe)));
+                    let d = e - a;
+                    if d.length() > 0.5 {
+                        let d = d.normalized() * 9.0;
+                        let q = egui::vec2(-d.y, d.x) * 0.55;
+                        maler.add(egui::Shape::line(vec![e - d + q, e, e - d - q], egui::Stroke::new(dick, farbe)));
+                    }
+                }
+                for (i, z) in an.zufahrten.iter().enumerate() {
+                    if let Some(m) = pt(z.pos) {
+                        if self.spur_zufahrt == Some(i) {
+                            maler.circle_filled(m, 7.0, egui::Color32::from_rgb(255, 60, 220));
+                        } else {
+                            maler.circle_stroke(m, 6.0, egui::Stroke::new(2.0, egui::Color32::WHITE));
+                        }
+                    }
+                }
+            } else if self.bearb.werkzeug == Werkzeug::Kreuzung && self.spur_modus {
+                if let Some(KreuzungsZiel::Vorhanden(k)) = &self.kreuzung_maus {
+                    if let Some((x, y, _)) = bearbeiten::projizieren(&self.kam, k.pos + DVec3::Z * 0.3, bw, bh) {
+                        maler.circle_stroke(egui::pos2(x, y), 10.0, egui::Stroke::new(2.5, egui::Color32::from_rgb(255, 170, 40)));
+                    }
+                }
+            }
+            if self.bearb.werkzeug == Werkzeug::Kreuzung && !self.spur_modus {
                 let maus_netz = match &self.kreuzung_maus { Some(KreuzungsZiel::Netz(k)) => Some(*k), _ => None };
                 for k in self.strasse.kreuzungen() {
                     let Some(m) = bearbeiten::projizieren(&self.kam, k.pos + DVec3::Z * 0.3, bw, bh).map(|(x, y, _)| egui::pos2(x, y)) else { continue };
@@ -1758,6 +1869,26 @@ impl App {
                 }
                 self.strasse.modus = m;
             }
+            UiAktion::Spuren(a) => {
+                if let Some(v) = self.viewer.as_mut() {
+                    match a {
+                        spuren::Aenderung::Netz(k, liste) => self.meldung = self.strasse.spuren_setzen(v, k, &liste),
+                        spuren::Aenderung::Karte { kachel, objekt, sperren, frei } => {
+                            if let Some(ae) = self.aendern.as_mut() {
+                                self.meldung = match ae.objekt_pfade(v, kachel, objekt, &sperren, &frei) {
+                                    Ok(()) => format!("Kreuzung der Karte: {} Pfad(e) fuer die KI gesperrt, {} frei", sperren.len(), frei.len()),
+                                    Err(e) => format!("Spuren aendern fehlgeschlagen: {e:#}"),
+                                };
+                            }
+                        }
+                    }
+                }
+            }
+            UiAktion::SpurenZurueck(k) => {
+                if let Some(v) = self.viewer.as_mut() {
+                    self.meldung = self.strasse.spuren_zuruecksetzen(v, k);
+                }
+            }
             UiAktion::KreuzungRegel(k, regel) => {
                 if let Some(v) = self.viewer.as_mut() {
                     self.meldung = self.strasse.regel_setzen(v, k, regel);
@@ -2010,6 +2141,14 @@ impl App {
         }
     }
 
+    /// Spurpfeile/Verbinder der gewaehlten Kreuzung
+    fn spur_ansicht(&self) -> Option<spuren::Ansicht> {
+        match self.spur_ziel? {
+            spuren::Ziel::Netz(k) => spuren::Ansicht::netz(&self.strasse, k),
+            spuren::Ziel::Karte { kachel, objekt } => spuren::Ansicht::karte(self.viewer.as_ref()?, kachel, objekt),
+        }
+    }
+
     fn sitzung_schliessen(&mut self) {
         self.kreuzung_wahl = None;
         self.kreuzung_maus = None;
@@ -2021,6 +2160,8 @@ impl App {
         self.eigene_maus = None;
         self.aendern_warnung = None;
         self.knoten = knoten::Knotenwerkzeug::default();
+        self.spur_ziel = None;
+        self.spur_zufahrt = None;
         if let Some(v) = self.viewer.as_mut() {
             self.hilfe.leeren(v);
         }
@@ -2619,7 +2760,36 @@ impl ApplicationHandler for App {
                     if button == MouseButton::Right {
                         self.rechts_start = self.maus;
                     }
-                    if button == MouseButton::Left && self.bearb.werkzeug == Werkzeug::Kreuzung {
+                    if button == MouseButton::Left && self.bearb.werkzeug == Werkzeug::Kreuzung && self.spur_modus {
+                        let (bw, bh) = self.bildgroesse();
+                        let kam = self.kam.clone();
+                        let bild = |p: DVec3| bearbeiten::projizieren(&kam, p + DVec3::Z * 0.35, bw, bh).map(|(x, y, _)| glam::DVec2::new(x as f64, y as f64));
+                        let maus = self.maus.map(|m| glam::DVec2::new(m.0 as f64, m.1 as f64)).unwrap_or_default();
+                        let mut erledigt = false;
+                        if let Some(an) = self.spur_ansicht() {
+                            if let Some(z) = an.zufahrt_bei(bild, maus) {
+                                self.spur_zufahrt = Some(z);
+                                erledigt = true;
+                            } else if let Some(i) = an.verbindung_bei(bild, maus, self.spur_zufahrt) {
+                                if let Some(a) = an.schalten(i) {
+                                    self.ausfuehren(UiAktion::Spuren(a));
+                                }
+                                erledigt = true;
+                            }
+                        }
+                        if !erledigt {
+                            let neu = match self.kreuzung_maus.clone() {
+                                Some(KreuzungsZiel::Netz(k)) => Some(spuren::Ziel::Netz(k)),
+                                Some(KreuzungsZiel::Vorhanden(k)) => Some(spuren::Ziel::Karte { kachel: k.kachel, objekt: k.objekt }),
+                                None => None,
+                            };
+                            if neu != self.spur_ziel {
+                                self.spur_zufahrt = None;
+                            }
+                            self.spur_ziel = neu;
+                        }
+                    }
+                    if button == MouseButton::Left && self.bearb.werkzeug == Werkzeug::Kreuzung && !self.spur_modus {
                         match self.kreuzung_maus.clone() {
                             Some(KreuzungsZiel::Netz(k)) => self.kreuzung_wahl = Some(k),
                             Some(KreuzungsZiel::Vorhanden(k)) => {

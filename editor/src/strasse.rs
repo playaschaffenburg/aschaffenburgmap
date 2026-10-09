@@ -1107,9 +1107,18 @@ impl Strassenbau {
                 a.rolle = r;
             }
             let ampel = regel.as_ref().is_some_and(|r| r.ampel) && kreisel.is_none();
+            // Spurpfeile/Verbinder: die gewuenschten Abbiegespuren ueber die Armrichtungen den Armen zuordnen
+            let verbindungen: Option<Vec<[usize; 4]>> = self.netz.knoten(k).and_then(|x| x.spurwahl.clone()).filter(|_| kreisel.is_none()).map(|w| {
+                let arm = |h: f64| arme.iter().enumerate().map(|(i, a)| (norm180(a.richtung - h).abs(), i)).filter(|x| x.0 < 20.0)
+                    .min_by(|a, b| a.0.total_cmp(&b.0)).map(|x| x.1);
+                w.iter().filter_map(|x| Some([arm(x.von)?, x.von_spur, arm(x.nach)?, x.nach_spur])).collect()
+            });
             let mut signatur: String = arme.iter().map(|a| format!("{:.2},{:.2},{:.2},{:.3},{},{},{:?};", a.pos.x, a.pos.y, a.pos.z, a.richtung, a.sli, a.weg, a.rolle)).chain(arme.iter().map(|a| if a.gesperrt { "x".to_string() } else { String::new() })).collect();
             if ampel {
                 signatur.push_str("Ampel");
+            }
+            if let Some(vb) = &verbindungen {
+                signatur.push_str(&format!("Spuren {vb:?}"));
             }
             if let Some((m, kr)) = kreisel {
                 signatur.push_str(&format!("Kreisel {:.2},{:.2},{:.2},{:.2}", m.x, m.y, kr.r, kr.breite));
@@ -1134,7 +1143,7 @@ impl Strassenbau {
                     };
                     let rel_ordner = format!("Sceneryobjects\\Aschaffenburg_KI\\{tag}");
                     crate::protokoll::aktion(&format!("Kreuzung (Knoten {k}): omsigen erzeugt das Objekt"));
-                    let erg = kreuzung::erzeugen_mit(&v.root, &ordner, &rel_ordner, &kreuzung::freier_name(&ordner), &arme, ampel, kreisel);
+                    let erg = kreuzung::erzeugen_mit(&v.root, &ordner, &rel_ordner, &kreuzung::freier_name(&ordner), &arme, ampel, kreisel, verbindungen.as_deref());
                     crate::protokoll::aktion("");
                     match erg {
                         Ok(o) => {
@@ -1184,6 +1193,39 @@ impl Strassenbau {
         }).collect();
         out.sort_by_key(|x| x.knoten);
         out
+    }
+
+    /// Werkzeug "Kreuzungen", Spuren: Armrichtungen und das gebaute Objekt einer Kreuzung des Netzes
+    pub fn spur_objekt(&self, k: u32) -> Option<(Vec<f64>, kreuzung::Objekt, f64)> {
+        let o = self.objekte.get(&k).filter(|_| self.netz.knoten(k).is_some_and(|x| x.kreisel.is_none()))?;
+        Some((o.arme.iter().map(|a| a.0).collect(), o.objekt.clone(), o.hoehe))
+    }
+
+    /// Abbiegespuren einer Kreuzung des Netzes vorgeben ([Arm rein, Spur, Arm raus, Spur]; Arme in der Reihenfolge
+    /// von spur_objekt) - ein Rueckgaengig-Schritt
+    pub fn spuren_setzen(&mut self, v: &mut Viewer, k: u32, liste: &[[usize; 4]]) -> String {
+        let Some((richtungen, ..)) = self.spur_objekt(k) else { return "keine Kreuzung".into() };
+        let wahl: Vec<netz::SpurVerbindung> = liste.iter().filter(|x| x[0] < richtungen.len() && x[2] < richtungen.len())
+            .map(|x| netz::SpurVerbindung { von: richtungen[x[0]], von_spur: x[1], nach: richtungen[x[2]], nach_spur: x[3] }).collect();
+        self.merken();
+        if let Some(kn) = self.netz.knoten.iter_mut().find(|x| x.id == k) {
+            kn.spurwahl = Some(wahl);
+        }
+        self.zeichnen_alle(v);
+        match &self.kreuzung_fehler {
+            Some(f) => format!("Abbiegespuren nicht gebaut: {f}"),
+            None => format!("Kreuzung mit {} Abbiegespur(en) neu gebaut", self.spur_objekt(k).map(|x| x.1.verbindungen.len()).unwrap_or(0)),
+        }
+    }
+
+    /// Spurpfeile/Verbinder zuruecksetzen (wieder wie omsigen sie bildet)
+    pub fn spuren_zuruecksetzen(&mut self, v: &mut Viewer, k: u32) -> String {
+        self.merken();
+        if let Some(kn) = self.netz.knoten.iter_mut().find(|x| x.id == k) {
+            kn.spurwahl = None;
+        }
+        self.zeichnen_alle(v);
+        "Abbiegespuren wieder wie vorgeschlagen".into()
     }
 
     /// Kreuzung des Netzes unter dem Bodenpunkt (innerhalb ihrer Arme)

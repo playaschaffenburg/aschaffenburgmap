@@ -80,11 +80,24 @@ pub struct Arm {
     pub gesperrt: bool,
 }
 
+/// eine Abbiegespur eines eigenen Kreuzungsobjekts (von omsigen gemeldet)
+#[derive(Clone, Debug)]
+pub struct Verbindung {
+    pub von: (usize, usize),
+    pub nach: (usize, usize),
+    pub art: String,
+    pub punkte: Vec<DVec2>,
+}
+
 /// was omsigen gebaut hat
 #[derive(Clone, Debug)]
 pub struct Objekt {
     /// Pfade in gesperrte Arme ([rule] no_cars)
     pub no_cars: Vec<usize>,
+    /// gebaute Abbiegespuren: von (Arm, Spur von rechts) nach (Arm, Spur), Art, Punkte (Welt)
+    pub verbindungen: Vec<Verbindung>,
+    /// je Arm die Spurenden (Welt, von rechts): ankommend, abgehend
+    pub zufahrten: Vec<(Vec<DVec2>, Vec<DVec2>)>,
     pub rel: String,
     pub ursprung: DVec2,
     pub rules: Vec<(usize, i32)>,
@@ -906,18 +919,20 @@ pub fn omsigen_ordner() -> PathBuf {
 
 /// Kreuzungsobjekt von omsigen bauen lassen (Python, OMSIGEN_PYTHON oder python)
 pub fn erzeugen(root: &Path, ordner: &Path, rel_ordner: &str, name: &str, arme: &[Arm], ampel: bool) -> Result<Objekt> {
-    erzeugen_mit(root, ordner, rel_ordner, name, arme, ampel, None)
+    erzeugen_mit(root, ordner, rel_ordner, name, arme, ampel, None, None)
 }
 
 /// wie erzeugen; mit `kreisel` (Mitte, Kreisel) ein Kreisverkehr als ein Objekt, die Arme sind seine Zufahrten
+#[allow(clippy::too_many_arguments)]
 pub fn erzeugen_mit(root: &Path, ordner: &Path, rel_ordner: &str, name: &str, arme: &[Arm], ampel: bool,
-                    kreisel: Option<(DVec2, crate::netz::Kreisel)>) -> Result<Objekt> {
+                    kreisel: Option<(DVec2, crate::netz::Kreisel)>, verbindungen: Option<&[[usize; 4]]>) -> Result<Objekt> {
     use std::io::Write;
     let auftrag = serde_json::json!({
         "omsi": root, "ordner": ordner, "rel_ordner": rel_ordner, "name": name,
         "titel": format!("Editor-{} {name}", if kreisel.is_some() { "Kreisverkehr" } else { "Kreuzung" }),
         "ampel": ampel,
         "kreisel": kreisel.map(|(m, k)| serde_json::json!({"mitte": [m.x, m.y], "r": k.r, "breite": k.breite})),
+        "verbindungen": verbindungen,
         "arme": arme.iter().map(|a| serde_json::json!({
             "pos": [a.pos.x, a.pos.y], "h": a.richtung, "sli": a.sli, "away": a.weg, "rolle": a.rolle.text(), "gesperrt": a.gesperrt,
         })).collect::<Vec<_>>(),
@@ -943,7 +958,17 @@ pub fn erzeugen_mit(root: &Path, ordner: &Path, rel_ordner: &str, name: &str, ar
     }
     let zahl = |k: &str| erg.get(k).and_then(|x| x.as_u64()).unwrap_or(0) as usize;
     let u = erg["ursprung"].as_array().context("omsigen: kein Ursprung")?;
+    let punkt = |x: &serde_json::Value| DVec2::new(x[0].as_f64().unwrap_or(0.0), x[1].as_f64().unwrap_or(0.0));
+    let paar = |x: &serde_json::Value| (x[0].as_u64().unwrap_or(0) as usize, x[1].as_u64().unwrap_or(0) as usize);
     Ok(Objekt {
+        verbindungen: erg["verbindungen"].as_array().map(|l| l.iter().filter(|v| v["von"].is_array() && v["nach"].is_array()).map(|v| Verbindung {
+            von: paar(&v["von"]), nach: paar(&v["nach"]), art: v["mv"].as_str().unwrap_or("").to_string(),
+            punkte: v["punkte"].as_array().map(|p| p.iter().map(punkt).collect()).unwrap_or_default(),
+        }).collect()).unwrap_or_default(),
+        zufahrten: erg["zufahrten"].as_array().map(|l| l.iter().map(|z| (
+            z["rein"].as_array().map(|p| p.iter().map(punkt).collect()).unwrap_or_default(),
+            z["raus"].as_array().map(|p| p.iter().map(punkt).collect()).unwrap_or_default(),
+        )).collect()).unwrap_or_default(),
         no_cars: erg["no_cars"].as_array().map(|l| l.iter().filter_map(|x| x.as_u64().map(|x| x as usize)).collect()).unwrap_or_default(),
         rel: erg["rel"].as_str().context("omsigen: keine Datei")?.to_string(),
         ursprung: DVec2::new(u[0].as_f64().unwrap_or(0.0), u[1].as_f64().unwrap_or(0.0)),
@@ -1669,6 +1694,92 @@ pub(crate) mod tests {
         assert!(s.kreisel().is_empty() && s.netz.kanten.is_empty() && s.gesetzte_kreuzungen().is_empty());
         assert!(s.rueckgaengig(&mut v, Some(&mut a)));
         assert_eq!(s.kreisel().len(), 1);
+    }
+
+    /// Spurpfeile an einer Kreuzung der Karte (Grundorf, Ampelkreuzung 414/215): eine Richtung einer Zufahrtsspur abschalten - nach dem
+    /// Neuladen ist genau diese Verbindung fuer die KI gesperrt, die anderen nicht; wieder einschalten gibt sie frei
+    #[test]
+    #[ignore]
+    fn spurpfeile_an_vorhandener_kreuzung() {
+        let _sperre = crate::bearbeiten::tests::sperre();
+        use crate::spuren::{Aenderung, Ansicht};
+        let mut v = crate::bearbeiten::tests::grundorf();
+        v.tiles_around(DVec3::new(150.0, 150.0, 0.0), 8).unwrap();
+        let mut a = Aendern::neu(&v);
+        a.aktualisieren(&v);
+        let kr = a.kreuzungsobjekt_bei(&v, DVec2::new(414.0, 215.0)).expect("Kreuzung bei 414/215");
+        let (kachel, id) = (kr.kachel, kr.objekt);
+        let an = Ansicht::karte(&v, kachel, id).expect("Ansicht");
+        println!("{} Zufahrten, {} Verbindungen: {:?}", an.zufahrten.len(), an.verbindungen.len(), an.verbindungen.iter().map(|x| (x.zufahrt, x.art, x.erlaubt)).collect::<Vec<_>>());
+        assert!(an.zufahrten.len() >= 2 && an.verbindungen.len() >= 3 && an.verbindungen.iter().all(|x| x.erlaubt));
+        // eine Zufahrt mit mehreren Richtungen, die erste Richtung abschalten
+        let z = (0..an.zufahrten.len()).find(|&z| an.pfeile(z).len() >= 2).expect("Zufahrt mit 2 Richtungen");
+        let art = *an.pfeile(z).iter().next().unwrap();
+        let aen = an.pfeil(z, art, false).unwrap();
+        let Aenderung::Karte { kachel, objekt, sperren, frei } = aen else { panic!() };
+        a.objekt_pfade(&mut v, kachel, objekt, &sperren, &frei).unwrap();
+        a.aktualisieren(&v);
+        let an2 = Ansicht::karte(&v, kachel, id).unwrap();
+        println!("nachher: {:?}", an2.verbindungen.iter().map(|x| (x.zufahrt, x.art, x.erlaubt)).collect::<Vec<_>>());
+        for vb in &an2.verbindungen {
+            let soll = !(vb.zufahrt == z && vb.art == art);
+            assert_eq!(vb.erlaubt, soll, "Zufahrt {} {:?}", vb.zufahrt, vb.art);
+        }
+        assert!(!an2.pfeile(z).contains(&art) && an2.pfeile(z).len() + 1 == an.pfeile(z).len());
+        let Some(Aenderung::Karte { kachel, objekt, sperren, frei }) = an2.pfeil(z, art, true) else { panic!() };
+        a.objekt_pfade(&mut v, kachel, objekt, &sperren, &frei).unwrap();
+        a.aktualisieren(&v);
+        assert!(Ansicht::karte(&v, kachel, id).unwrap().verbindungen.iter().all(|x| x.erlaubt));
+        a.rueckgaengig(&mut v).unwrap();
+        a.rueckgaengig(&mut v).unwrap();
+        assert_eq!(a.kopien("Grundorf").len(), 0);
+    }
+
+    /// Spurpfeile an einer eigenen T-Kreuzung: Linksabbiegen der Nebenstrasse weg, Wenden dazu - omsigen baut genau
+    /// diese Abbiegespuren; gespeichert und geladen haengen alle Enden an der Kreuzung
+    #[test]
+    #[ignore]
+    fn spurpfeile_an_eigener_kreuzung() {
+        let _sperre = crate::bearbeiten::tests::sperre();
+        use crate::anschluss::Anschluesse;
+        use crate::spuren::{Aenderung, Ansicht, Art};
+        use crate::strasse::{Modus, Strassenbau};
+        let mut v = crate::bearbeiten::tests::grundorf();
+        v.tiles_around(DVec3::new(150.0, 150.0, 0.0), 8).unwrap();
+        let mut a = Aendern::neu(&v);
+        let ans = Anschluesse::default();
+        let o = freie_flaeche(&v, &mut a, &[((0.0, 0.0), (0.0, 130.0)), ((0.0, 60.0), (70.0, 60.0))]);
+        let boden = |v: &Viewer, x: f64, y: f64| DVec3::new(o.x + x, o.y + y, v.terrain_height(o.x + x, o.y + y).unwrap());
+        let mut s = Strassenbau::neu(Some("Splines\\Marcel\\str_2spur_10m_Grunewaldstr.sli".into()), Modus::Gerade);
+        for zug in [[(0.0, 0.0), (0.0, 130.0)], [(0.5, 60.0), (70.0, 60.0)]] {
+            for (x, y) in zug {
+                let p = boden(&v, x, y);
+                s.maus(&mut v, p, 2.0, &ans, Some(&mut a));
+                s.klick(&mut v, p, 2.0, &ans, Some(&mut a));
+            }
+            s.beenden(&mut v);
+        }
+        let k = s.netz.knoten.iter().find(|k| s.netz.ist_kreuzung(k.id)).expect("Kreuzung").id;
+        let an = Ansicht::netz(&s, k).expect("Ansicht");
+        println!("{} Zufahrten, {:?}", an.zufahrten.len(), an.verbindungen.iter().map(|x| (x.zufahrt, x.art)).collect::<Vec<_>>());
+        assert_eq!((an.zufahrten.len(), an.verbindungen.len()), (3, 6));
+        // Zufahrt mit links und rechts (die Nebenstrasse)
+        let z = (0..3).find(|&z| { let p = an.pfeile(z); p.contains(&Art::Links) && p.contains(&Art::Rechts) }).expect("Nebenstrasse");
+        let Some(Aenderung::Netz(_, liste)) = an.pfeil(z, Art::Links, false) else { panic!() };
+        println!("{}", s.spuren_setzen(&mut v, k, &liste));
+        let an2 = Ansicht::netz(&s, k).unwrap();
+        assert_eq!(an2.verbindungen.len(), 5);
+        assert!(!an2.pfeile(z).contains(&Art::Links));
+        // Wenden fuer die erste Zufahrt dazu
+        let Some(Aenderung::Netz(_, liste)) = an2.pfeil(0, Art::Wenden, true) else { panic!() };
+        println!("{}", s.spuren_setzen(&mut v, k, &liste));
+        let an3 = Ansicht::netz(&s, k).unwrap();
+        println!("{:?}", an3.verbindungen.iter().map(|x| (x.zufahrt, x.art)).collect::<Vec<_>>());
+        assert!(an3.pfeile(0).contains(&Art::Wenden), "{:?}", s.kreuzung_fehler);
+        assert_eq!(an3.verbindungen.len(), 6);
+        let rand = [boden(&v, 0.0, 0.0).truncate(), boden(&v, 0.0, 130.0).truncate(), boden(&v, 70.0, 60.0).truncate()];
+        let n = speichern_laden_pruefen(v, &s, a, "Grundorf_spuren", &rand, &[]);
+        assert_eq!(n, 3);
     }
 
     /// Kreisverkehr auf die Ampelkreuzung von Grundorf (414/215): die Kreuzung mit Ampeln und die Strassenstuecke im

@@ -124,6 +124,15 @@ Armrichtungen und bleibt erhalten, wenn später Straßen dazukommen (neue Arme w
 Strg+Z nimmt jede Änderung zurück. Klick auf eine schon gespeicherte eigene Kreuzung baut sie aus den vorhandenen
 Straßenenden neu (so lassen sich ältere Kreuzungen mit schief angesetzter Platte reparieren).
 
+**Spurpfeile und Verbinder (Werkzeug „Kreuzungen“, Ansicht „Spuren“)** wie Traffic Manager: President Edition:
+Klick auf eine Kreuzung wählt sie (eigene oder vorhandene der Karte – die wird dabei nicht ersetzt). Im Bild: weiße
+Punkte = Zufahrtsspuren, Linien = Abbiegespuren (grün erlaubt, rot für die KI gesperrt). Klick auf einen Punkt wählt
+die Spur, rechts ihre Pfeile (← links, ↑ geradeaus, → rechts, ↶ wenden) zum An-/Abschalten; Klick auf eine Linie
+schaltet diese Abbiegespur. Eigene Kreuzungen werden mit genau den gewählten Abbiegespuren neu gebaut (omsigen,
+`verbindungen`; auch neue wie Wenden oder Linksabbiegen von einer anderen Spur), „Vorschlag wiederherstellen“ geht
+zurück. Kreuzungen der Karte: vorhandene Abbiegespuren werden per `[rule] no_cars` auf ihren Pfaden gesperrt (Pfade,
+die eine noch erlaubte Verbindung braucht, bleiben frei); die Verbindungen liest der Editor aus openOMSIs Spurnetz.
+
 **Eigene Straßen ändern:** im Werkzeug „Ändern“ lassen sich auch die eigenen Straßen wählen (Umschalt+Klick: Kette)
 und umkehren, löschen oder auf einen anderen Querschnitt setzen. Wird eine Straße gelöscht, an der eine vorhandene
 aufgeschnitten war, schließt ein Stück in deren Querschnitt die Lücke wieder.

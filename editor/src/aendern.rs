@@ -329,6 +329,22 @@ impl Aendern {
         Ok(n)
     }
 
+    /// Pfade eines Kreuzungsobjekts fuer die KI sperren / freigeben ([rule] no_cars; Werkzeug "Kreuzungen", Spuren) -
+    /// ein Rueckgaengig-Schritt
+    pub fn objekt_pfade(&mut self, v: &mut Viewer, kachel: (i32, i32), objekt: i64, sperren: &[usize], frei: &[usize]) -> Result<()> {
+        let mut betroffen: Vec<usize> = sperren.iter().chain(frei).copied().collect();
+        betroffen.sort_unstable();
+        betroffen.dedup();
+        log::info!("Kreuzungsobjekt {objekt}: Pfade {sperren:?} gesperrt, {frei:?} frei");
+        self.kacheln_aendern(v, &[kachel], |_, z| {
+            let i = (0..z.len()).find(|&i| z[i].trim().eq_ignore_ascii_case("[object]") && z.get(i + 3).and_then(|x| x.trim().parse::<i64>().ok()) == Some(objekt))
+                .with_context(|| format!("Objekt {objekt} nicht in seiner Kachel"))?;
+            regeln_no_cars(z, i + 1, &betroffen, sperren);
+            Ok(1)
+        })?;
+        Ok(())
+    }
+
     fn spuren_warnung(&mut self, v: &Viewer, ids: &[i64], sli: &str) -> Option<String> {
         let neu: Vec<(f32, u8)> = v.spline_lanes(sli)?.0.into_iter().filter(|x| x.0 == 0).map(|x| (x.1, x.4)).collect();
         for id in ids {

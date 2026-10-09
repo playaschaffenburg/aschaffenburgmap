@@ -242,6 +242,18 @@ pub struct Knoten {
     /// Kreisverkehr an diesem Knoten (ein Objekt mit Ring, Insel und allen Fahrpfaden; die Kanten und Kartenarme
     /// sind seine Zufahrten)
     pub kreisel: Option<Kreisel>,
+    /// Spurpfeile/Verbinder vom Nutzer: genau diese Abbiegespuren (None: wie omsigen sie bildet)
+    pub spurwahl: Option<Vec<SpurVerbindung>>,
+}
+
+/// eine gewuenschte Abbiegespur: von Arm (Richtung von der Kreuzung weg) und Spur (von rechts gezaehlt) zu Arm und Spur -
+/// ueber die Richtungen wiedergefunden, auch wenn die Kreuzung neu gebaut wird
+#[derive(Clone, Copy, Debug, PartialEq)]
+pub struct SpurVerbindung {
+    pub von: f64,
+    pub von_spur: usize,
+    pub nach: f64,
+    pub nach_spur: usize,
 }
 
 /// Kreisverkehr als ein Objekt (omsigen kreisel.py): Radius der Ringspur, Breite der Ringfahrbahn
@@ -418,14 +430,14 @@ impl Netz {
 
     pub fn knoten_neu(&mut self, pos: DVec3) -> u32 {
         let id = self.neue_id();
-        self.knoten.push(Knoten { id, pos, anschluss: None, kartenarme: vec![], regel: None, kreisel: None });
+        self.knoten.push(Knoten { id, pos, anschluss: None, kartenarme: vec![], regel: None, kreisel: None, spurwahl: None });
         id
     }
 
     /// Knoten am Ende einer vorhandenen Strasse: neue Kanten muessen ihn in `richtung` verlassen
     pub fn anschluss_neu(&mut self, pos: DVec3, richtung: f64, steigung: f64) -> u32 {
         let id = self.neue_id();
-        self.knoten.push(Knoten { id, pos, anschluss: Some((richtung, steigung)), kartenarme: vec![], regel: None, kreisel: None });
+        self.knoten.push(Knoten { id, pos, anschluss: Some((richtung, steigung)), kartenarme: vec![], regel: None, kreisel: None, spurwahl: None });
         id
     }
 

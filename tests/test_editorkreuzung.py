@@ -122,3 +122,19 @@ def test_gesperrter_arm(tmp_path):
     k = kreisel_auftrag(tmp_path)
     k['arme'][1]['gesperrt'] = True
     assert len(editorkreuzung.bauen(k, SplineDB())['no_cars']) >= 1
+
+
+def test_verbindungen_melden_und_vorgeben(tmp_path):
+    erg = editorkreuzung.bauen(auftrag(tmp_path), SplineDB())
+    vb = erg['verbindungen']
+    # T-Kreuzung mit je einer Spur: 6 Bewegungen, jede mit Zufahrt/Ausfahrt und Punkten
+    assert len(vb) == 6 and all(v['von'] and v['nach'] and len(v['punkte']) > 2 for v in vb)
+    assert sum(v['pfade'][1] for v in vb) <= erg['pfade']
+    assert len(erg['zufahrten']) == 3 and all(len(z['rein']) == 1 and len(z['raus']) == 1 for z in erg['zufahrten'])
+    # vorgeben: links von Arm 2 (Neben) weg, dafuer Wenden auf Arm 0
+    vor = [v['von'] + v['nach'] for v in vb if not (v['von'][0] == 2 and v['mv'] == 'links')] + [[0, 0, 0, 0]]
+    a = auftrag(tmp_path)
+    a['verbindungen'] = vor
+    erg2 = editorkreuzung.bauen(a, SplineDB())
+    arten = sorted(v['mv'] for v in erg2['verbindungen'])
+    assert len(erg2['verbindungen']) == 6 and 'wenden' in arten and arten.count('links') == 1, arten
