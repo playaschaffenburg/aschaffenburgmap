@@ -455,6 +455,39 @@ impl Netz {
         id
     }
 
+    /// zwei Knoten, zwischen denen die Kante `e` zu kurz ist, zu einer Kreuzung vereinen (Mitte zwischen beiden, alle
+    /// Kanten und Kartenarme beider; die Kante faellt weg) - fuer eng aufeinanderfolgende Kreuzungen. false, wenn das
+    /// nicht geht (Kreisverkehr, zwei Anschluesse an die Karte)
+    pub fn knoten_vereinen(&mut self, e: u32) -> bool {
+        let Some(k) = self.kante(e).cloned() else { return false };
+        let (Some(a), Some(b)) = (self.knoten(k.a).cloned(), self.knoten(k.b).cloned()) else { return false };
+        if a.id == b.id || a.kreisel.is_some() || b.kreisel.is_some() || (a.anschluss.is_some() && b.anschluss.is_some()) {
+            return false;
+        }
+        self.kanten.retain(|x| x.id != e);
+        for x in self.kanten.iter_mut() {
+            if x.a == b.id {
+                x.a = a.id;
+            }
+            if x.b == b.id {
+                x.b = a.id;
+            }
+        }
+        // (eine Kante, die jetzt an beiden Enden am selben Knoten haengt, gibt es nicht mehr)
+        self.kanten.retain(|x| x.a != x.b);
+        if let Some(n) = self.knoten.iter_mut().find(|x| x.id == a.id) {
+            n.pos = (a.pos + b.pos) / 2.0;
+            n.kartenarme.extend(b.kartenarme.iter().cloned());
+            if n.anschluss.is_none() {
+                n.anschluss = b.anschluss;
+            }
+            n.regel = None;
+            n.spurwahl = None;
+        }
+        self.knoten.retain(|x| x.id != b.id);
+        true
+    }
+
     pub fn kante_neu(&mut self, a: u32, b: u32, sli: &str, ha: f64, hb: f64) -> u32 {
         let id = self.neue_id();
         self.kanten.push(Kante { id, a, b, sli: sli.to_string(), ha, hb, ring: false, einbahn: Einbahn::Beide, bauweise: self.bauweise_neu });

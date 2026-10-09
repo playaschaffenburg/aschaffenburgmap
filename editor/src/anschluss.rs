@@ -20,6 +20,8 @@ pub struct Anschluss {
     pub sli: String,
     pub gespiegelt: bool,
     pub frei: bool,
+    /// im Spurnetz frei, auch am Rand des geladenen Bereichs (dort ist `frei` vorsichtshalber false)
+    pub offen: bool,
     /// offener Arm eines Kreuzungsobjekts (Objekt-ID) statt eines Spline-Endes
     pub objekt: Option<i64>,
     /// beim Objektarm: seine Fahrspuren (Querlage zur Mitte, rechts positiv in `richtung`; 0 = fuehrt vom Objekt weg,
@@ -58,7 +60,7 @@ pub fn objekt_arme(v: &Viewer) -> Vec<Anschluss> {
         let mut spuren: Vec<(f32, u8)> = gruppe.iter().zip(&quer).map(|(&j, q)| ((q - mitte_q) as f32, if enden[j].3 { 0 } else { 1 })).collect();
         spuren.sort_by(|a, b| a.0.total_cmp(&b.0));
         let steigung = gruppe.iter().map(|&j| enden[j].5).sum::<f64>() / gruppe.len() as f64;
-        out.push(Anschluss { spline_id: 0, am_ende: true, pos, richtung: h.rem_euclid(360.0), steigung, sli: String::new(),
+        out.push(Anschluss { offen: true, spline_id: 0, am_ende: true, pos, richtung: h.rem_euclid(360.0), steigung, sli: String::new(),
                              gespiegelt: false, frei: true, objekt: Some(id), spuren });
     }
     out
@@ -83,11 +85,13 @@ fn kachel_lesen(v: &Viewer, tx: i32, ty: i32) -> Vec<Anschluss> {
         let k = omsi_geometry::SplineCurve::from_map(sp, o);
         let l = k.length;
         out.push(Anschluss {
+            offen: false,
             spline_id: sp.id, am_ende: false, pos: k.start, richtung: (k.heading_deg + 180.0).rem_euclid(360.0),
             steigung: -k.slope_at(0.0), sli: sp.file.trim().to_string(), gespiegelt: sp.mirror, frei: false,
             objekt: None, spuren: vec![],
         });
         out.push(Anschluss {
+            offen: false,
             spline_id: sp.id, am_ende: true, pos: k.end_point(), richtung: k.heading_at(l).rem_euclid(360.0),
             steigung: k.slope_at(l), sli: sp.file.trim().to_string(), gespiegelt: sp.mirror, frei: false,
             objekt: None, spuren: vec![],
@@ -123,7 +127,7 @@ impl Anschluesse {
                     // am Rand des geladenen Bereichs koennte es in der Nachbarkachel weitergehen
                     let (tx, ty) = ((a.pos.x / ts).floor() as i32, (a.pos.y / ts).floor() as i32);
                     let rand = (-1..=1).any(|dx| (-1..=1).any(|dy| karte.contains(&(tx + dx, ty + dy)) && !geladen.contains(&(tx + dx, ty + dy))));
-                    self.liste.push(Anschluss { frei: frei && !rand, ..a.clone() });
+                    self.liste.push(Anschluss { frei: frei && !rand, offen: frei, ..a.clone() });
                 }
             }
         }
@@ -131,7 +135,7 @@ impl Anschluesse {
         for a in objekt_arme(v) {
             let (tx, ty) = ((a.pos.x / ts).floor() as i32, (a.pos.y / ts).floor() as i32);
             let rand = (-1..=1).any(|dx| (-1..=1).any(|dy| karte.contains(&(tx + dx, ty + dy)) && !geladen.contains(&(tx + dx, ty + dy))));
-            self.liste.push(Anschluss { frei: !rand, ..a });
+            self.liste.push(Anschluss { frei: !rand, offen: true, ..a });
         }
         self.stand = stand;
         true

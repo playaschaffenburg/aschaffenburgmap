@@ -99,7 +99,11 @@ in den Standardkarten), Pfeiler als Objekte an den Stückgrenzen, wo genug Luft 
 Darunter **Rampen** nach der gewählten Bauweise: **Damm** (Gelände unter der Straße eben aufgeschüttet, daneben
 Böschung 1 : 1,5; liegt die Straße tiefer, ein Einschnitt) oder **Stützmauer** (Betonwände an den Fahrbahnrändern,
 `AB_mauer_unten/oben_…`, Gelände nur unter der Fahrbahn abgesenkt – für die Stadt). Vorhandene Straßen der Karte werden
-nicht zugeschüttet. Vorschau sofort (Brückenkörper, Pfeiler, Gelände); beim Speichern kommen Begleit-Splines, Pfeiler
+nicht zugeschüttet. Reihenfolge wie in TPF 2: erst graben tiefer liegende Straßen ihre Einschnitte, dann entscheidet sich gegen dieses
+Gelände, was Brücke wird (eine Straße über einem Einschnitt wird dort zur Brücke), dann wird aufgeschüttet – wo beides
+verlangt ist, gewinnt der Einschnitt. Kreuzungsflächen werden wie Straßen aufgeschüttet bzw. eingeschnitten; liegt eine
+Kreuzung hoch (über einem Einschnitt), bekommt sie einen **Sockel** (Platte mit Seitenwänden, `Sockel_*.sco`).
+Pfeiler nie auf einer tieferen Straße. Vorschau sofort (Brückenkörper, Pfeiler, Sockel, Gelände); beim Speichern kommen Begleit-Splines, Pfeiler
 (`Sceneryobjects\Aschaffenburg\<Karte>\Pfeiler_*.sco`, `[absheight]`) und die `.terrain` der Kacheln in die Karte.
 
 **Übergänge zwischen Querschnitten** („Straße bauen“ → „Übergang setzen“): Klick auf ein freies Straßenende (blau) setzt
@@ -137,7 +141,10 @@ aus allen gewählten **ein** Kreuzungsobjekt – ein Knoten nur mit Armen an gen
 sie sind; omsigen baut Platte, Bordsteinecken, Abbiegespuren und Vorfahrt und schließt die Lücke. Gedacht für eng
 aufeinanderfolgende Kreuzungen (alle Enden beider zusammen wählen) und verunglückte Stellen; eine vorhandene Kreuzung
 im Weg vorher mit Ändern löschen. Danach wie jede eigene Kreuzung: Vorfahrt/Ampel, Spurpfeile, beim Speichern in die
-Karte; Strg+Z nimmt sie zurück. Mindestens 3 Enden; liegen sie verschieden hoch, wird gewarnt (die Kreuzung ist eben).
+Karte; Strg+Z nimmt sie zurück. Mindestens 3 Enden. Die Kreuzung ist eben: auf der Höhe der Kartenstraßen; eigene Straßen werden an ihrem Ende auf
+diese Höhe gebracht (ihr Höhenverlauf passt sich an); enden Kartenstraßen verschieden hoch, wird gewarnt. Auch Enden am
+Rand des geladenen Bereichs sind wählbar. **Beim Bauen:** bleibt zwischen zwei Kreuzungen kein Straßenstück, werden sie
+automatisch zu einer Kreuzung vereint (statt „zu kurz“).
 
 **Kreuzungen – eine Logik für alle Fälle** (Werkzeug „Straße bauen“): jede Kreuzung ist ein Knoten des Netzes mit
 Armen; ein Arm ist eine eigene Straße oder ein Ende einer vorhandenen Straße, die dort aufgeschnitten wurde

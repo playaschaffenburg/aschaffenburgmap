@@ -46,6 +46,8 @@ pub struct Plan {
     /// Begleit-Splines: (.sli relativ zum OMSI-Ordner, Element der Fahrbahn, Kanten-ID, Weg bis dahin)
     pub begleit: Vec<(String, Element, u32, f64)>,
     pub pfeiler: Vec<Pfeiler>,
+    /// Sockel unter hochliegenden Kreuzungen
+    pub sockel: Vec<Sockel>,
     /// geaendertes Gelaende je Kachel (ganze Kachel)
     pub gelaende: HashMap<(i32, i32), Terrain>,
     pub bruecken_m: f64,
@@ -65,6 +67,9 @@ impl Plan {
         if self.mauern_m > 0.0 {
             t.push(format!("{:.0} m Stuetzmauer", self.mauern_m));
         }
+        if !self.sockel.is_empty() {
+            t.push(format!("{} Kreuzung(en) auf Sockel", self.sockel.len()));
+        }
         t.join(", ")
     }
 }
@@ -80,13 +85,68 @@ fn boden(g: &Gitter, x: f64, y: f64) -> Option<f64> {
     g.kacheln.get(&(tx, ty)).map(|t| t.sample((x - tx as f64 * ts) as f32, (y - ty as f64 * ts) as f32) as f64)
 }
 
+/// eine Stelle einer Strasse (oder Kreuzungsflaeche) fuer das Gelaende
+#[derive(Clone, Copy)]
+struct Probe {
+    p: DVec3,
+    halb: f64,
+    bauweise: Bauweise,
+}
+
+/// Anforderungen an einen Rasterpunkt: aufschuetten mindestens / abtragen hoechstens bis
+#[derive(Default, Clone, Copy)]
+struct Anspruch {
+    fuellen: Option<f64>,
+    graben: Option<f64>,
+}
+
+/// Anforderungen der Proben ans Raster eintragen: unter der Strasse eben (5 cm unter der Fahrbahn), daneben Boeschung
+/// (Bauweise Damm); bei Mauern nur unter der Fahrbahn abtragen
+fn ansprueche(proben: &[Probe], basis: &Gitter, nur_graben: bool, ziel: &mut HashMap<(i32, i32), Anspruch>) {
+    for pr in proben {
+        let mauer = pr.bauweise == Bauweise::Mauer;
+        let Some(g0) = boden(basis, pr.p.x, pr.p.y) else { continue };
+        let luft = pr.p.z - g0;
+        let reich = pr.halb + if mauer { 0.5 } else { luft.abs() * BOESCHUNG + ZELLE };
+        let (gx0, gx1) = (((pr.p.x - reich) / ZELLE).floor() as i32, ((pr.p.x + reich) / ZELLE).ceil() as i32);
+        let (gy0, gy1) = (((pr.p.y - reich) / ZELLE).floor() as i32, ((pr.p.y + reich) / ZELLE).ceil() as i32);
+        let unter = pr.p.z - 0.05;
+        for gx in gx0..=gx1 {
+            for gy in gy0..=gy1 {
+                let d = (DVec2::new(gx as f64, gy as f64) * ZELLE - pr.p.truncate()).length();
+                if d > reich {
+                    continue;
+                }
+                let Some(g) = basis.hoehe(gx, gy).map(|h| h as f64) else { continue };
+                let a = ziel.entry((gx, gy)).or_default();
+                let innen = d <= pr.halb + if mauer { 0.5 } else { 0.0 };
+                // abtragen (die Strasse liegt tiefer)
+                let graben = if innen { unter } else if mauer { f64::INFINITY } else { unter + (d - pr.halb) / BOESCHUNG };
+                if graben < g {
+                    a.graben = Some(a.graben.map_or(graben, |x| x.min(graben)));
+                }
+                // aufschuetten (die Strasse liegt hoeher) - nicht bei Mauern
+                if !nur_graben && !mauer {
+                    let fuellen = if innen { unter } else { unter - (d - pr.halb) / BOESCHUNG };
+                    if fuellen > g {
+                        a.fuellen = Some(a.fuellen.map_or(fuellen, |x| x.max(fuellen)));
+                    }
+                }
+            }
+        }
+    }
+}
+
 /// Plan fuer das ganze Netz. `kanten` (l < 0, r > 0): Aussenkanten des Querschnitts.
+///
+/// Reihenfolge wie in Transport Fever 2: erst graben alle tiefer liegenden Strassen ihre Einschnitte, dann entscheidet
+/// sich gegen dieses Gelaende, was Bruecke wird (eine Strasse ueber einem Einschnitt wird dort zur Bruecke), dann wird
+/// aufgeschuettet - wo beides verlangt ist, gewinnt der Einschnitt (die untere Strasse bleibt frei).
 pub fn planen(v: &Viewer, netz: &Netz, kanten: &dyn Fn(&str) -> (f64, f64), bruecke_ab: f64) -> Plan {
     let mut plan = Plan::default();
-    let ts = omsi_map::tile_size();
     // Gelaende, wie es ohne die Bauwerke ist (Datei bzw. Sitzungskopie, mit geformtem Gelaende)
     let mut basis = Gitter::default();
-    let mut laden = |g: &mut Gitter, p: DVec2, r: f64| {
+    let laden = |g: &mut Gitter, p: DVec2, r: f64| {
         for k in Gitter::kacheln_um(p, r) {
             if !g.kacheln.contains_key(&k) {
                 if let Some(t) = v.tile_terrain(k.0, k.1).filter(|t| t.cells == 60) {
@@ -95,118 +155,264 @@ pub fn planen(v: &Viewer, netz: &Netz, kanten: &dyn Fn(&str) -> (f64, f64), brue
             }
         }
     };
-    // je Rasterpunkt: naechste Stelle einer Strasse (Abstand, Fahrbahnhoehe, halbe Breite, Bauweise, ueber Bruecke)
-    let mut ziel: HashMap<(i32, i32), (f64, f64, f64, Bauweise, bool)> = HashMap::new();
+    // je Kante und Element: Proben (Punkt, Richtung) alle 2 m
+    struct El {
+        kante: u32,
+        sli: String,
+        el: Element,
+        cum: f64,
+        l: f64,
+        r: f64,
+        bauweise: Bauweise,
+        proben: Vec<(DVec3, f64)>,
+    }
+    let mut els: Vec<El> = Vec::new();
     for e in &netz.kanten {
         let (l, r) = kanten(&e.sli);
-        let halb = (-l).max(r) + 0.5;
-        let el = netz.elemente(e);
         let mut cum = 0.0;
-        // Bruecke je Element: genug Luft unter der Fahrbahn (irgendwo im Element)
-        let mut proben: Vec<Vec<(DVec3, f64, f64)>> = Vec::new();
-        for x in &el {
+        for x in netz.elemente(e) {
             let k = x.kurve(e.id, 0.0);
             let n = (k.length / 2.0).ceil().max(1.0) as usize;
-            let mut ps = Vec::new();
-            for i in 0..=n {
+            let proben: Vec<(DVec3, f64)> = (0..=n).map(|i| {
                 let s = k.length * i as f64 / n as f64;
-                let p = k.point_at(s);
-                laden(&mut basis, p.truncate(), halb + 40.0);
-                let luft = boden(&basis, p.x, p.y).map(|b| p.z - b).unwrap_or(0.0);
-                ps.push((p, k.heading_at(s), luft));
+                (k.point_at(s), k.heading_at(s))
+            }).collect();
+            for (p, _) in &proben {
+                laden(&mut basis, p.truncate(), (-l).max(r) + 40.0);
             }
-            proben.push(ps);
-        }
-        let bruecke: Vec<bool> = proben.iter().map(|ps| ps.iter().any(|p| p.2 >= bruecke_ab)).collect();
-        for (i, x) in el.iter().enumerate() {
-            let ps = &proben[i];
-            if bruecke[i] {
-                plan.begleit.push((format!("Splines\\{}\\AB_bruecke_{}_{}.sli", crate::speichern::EIGEN, zahl(l), zahl(r)), x.clone(), e.id, cum));
-                plan.bruecken_m += x.stueck.laenge;
-                // Pfeiler am Anfang des Elements, wenn davor auch Bruecke ist (nicht an den Widerlagern)
-                if i > 0 && bruecke[i - 1] {
-                    let (p, h, luft) = ps[0];
-                    let mitte = p.truncate() + crate::netz::rechts(h) * ((l + r) / 2.0);
-                    if luft - PLATTE >= PFEILER_MIN && v.surface_height(mitte.x, mitte.y).is_none() {
-                        let b = boden(&basis, mitte.x, mitte.y).unwrap_or(p.z - luft);
-                        plan.pfeiler.push(Pfeiler { fuss: mitte.extend(b - 1.0), richtung: h, hoehe: p.z - PLATTE - (b - 1.0) + 0.05, breite: ((r - l) * 0.6).max(2.0) });
-                    }
-                }
-            } else {
-                let luft_max = ps.iter().map(|p| p.2).fold(f64::MIN, f64::max);
-                let luft_min = ps.iter().map(|p| p.2).fold(f64::MAX, f64::min);
-                if luft_max > 0.3 || luft_min < -0.3 {
-                    if e.bauweise == Bauweise::Mauer {
-                        // Mauern: nach unten (Fahrbahn ueber dem Gelaende) oder oben (im Einschnitt), Hoehe in 1-m-Stufen
-                        let (unten, h) = if luft_max.abs() >= luft_min.abs() { (true, luft_max) } else { (false, -luft_min) };
-                        let hh = (h + 1.0).ceil();
-                        plan.begleit.push((format!("Splines\\{}\\AB_mauer_{}_{}_{}_{}.sli", crate::speichern::EIGEN, if unten { "unten" } else { "oben" }, zahl(l), zahl(r), zahl(hh)), x.clone(), e.id, cum));
-                        plan.mauern_m += x.stueck.laenge;
-                    } else {
-                        plan.rampen_m += x.stueck.laenge;
-                    }
-                }
-            }
-            // Gelaende: Rasterpunkte um jede Probe
-            for &(p, _, luft) in ps {
-                if luft.abs() < 0.05 && !bruecke[i] {
-                    continue;
-                }
-                let reich = halb + if e.bauweise == Bauweise::Mauer { 1.0 } else { luft.abs() * BOESCHUNG + ZELLE };
-                let (gx0, gx1) = (((p.x - reich) / ZELLE).floor() as i32, ((p.x + reich) / ZELLE).ceil() as i32);
-                let (gy0, gy1) = (((p.y - reich) / ZELLE).floor() as i32, ((p.y + reich) / ZELLE).ceil() as i32);
-                for gx in gx0..=gx1 {
-                    for gy in gy0..=gy1 {
-                        let d = (DVec2::new(gx as f64, gy as f64) * ZELLE - p.truncate()).length();
-                        if d > reich {
-                            continue;
-                        }
-                        let alt = ziel.get(&(gx, gy));
-                        if alt.is_none_or(|a| d < a.0) {
-                            ziel.insert((gx, gy), (d, p.z, halb, e.bauweise, bruecke[i]));
-                        }
-                    }
-                }
-            }
+            els.push(El { kante: e.id, sli: e.sli.clone(), el: x, cum, l, r, bauweise: e.bauweise, proben });
             cum += x.stueck.laenge;
         }
     }
-    // neues Gelaende
-    let mut neu = basis.clone();
-    let mut geaendert: HashSet<(i32, i32)> = HashSet::new();
-    for ((gx, gy), (d, zr, halb, bauweise, ueber_bruecke)) in ziel {
-        if ueber_bruecke {
+    // Kreuzungsflaechen: je Arm eine Strecke von der Mitte bis zum Armende auf Knotenhoehe
+    let mut kreuzungen: Vec<(u32, DVec3, Vec<Probe>, Vec<DVec2>)> = Vec::new();
+    for kn in &netz.knoten {
+        let arme = netz.arme(kn.id);
+        if arme.is_empty() || kn.kreisel.is_some() {
             continue;
         }
+        let mut proben = Vec::new();
+        let mut umriss = Vec::new();
+        let mut bauweise = Bauweise::Damm;
+        for a in &arme {
+            let (halb, sli) = match &a.karte {
+                Some(ka) => (ka.halb, ka.sli.clone()),
+                None => {
+                    let e = netz.kante(a.kante);
+                    if let Some(e) = e {
+                        bauweise = e.bauweise;
+                    }
+                    let sli = e.map(|e| e.sli.clone()).unwrap_or_default();
+                    let (l, r) = kanten(&sli);
+                    ((-l).max(r), sli)
+                }
+            };
+            let _ = sli;
+            let d = crate::netz::dir(a.richtung);
+            let q = crate::netz::rechts(a.richtung);
+            let laenge = a.kuerzung.max(halb);
+            let n = (laenge / 2.0).ceil().max(1.0) as usize;
+            for i in 0..=n {
+                let p = kn.pos.truncate() + d * (laenge * i as f64 / n as f64);
+                laden(&mut basis, p, halb + 40.0);
+                proben.push(Probe { p: p.extend(kn.pos.z), halb: halb + 1.0, bauweise });
+            }
+            let ende = kn.pos.truncate() + d * laenge;
+            umriss.push(ende - q * halb);
+            umriss.push(ende + q * halb);
+        }
+        kreuzungen.push((kn.id, kn.pos, proben, umriss));
+    }
+    let luft_bei = |g: &Gitter, p: DVec3| boden(g, p.x, p.y).map(|b| p.z - b).unwrap_or(0.0);
+    // 1. Bruecken gegen das urspruengliche Gelaende, Einschnitte der uebrigen Stuecke
+    let bruecke_1: Vec<bool> = els.iter().map(|x| x.proben.iter().any(|(p, _)| luft_bei(&basis, *p) >= bruecke_ab)).collect();
+    let probe_von = |x: &El| -> Vec<Probe> {
+        let halb = (-x.l).max(x.r) + 0.5;
+        x.proben.iter().map(|(p, _)| Probe { p: *p, halb, bauweise: x.bauweise }).collect()
+    };
+    let mut ziel1: HashMap<(i32, i32), Anspruch> = HashMap::new();
+    for (i, x) in els.iter().enumerate() {
+        if !bruecke_1[i] {
+            ansprueche(&probe_von(x), &basis, true, &mut ziel1);
+        }
+    }
+    for (_, _, proben, _) in &kreuzungen {
+        ansprueche(proben, &basis, true, &mut ziel1);
+    }
+    let mut geschnitten = basis.clone();
+    let mut egal = HashSet::new();
+    for (&(gx, gy), a) in &ziel1 {
+        if let Some(z) = a.graben {
+            geschnitten.setzen(gx, gy, z as f32, &mut egal);
+        }
+    }
+    // 2. Bruecken gegen das Gelaende mit den Einschnitten
+    let bruecke: Vec<bool> = els.iter().map(|x| x.proben.iter().any(|(p, _)| luft_bei(&geschnitten, *p) >= bruecke_ab)).collect();
+    // eigene Strassen (fuer Pfeiler: nicht auf einer tieferen Strasse)
+    let alle: Vec<(DVec3, f64)> = els.iter().flat_map(|x| x.proben.iter().map(move |(p, _)| (*p, (-x.l).max(x.r)))).collect();
+    let strasse_darunter = |q: DVec2, z: f64| alle.iter().any(|(p, halb)| p.z < z - 2.0 && (p.truncate() - q).length() < halb + 1.5);
+    for (i, x) in els.iter().enumerate() {
+        if bruecke[i] {
+            plan.begleit.push((format!("Splines\\{}\\AB_bruecke_{}_{}.sli", crate::speichern::EIGEN, zahl(x.l), zahl(x.r)), x.el, x.kante, x.cum));
+            plan.bruecken_m += x.el.stueck.laenge;
+            // Pfeiler am Anfang des Stuecks, wenn davor auch Bruecke derselben Strasse ist (nicht an den Widerlagern)
+            if i > 0 && bruecke[i - 1] && els[i - 1].kante == x.kante {
+                let (p, h) = x.proben[0];
+                let mitte = p.truncate() + crate::netz::rechts(h) * ((x.l + x.r) / 2.0);
+                let b = boden(&geschnitten, mitte.x, mitte.y).unwrap_or(p.z);
+                if p.z - b - PLATTE >= PFEILER_MIN && v.surface_height(mitte.x, mitte.y).is_none() && !strasse_darunter(mitte, p.z) {
+                    plan.pfeiler.push(Pfeiler { fuss: mitte.extend(b - 1.0), richtung: h, hoehe: p.z - PLATTE - (b - 1.0) + 0.05, breite: ((x.r - x.l) * 0.6).max(2.0) });
+                }
+            }
+        } else {
+            let luft: Vec<f64> = x.proben.iter().map(|(p, _)| luft_bei(&basis, *p)).collect();
+            let luft_max = luft.iter().copied().fold(f64::MIN, f64::max);
+            let luft_min = luft.iter().copied().fold(f64::MAX, f64::min);
+            if luft_max > 0.3 || luft_min < -0.3 {
+                if x.bauweise == Bauweise::Mauer {
+                    // Mauern: nach unten (Fahrbahn ueber dem Gelaende) oder oben (im Einschnitt), Hoehe in 1-m-Stufen
+                    let (unten, h) = if luft_max.abs() >= luft_min.abs() { (true, luft_max) } else { (false, -luft_min) };
+                    let hh = (h + 1.0).ceil();
+                    plan.begleit.push((format!("Splines\\{}\\AB_mauer_{}_{}_{}_{}.sli", crate::speichern::EIGEN, if unten { "unten" } else { "oben" }, zahl(x.l), zahl(x.r), zahl(hh)), x.el, x.kante, x.cum));
+                    plan.mauern_m += x.el.stueck.laenge;
+                } else {
+                    plan.rampen_m += x.el.stueck.laenge;
+                }
+            }
+        }
+        let _ = &x.sli;
+    }
+    // Kreuzungen ueber einem Einschnitt oder hoch ueber dem Gelaende: Sockel (Platte mit Seitenwaenden) darunter
+    for (k, pos, proben, umriss) in &kreuzungen {
+        let luft = proben.iter().map(|pr| luft_bei(&geschnitten, pr.p)).fold(f64::MIN, f64::max);
+        if luft > 1.0 && umriss.len() >= 3 {
+            plan.sockel.push(Sockel { knoten: *k, pos: *pos, umriss: huelle(umriss, pos.truncate()) });
+        }
+    }
+    // 3. Gelaende: Einschnitte und Daemme aller Stuecke, die keine Bruecke sind, und der Kreuzungen; Einschnitt gewinnt
+    let mut ziel: HashMap<(i32, i32), Anspruch> = HashMap::new();
+    for (i, x) in els.iter().enumerate() {
+        if !bruecke[i] {
+            ansprueche(&probe_von(x), &basis, false, &mut ziel);
+        }
+    }
+    for (_, _, proben, _) in &kreuzungen {
+        ansprueche(proben, &basis, false, &mut ziel);
+    }
+    let mut neu = basis.clone();
+    let mut geaendert: HashSet<(i32, i32)> = HashSet::new();
+    for ((gx, gy), a) in ziel {
         let q = DVec2::new(gx as f64, gy as f64) * ZELLE;
         let Some(g) = basis.hoehe(gx, gy).map(|h| h as f64) else { continue };
-        // vorhandene Strassen auf dem Boden nicht zuschuetten
+        // vorhandene Strassen auf dem Boden nicht zuschuetten oder untergraben
         if v.surface_height(q.x, q.y).is_some_and(|s| (s - g).abs() < 1.5) {
             continue;
         }
-        let unter = zr - 0.05;
-        let z = if d <= halb {
-            unter
-        } else if bauweise == Bauweise::Mauer {
-            continue;
-        } else if unter > g {
-            g.max(unter - (d - halb) / BOESCHUNG)
-        } else {
-            g.min(unter + (d - halb) / BOESCHUNG)
-        };
-        // Mauer: unter der Fahrbahn nur absenken (aufgeschuettet wird nicht, die Mauern verdecken den Hohlraum)
-        let z = if bauweise == Bauweise::Mauer { z.min(g) } else { z };
+        let mut z = g;
+        if let Some(f) = a.fuellen {
+            z = z.max(f);
+        }
+        if let Some(c) = a.graben {
+            z = z.min(c);
+        }
         if (z - g).abs() > 0.02 {
             neu.setzen(gx, gy, z as f32, &mut geaendert);
         }
     }
-    let _ = ts;
     for k in geaendert {
         if let Some(t) = neu.kacheln.remove(&k) {
             plan.gelaende.insert(k, t);
         }
     }
     plan
+}
+
+/// konvexe Huelle (Welt) als Punkte relativ zu `mitte`, gegen den Uhrzeigersinn
+fn huelle(punkte: &[DVec2], mitte: DVec2) -> Vec<DVec2> {
+    let mut p: Vec<DVec2> = punkte.iter().map(|q| *q - mitte).collect();
+    p.sort_by(|a, b| a.x.total_cmp(&b.x).then(a.y.total_cmp(&b.y)));
+    p.dedup_by(|a, b| (*a - *b).length() < 1e-6);
+    if p.len() < 3 {
+        return p;
+    }
+    let kreuz = |o: DVec2, a: DVec2, b: DVec2| (a - o).perp_dot(b - o);
+    let mut unten: Vec<DVec2> = Vec::new();
+    for q in &p {
+        while unten.len() >= 2 && kreuz(unten[unten.len() - 2], unten[unten.len() - 1], *q) <= 0.0 {
+            unten.pop();
+        }
+        unten.push(*q);
+    }
+    let mut oben: Vec<DVec2> = Vec::new();
+    for q in p.iter().rev() {
+        while oben.len() >= 2 && kreuz(oben[oben.len() - 2], oben[oben.len() - 1], *q) <= 0.0 {
+            oben.pop();
+        }
+        oben.push(*q);
+    }
+    unten.pop();
+    oben.pop();
+    unten.extend(oben);
+    unten
+}
+
+/// Sockel unter einer hochliegenden Kreuzung: Umriss (relativ zur Mitte, gegen den Uhrzeigersinn)
+#[derive(Clone, Debug)]
+pub struct Sockel {
+    pub knoten: u32,
+    pub pos: DVec3,
+    pub umriss: Vec<DVec2>,
+}
+
+/// Sockel-Objekt (Platte 1,2 m mit Seitenwaenden bis zum Gehweg, Unterseite) im Ordner -> Dateiname (.sco)
+pub fn sockel_objekt(root: &Path, ordner: &Path, s: &Sockel) -> Result<String> {
+    // Name aus dem Umriss (gleicher Umriss: gleiche Datei)
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for q in &s.umriss {
+        for b in format!("{:.2},{:.2};", q.x, q.y).bytes() {
+            h ^= b as u64;
+            h = h.wrapping_mul(0x0100_0000_01b3);
+        }
+    }
+    let name = format!("Sockel_{:08x}", h & 0xffff_ffff);
+    let sco = ordner.join(format!("{name}.sco"));
+    if sco.is_file() {
+        return Ok(format!("{name}.sco"));
+    }
+    std::fs::create_dir_all(ordner.join("model"))?;
+    std::fs::create_dir_all(ordner.join("texture"))?;
+    crate::querschnitt::texturen_bereitstellen(root, &["betonwand1.bmp"])?;
+    let q = crate::querschnitt::ordner(root).join("texture").join("betonwand1.bmp");
+    if q.is_file() {
+        std::fs::copy(&q, ordner.join("texture").join("betonwand1.bmp"))?;
+    }
+    let mut m = crate::uebergang::Modell::default();
+    let mat = m.material("betonwand1.bmp");
+    let (oben, unten) = (GEHWEG_H, -PLATTE);
+    let n = s.umriss.len();
+    let mut u = 0.0;
+    for i in 0..n {
+        let (a, b) = (s.umriss[i], s.umriss[(i + 1) % n]);
+        let len = (b - a).length();
+        // gegen den Uhrzeigersinn: aussen liegt rechts der Kante a -> b
+        let aussen = DVec2::new(b.y - a.y, a.x - b.x).normalize_or_zero();
+        m.viereck(mat, [[a.x, a.y, unten], [b.x, b.y, unten], [b.x, b.y, oben], [a.x, a.y, oben]],
+                  [[u / 4.0, unten / 4.0], [(u + len) / 4.0, unten / 4.0], [(u + len) / 4.0, oben / 4.0], [u / 4.0, oben / 4.0]], [aussen.x, aussen.y, 0.0]);
+        u += len;
+    }
+    // Unterseite als Faecher von der Mitte
+    for i in 0..n {
+        let (a, b) = (s.umriss[i], s.umriss[(i + 1) % n]);
+        let c = DVec2::ZERO;
+        m.viereck(mat, [[c.x, c.y, unten], [a.x, a.y, unten], [b.x, b.y, unten], [c.x, c.y, unten]],
+                  [[c.x / 4.0, c.y / 4.0], [a.x / 4.0, a.y / 4.0], [b.x / 4.0, b.y / 4.0], [c.x / 4.0, c.y / 4.0]], [0.0, 0.0, -1.0]);
+    }
+    std::fs::write(ordner.join("model").join(format!("{name}.x")), m.x_datei())?;
+    let text = ["Erzeugt mit omsi-editor (Sockel unter einer Kreuzung)", "", "[friendlyname]", "Kreuzungssockel", "", "[groups]", "1",
+                crate::speichern::EIGEN, "", "[fixed]", "", "[absheight]", "", "[mesh]", &format!("{name}.x"), ""].join("\r\n") + "\r\n";
+    std::fs::write(&sco, text)?;
+    omsi_cfg::content_changed();
+    Ok(format!("{name}.sco"))
 }
 
 // ------------------------------------------------------------ Spline-Dateien
@@ -432,6 +638,57 @@ mod tests {
         assert!(bruecken > 0 && pfeiler == s.bauwerke.pfeiler.len() && terrain == s.bauwerke.gelaende.len());
         let _ = std::fs::remove_dir_all(&paket.staging);
         // Vorschau-Splines/Objekte wegnehmen, eigene Testdateien bleiben im eigenen Ordner (werden sonst wieder erzeugt)
+        drop(ae);
+    }
+
+    /// Fall des Nutzers (Ring): eine Strasse im Einschnitt (7 m tief), eine andere quert sie auf Gelaendehoehe - die obere
+    /// wird ueber dem Einschnitt zur Bruecke, der Einschnitt gewinnt gegen ihren Damm (die untere bleibt frei) (OMSI_BILD)
+    #[test]
+    #[ignore]
+    fn bruecke_ueber_einschnitt() {
+        let _sperre = crate::bearbeiten::tests::sperre();
+        use crate::anschluss::Anschluesse;
+        use crate::strasse::{Modus, Strassenbau};
+        let root = Path::new(crate::bearbeiten::tests::OMSI);
+        let mut v = crate::bearbeiten::tests::grundorf();
+        v.tiles_around(DVec3::new(150.0, 150.0, 0.0), 1).unwrap();
+        let ae = crate::aendern::Aendern::neu(&v);
+        let mut s = Strassenbau::neu(Some("Splines\\Marcel\\str_2spur_10m_Grunewaldstr.sli".into()), Modus::Gerade);
+        s.root = Some(root.to_path_buf());
+        s.kreuzungs_ordner = Some(ae.kreuzungs_ordner());
+        let boden = |v: &Viewer, x: f64, y: f64| DVec3::new(x, y, v.terrain_height(x, y).unwrap_or(0.0));
+        let frei = |v: &Viewer, p: DVec2| (-110..=110).step_by(10).all(|dx| (-110..=110).step_by(10).all(|dy| v.surface_height(p.x + dx as f64, p.y + dy as f64).is_none()));
+        let m = (0..80).map(|i| DVec2::new(-260.0 + (i % 10) as f64 * 50.0, -260.0 + (i / 10) as f64 * 50.0)).find(|p| frei(&v, *p)).expect("keine freie Wiese");
+        // untere Strasse: Nord-Sued, in der Mitte 7 m tief
+        let (a, b, c) = (boden(&v, m.x, m.y - 100.0), boden(&v, m.x, m.y), boden(&v, m.x, m.y + 100.0));
+        s.klick(&mut v, a, 3.0, &Anschluesse::default(), None).unwrap();
+        s.hoehe = -7.0;
+        s.maus(&mut v, b, 3.0, &Anschluesse::default(), None);
+        s.klick(&mut v, b, 3.0, &Anschluesse::default(), None).unwrap();
+        s.hoehe = 0.0;
+        s.maus(&mut v, c, 3.0, &Anschluesse::default(), None);
+        s.klick(&mut v, c, 3.0, &Anschluesse::default(), None).unwrap();
+        s.beenden(&mut v);
+        // obere: Ost-West auf Gelaendehoehe ueber die Mitte
+        let (w, o) = (boden(&v, m.x - 90.0, m.y), boden(&v, m.x + 90.0, m.y));
+        s.klick(&mut v, w, 3.0, &Anschluesse::default(), None).unwrap();
+        s.maus(&mut v, o, 3.0, &Anschluesse::default(), None);
+        let msg = s.klick(&mut v, o, 3.0, &Anschluesse::default(), None);
+        println!("obere Strasse: {msg:?}");
+        s.beenden(&mut v);
+        assert_eq!(s.netz.kanten.len(), 3, "keine Kreuzung auf verschiedenen Hoehen: 2 + 1 Kanten");
+        let p = s.bauwerke.clone();
+        println!("{}", p.text());
+        assert!(p.bruecken_m >= 10.0, "die obere Strasse muss ueber dem Einschnitt Bruecke sein ({} m)", p.bruecken_m);
+        // Gelaende in der Mitte: unten am Einschnitt (nicht vom Damm der oberen zugeschuettet)
+        let mitte = boden(&v, m.x + 0.3, m.y + 0.3).z;
+        println!("Gelaende in der Mitte {mitte:.2} m, untere Strasse {:.2} m", b.z - 7.0);
+        assert!(mitte < b.z - 5.0, "Einschnitt zugeschuettet: {mitte}");
+        if let Some(bild) = std::env::var_os("OMSI_BILD") {
+            let kam = crate::kamera::Kamera { ziel: DVec3::new(m.x, m.y, b.z - 3.0), gier: 210.0, neigung: -25.0, abstand: 90.0, fov: 50.0 };
+            let px = v.render_image(1280, 800, &kam.camera()).unwrap();
+            image::save_buffer(std::path::PathBuf::from(&bild).with_extension("einschnitt.png"), &px, 1280, 800, image::ColorType::Rgba8).unwrap();
+        }
         drop(ae);
     }
 }

@@ -3108,7 +3108,8 @@ impl App {
                 }
             }
             UiAktion::KreuzungBauen => {
-                let arme: Vec<netz::Kartenarm> = self.kreuzung_enden.iter().map(|x| x.1.clone()).collect();
+                // eigene Strassen: Schluessel -(Knoten) - 1
+                let arme: Vec<(netz::Kartenarm, Option<u32>)> = self.kreuzung_enden.iter().map(|x| (x.1.clone(), (x.0 .0 < 0).then(|| (-x.0 .0 - 1) as u32))).collect();
                 if let (Some(v), Some(a)) = (self.viewer.as_mut(), self.aendern.as_ref()) {
                     protokoll::aktion(&format!("Kreuzung erstellen aus {} Enden", arme.len()));
                     match self.strasse.kreuzung_aus_enden(v, a, arme) {
@@ -3205,7 +3206,7 @@ impl App {
                             return;
                         }
                         // die Pfeiler liegen bei den Kreuzungsobjekten der Sitzung: mit ihnen in den Ordner der Karte
-                        if paket.kreuzungen.is_none() && !self.strasse.bauwerke.pfeiler.is_empty() {
+                        if paket.kreuzungen.is_none() && (!self.strasse.bauwerke.pfeiler.is_empty() || !self.strasse.bauwerke.sockel.is_empty()) {
                             paket.kreuzungen = pfeiler;
                         }
                         let root = self.root.clone();
@@ -3236,7 +3237,7 @@ impl App {
                             return;
                         }
                         // die Pfeiler liegen bei den Kreuzungsobjekten der Sitzung: mit ihnen in den Ordner der Karte
-                        if paket.kreuzungen.is_none() && !self.strasse.bauwerke.pfeiler.is_empty() {
+                        if paket.kreuzungen.is_none() && (!self.strasse.bauwerke.pfeiler.is_empty() || !self.strasse.bauwerke.sockel.is_empty()) {
                             paket.kreuzungen = pfeiler;
                         }
                         let root = self.root.clone();
@@ -3305,7 +3306,7 @@ impl App {
 
     /// freie Strassenenden fuer den Kreuzungs-Ersteller: (Schluessel, Arm mit Richtung von der Kreuzung weg)
     fn kreuzung_kandidaten(&self, v: &Viewer) -> Vec<((i64, bool), netz::Kartenarm)> {
-        let mut out: Vec<((i64, bool), netz::Kartenarm)> = self.anschluesse.liste.iter().filter(|a| a.frei && a.objekt.is_none()).map(|a| {
+        let mut out: Vec<((i64, bool), netz::Kartenarm)> = self.anschluesse.liste.iter().filter(|a| a.offen && a.objekt.is_none()).map(|a| {
             ((a.spline_id, a.am_ende), netz::Kartenarm { pos: a.pos, richtung: (a.richtung + 180.0).rem_euclid(360.0), sli: a.sli.clone(),
                                                          weg: a.am_ende == a.gespiegelt, halb: self.strasse.halb(v, &a.sli) })
         }).collect();

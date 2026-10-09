@@ -659,7 +659,22 @@ impl Strassenbau {
         if let Some(u) = self.undo.last_mut() {
             u.1 = schritte;
         }
-        // an Kreuzungen gekuerzt: kein Stueck darf ganz verschwinden
+        // an Kreuzungen gekuerzt: bleibt zwischen zwei Kreuzungen kein Stueck, werden sie zu einer vereint (wie zwei
+        // eng aufeinanderfolgende Kreuzungen in der Stadt)
+        let mut vereint = 0;
+        for _ in 0..8 {
+            let kurz: Option<u32> = self.netz.kanten.iter().find(|e| self.netz.elemente(e).is_empty()
+                && self.netz.ist_kreuzung(e.a) && self.netz.ist_kreuzung(e.b)).map(|e| e.id);
+            let Some(e) = kurz else { break };
+            if !self.netz.knoten_vereinen(e) {
+                break;
+            }
+            vereint += 1;
+        }
+        if vereint > 0 && !self.netz.kanten.iter().any(|e| self.netz.elemente(e).is_empty()) {
+            self.zeichnen_alle(v);
+            log::info!("{vereint} zu kurze Strassenstuecke: Kreuzungen vereint");
+        }
         if self.netz.kanten.iter().any(|e| self.netz.elemente(e).is_empty()) {
             self.zuruecknehmen(v, ae.as_deref_mut(), schritte);
             return Some("zu kurz: zwischen den Kreuzungen bliebe kein Strassenstueck - die Punkte weiter auseinander setzen".into());
@@ -683,10 +698,12 @@ impl Strassenbau {
         }
         // weiter vom neuen Ende; endete der Zug an etwas Vorhandenem, ist er fertig
         let b_pos = self.netz.knoten(b).map(|k| k.pos).unwrap_or(p.b);
-        self.start = if p.angeschlossen { None } else { Some(Start { ende: Ende::Knoten(b), richtung: Some(p.hb) }) };
+        // (ein mit einer Nachbarkreuzung vereinter Endknoten ist weg: der Zug ist fertig)
+        self.start = if p.angeschlossen || self.netz.knoten(b).is_none() { None } else { Some(Start { ende: Ende::Knoten(b), richtung: Some(p.hb) }) };
         let _ = b_pos;
-        Some(format!("Strasse gebaut: {:.1} m{}{}{}", p.laenge, if p.angeschlossen { ", angeschlossen" } else { "" },
+        Some(format!("Strasse gebaut: {:.1} m{}{}{}{}", p.laenge, if p.angeschlossen { ", angeschlossen" } else { "" },
                      if neue_kreuzungen > 0 { format!(", {neue_kreuzungen} Kreuzung(en)") } else { String::new() },
+                     if vereint > 0 { " - zwei dicht aufeinanderfolgende Kreuzungen zu einer vereint" } else { "" },
                      p.warnung.as_ref().map(|w| format!(" - {w}")).unwrap_or_default()))
     }
 
@@ -1113,6 +1130,17 @@ impl Strassenbau {
             }
         }
         if let (Some(root), Some((ordner, tag))) = (&self.root, &self.kreuzungs_ordner) {
+            for so in &plan.sockel {
+                match crate::bauwerke::sockel_objekt(root, ordner, so) {
+                    Ok(name) => {
+                        let rel = format!("Sceneryobjects\\{}\\{tag}\\{name}", crate::speichern::EIGEN);
+                        if let Some(g) = v.add_object(&rel, so.pos, 0.0) {
+                            self.bauwerke_gpu.push(g);
+                        }
+                    }
+                    Err(e) => log::warn!("Sockel: {e:#}"),
+                }
+            }
             for p in &plan.pfeiler {
                 match crate::bauwerke::pfeiler_objekt(root, ordner, p.breite, p.hoehe) {
                     Ok(name) => {
@@ -1340,12 +1368,33 @@ impl Strassenbau {
     /// Kreuzungs-Ersteller: aus freien Strassenenden (der Karte oder eigener Strassen) EINE Kreuzung - ein Knoten nur
     /// mit Armen an genau diesen Enden (die Strassen bleiben, wie sie sind), Objekt von omsigen wie jede Kreuzung des
     /// Netzes (Vorfahrt, Ampel, Spurpfeile im Werkzeug Kreuzungen; beim Speichern in die Karte) -> (Knoten, Meldung)
-    pub fn kreuzung_aus_enden(&mut self, v: &mut Viewer, ae: &Aendern, arme: Vec<netz::Kartenarm>) -> Result<(u32, String), String> {
+    /// `arme`: je Ende der Arm und - bei eigenen Strassen - ihr Endknoten. Die Kreuzung ist eben: ihre Hoehe ist die der
+    /// Kartenstrassen (Mittel), eigene Strassen werden an ihrem Ende auf diese Hoehe gebracht (sie passen ihren
+    /// Hoehenverlauf an).
+    pub fn kreuzung_aus_enden(&mut self, v: &mut Viewer, ae: &Aendern, arme: Vec<(netz::Kartenarm, Option<u32>)>) -> Result<(u32, String), String> {
         if arme.len() < 3 {
             return Err("eine Kreuzung braucht mindestens 3 Strassenenden".into());
         }
         let n = arme.len() as f64;
-        let mitte = arme.iter().fold(DVec3::ZERO, |s, a| s + a.pos) / n;
+        let karte: Vec<f64> = arme.iter().filter(|a| a.1.is_none()).map(|a| a.0.pos.z).collect();
+        let z = if karte.is_empty() { arme.iter().map(|a| a.0.pos.z).sum::<f64>() / n } else { karte.iter().sum::<f64>() / karte.len() as f64 };
+        let mut mitte = arme.iter().fold(DVec3::ZERO, |s, a| s + a.0.pos) / n;
+        mitte.z = z;
+        // eigene Strassen an die Kreuzungshoehe angleichen (vorher merken fuer Rueckgaengig: siehe unten)
+        let netz_vorher = self.netz.clone();
+        let mut angeglichen = 0;
+        let arme: Vec<netz::Kartenarm> = arme.into_iter().map(|(mut a, k)| {
+            if let Some(k) = k {
+                if (a.pos.z - z).abs() > 0.01 {
+                    if let Some(kn) = self.netz.knoten.iter_mut().find(|x| x.id == k) {
+                        kn.pos.z = z;
+                        angeglichen += 1;
+                    }
+                }
+                a.pos.z = z;
+            }
+            a
+        }).collect();
         let (lo, hi) = arme.iter().fold((f64::MAX, f64::MIN), |(a, b), x| (a.min(x.pos.z), b.max(x.pos.z)));
         // je zwei Arme nicht in fast derselben Richtung (sonst ueberlappen ihre Spuren)
         for (i, a) in arme.iter().enumerate() {
@@ -1358,7 +1407,7 @@ impl Strassenbau {
         if self.kreuzungs_ordner.is_none() {
             self.kreuzungs_ordner = Some(ae.kreuzungs_ordner());
         }
-        self.undo.push((self.netz.clone(), 0));
+        self.undo.push((netz_vorher, 0));
         self.redo.clear();
         self.aenderungen += 1;
         for a in &arme {
@@ -1376,8 +1425,11 @@ impl Strassenbau {
             return Err(e);
         }
         let mut m = format!("Kreuzung aus {} Strassenenden gebaut - Vorfahrt/Ampel: Modus \"Vorfahrt und Ampel\"", n as usize);
-        if hi - lo > 0.5 {
-            m += &format!(" (Achtung: die Enden liegen bis {:.1} m verschieden hoch, die Kreuzung ist eben)", hi - lo);
+        if angeglichen > 0 {
+            m += &format!(" ({angeglichen} eigene Strasse(n) auf die Kreuzungshoehe {z:.2} m gebracht)");
+        }
+        if hi - lo > 0.3 {
+            m += &format!(" - Achtung: Strassen der Karte enden bis {:.1} m verschieden hoch, die Kreuzung ist eben", hi - lo);
         }
         Ok((id, m))
     }
@@ -1859,15 +1911,20 @@ mod tests {
         }
         let enden: Vec<_> = s.freie_enden().into_iter().filter(|e| (e.1.truncate() - c).length() < 20.0).collect();
         assert_eq!(enden.len(), 3, "drei freie Enden an der Stelle");
-        let arme: Vec<netz::Kartenarm> = enden.iter().map(|(_, pos, richtung, _, sli, gleich)| netz::Kartenarm {
+        let arme: Vec<(netz::Kartenarm, Option<u32>)> = enden.iter().map(|(k, pos, richtung, _, sli, gleich)| (netz::Kartenarm {
             pos: *pos, richtung: (richtung + 180.0).rem_euclid(360.0), sli: sli.clone(), weg: !gleich, halb: s.halb(&v, sli),
-        }).collect();
+        }, Some(*k))).collect();
         let kanten_vorher = s.netz.kanten.clone();
         let (id, m) = s.kreuzung_aus_enden(&mut v, &ae, arme).unwrap();
         println!("{m}");
         assert!(s.objekte.contains_key(&id), "kein Kreuzungsobjekt");
         assert_eq!(s.objekte[&id].arme.len(), 3);
         assert_eq!(s.netz.kanten, kanten_vorher, "die Strassen duerfen sich nicht aendern");
+        // die drei Enden liegen jetzt alle auf der Kreuzungshoehe
+        let kz = s.netz.knoten(id).unwrap().pos.z;
+        for (k, ..) in &enden {
+            assert!((s.netz.knoten(*k).unwrap().pos.z - kz).abs() < 1e-9);
+        }
         assert!(s.freie_enden().iter().all(|e| (e.1.truncate() - c).length() >= 20.0), "Enden noch frei");
         let gesetzt = s.gesetzte_kreuzungen();
         assert_eq!(gesetzt.len(), 1);
@@ -1879,6 +1936,50 @@ mod tests {
         assert!(s.rueckgaengig(&mut v, None));
         assert!(s.gesetzte_kreuzungen().is_empty());
         assert_eq!(s.freie_enden().iter().filter(|e| (e.1.truncate() - c).length() < 20.0).count(), 3);
+        drop(ae);
+    }
+
+    /// zwei Abzweige 20 m auseinander (links und rechts): zwei Kreuzungen; das Stueck dazwischen vereint
+    /// (`Netz::knoten_vereinen`, wie beim Bauen, wenn kein Stueck bliebe) ergibt eine Kreuzung mit 4 Armen
+    #[test]
+    #[ignore]
+    fn dichte_kreuzungen_vereinen() {
+        let _sperre = crate::bearbeiten::tests::sperre();
+        use crate::bearbeiten::tests::grundorf;
+        let root = Path::new(crate::bearbeiten::tests::OMSI);
+        let mut v = grundorf();
+        let ae = Aendern::neu(&v);
+        let mut s = Strassenbau::neu(Some("Splines\\Marcel\\str_2spur_10m_Grunewaldstr.sli".into()), Modus::Gerade);
+        s.root = Some(root.to_path_buf());
+        s.kreuzungs_ordner = Some(ae.kreuzungs_ordner());
+        let boden = |v: &Viewer, p: DVec2| p.extend(v.terrain_height(p.x, p.y).unwrap_or(0.0));
+        let frei = |v: &Viewer, p: DVec2| (-100..=100).step_by(10).all(|dx| (-100..=100).step_by(10).all(|dy| v.surface_height(p.x + dx as f64, p.y + dy as f64).is_none()));
+        let c = (0..80).map(|i| DVec2::new(-260.0 + (i % 10) as f64 * 50.0, -260.0 + (i / 10) as f64 * 50.0)).find(|p| frei(&v, *p)).expect("keine freie Wiese");
+        let (w, o) = (boden(&v, c - DVec2::new(80.0, 0.0)), boden(&v, c + DVec2::new(80.0, 0.0)));
+        s.klick(&mut v, w, 3.0, &Anschluesse::default(), None).unwrap();
+        s.maus(&mut v, o, 3.0, &Anschluesse::default(), None);
+        s.klick(&mut v, o, 3.0, &Anschluesse::default(), None).unwrap();
+        s.beenden(&mut v);
+        let mut meldungen = Vec::new();
+        for (x, dy) in [(0.0, 50.0), (20.0, -50.0)] {
+            let a = boden(&v, c + DVec2::new(x, 0.0));
+            let b = boden(&v, c + DVec2::new(x, dy));
+            s.klick(&mut v, a, 3.0, &Anschluesse::default(), None);
+            s.maus(&mut v, b, 3.0, &Anschluesse::default(), None);
+            meldungen.push(s.klick(&mut v, b, 3.0, &Anschluesse::default(), None));
+            s.beenden(&mut v);
+        }
+        println!("{meldungen:?}");
+        let kreuzungen: Vec<u32> = s.netz.knoten.iter().map(|k| k.id).filter(|k| s.netz.ist_kreuzung(*k)).collect();
+        assert_eq!(kreuzungen.len(), 2, "zwei Kreuzungen erwartet");
+        let zwischen = s.netz.kanten.iter().find(|e| kreuzungen.contains(&e.a) && kreuzungen.contains(&e.b)).map(|e| e.id).expect("Stueck zwischen den Kreuzungen");
+        assert!(s.netz.knoten_vereinen(zwischen));
+        s.zeichnen_alle(&mut v);
+        let kreuzungen: Vec<u32> = s.netz.knoten.iter().map(|k| k.id).filter(|k| s.netz.ist_kreuzung(*k)).collect();
+        assert_eq!(kreuzungen.len(), 1, "eine vereinte Kreuzung erwartet");
+        assert_eq!(s.netz.arme(kreuzungen[0]).len(), 4);
+        assert!(s.objekte.contains_key(&kreuzungen[0]), "kein Objekt: {:?}", s.kreuzung_fehler);
+        assert!(s.netz.kanten.iter().all(|e| !s.netz.elemente(e).is_empty()));
         drop(ae);
     }
 }
