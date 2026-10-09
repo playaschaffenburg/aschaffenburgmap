@@ -183,6 +183,13 @@ Objekte-Werkzeug bei Pfad-Ansicht H); beim Speichern werden alle Einsetzpunkte a
 (Index in der Kachel – alle Objekt-Einträge gezählt wie die „Object Nr.“-Kommentare –, Lage, Drehung, Kachelnummer)
 und Busstops.cfg neu geschrieben. Ein Strg+Z nimmt Objekt und Listeneintrag zusammen zurück.
 
+**Neue Karte (Kartenauswahl → „+ Neue Karte erstellen …“):** Anzeigename, Ordner (aus dem Namen vorgeschlagen,
+Umlaute umschrieben) und Beschreibung eingeben, „Erstellen und öffnen“. Die Karte entsteht aus OMSIs Vorlage
+`template\NewMap`: Kachel 0 0 (300 × 300 m, flach) mit einem 120 m langen geraden Straßenstück (Nord–Süd durch die
+Mitte, Querschnitt aus `Splines\Marcel`) und darauf einem Einsetzpunkt „Start“ in der rechten Fahrspur; global.cfg
+bekommt Namen, Beschreibung, `[NextIDCode]`, Kamera und `[entrypoints]`. Sie trägt die Marke des Editors (Speichern
+ohne Rückfrage).
+
 **Rückgängig/Wiederholen** (Strg+Z / Strg+Y) gilt über alle Werkzeuge: der jeweils letzte Schritt, egal in welchem
 Werkzeug man gerade ist (eine gebaute Straße samt Kreuzungen und aufgeschnittenen Straßen ist ein Schritt).
 
