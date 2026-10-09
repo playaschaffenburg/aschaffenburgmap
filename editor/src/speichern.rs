@@ -236,12 +236,17 @@ pub fn karte_ueberschreiben(root: &Path, karte: &str, paket: &Paket) -> Result<P
     if let Some(id) = paket.naechste_id {
         global_setzen(&ziel.join("global.cfg"), &[("[NextIDCode]", id.to_string())])?;
     }
-    if let Some((alt, neu)) = &paket.kacheln {
+    if paket.kacheln.is_some() || paket.orte.is_some() {
         let bs = ziel.join("TTData").join("Busstops.cfg");
         if bs.is_file() {
             std::fs::copy(&bs, sicherung.join("Busstops.cfg"))?;
         }
+    }
+    if let Some((alt, neu)) = &paket.kacheln {
         kachelliste_setzen(&ziel, alt, neu)?;
+    }
+    if let Some((daten, liste)) = &paket.orte {
+        crate::orte::schreiben(&ziel, daten, liste)?;
     }
     // Objekte aus Ordnern anderer Karten in den eigenen (die Karte haengt danach von keiner anderen ab); die Kacheln,
     // die das umschreibt, sind vorher gesichert (alle Kacheln mit solchen Verweisen)
@@ -324,6 +329,8 @@ pub struct Paket {
     pub kreuzungen: Option<(PathBuf, String)>,
     /// Kacheln hinzugefuegt/weggenommen (World Editor): (Liste beim Oeffnen, neue Liste) - [map] von global.cfg
     pub kacheln: Option<(crate::welt::Liste, crate::welt::Liste)>,
+    /// Einsetzpunkte und Busstops.cfg (World Editor), mit der Kachelliste, wie sie gespeichert wird
+    pub orte: Option<(crate::orte::Daten, crate::welt::Liste)>,
 }
 
 /// ein Eintrag fuer eine Kachel: neues Objekt oder neuer Spline (in Zeilen, ohne Zeilenende)
@@ -463,7 +470,7 @@ pub fn vorbereiten(v: &Viewer, b: &Bearbeiten, netz: &crate::netz::Netz, netz_kr
     }
     // nur, wenn es Kreuzungen gibt
     let kreuzungen = kreuzungen.filter(|(d, _)| std::fs::read_dir(d).map(|r| r.flatten().any(|e| e.path().extension().is_some_and(|x| x == "sco"))).unwrap_or(false));
-    Ok(Paket { dateien, naechste_id: (id > start).then_some(id), neue_objekte, neue_splines, staging, kreuzungen, kacheln: None })
+    Ok(Paket { dateien, naechste_id: (id > start).then_some(id), neue_objekte, neue_splines, staging, kreuzungen, kacheln: None, orte: None })
 }
 
 /// alles in einem Schritt (Tests)
@@ -536,6 +543,9 @@ pub fn karte_anlegen(root: &Path, alt: &str, neu: &str, paket: &Paket) -> Result
     global_setzen(&ziel.join("global.cfg"), &werte)?;
     if let Some((alt, neu)) = &paket.kacheln {
         kachelliste_setzen(&ziel, alt, neu)?;
+    }
+    if let Some((daten, liste)) = &paket.orte {
+        crate::orte::schreiben(&ziel, daten, liste)?;
     }
     // Kreuzungsobjekte der Ausgangskarte (und anderer) in den Ordner der neuen Karte: sie haengt danach von keiner
     // anderen Karte ab (Loeschen oder Umbenennen der alten laesst sie unberuehrt)

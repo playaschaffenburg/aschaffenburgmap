@@ -64,6 +64,8 @@ pub struct Aendern {
     /// Ordnername der Kreuzungsobjekte dieser Sitzung unter Sceneryobjects/Aschaffenburg_KI (beim Speichern wird
     /// daraus der Name der neuen Karte)
     pub tag: String,
+    /// naechste freie Objekt-ID fuer Objekte, die direkt in die Sitzungskopie geschrieben werden (World Editor)
+    naechste_objekt_id: i64,
 }
 
 impl Aendern {
@@ -75,7 +77,7 @@ impl Aendern {
         let _ = std::fs::create_dir_all(&sitzung);
         v.session_overlay(&sitzung);
         Aendern { sitzung, kacheln: HashMap::new(), stand: vec![], unter_maus: None, auswahl: vec![], undo: vec![], redo: vec![],
-                  aenderungen: 0, breiten: HashMap::new(), abgetastet: HashMap::new(), mit_spuren: HashMap::new(), tag: format!("Editor_{:x}{nr}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)) }
+                  aenderungen: 0, breiten: HashMap::new(), abgetastet: HashMap::new(), mit_spuren: HashMap::new(), naechste_objekt_id: 0, tag: format!("Editor_{:x}{nr}", std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0)) }
     }
 
     /// Splines der geladenen Kacheln (neu lesen, wenn sich die geladenen Kacheln geaendert haben)
@@ -327,6 +329,47 @@ impl Aendern {
             Ok(1)
         })?;
         Ok(n)
+    }
+
+    /// neues Objekt direkt in die Sitzungskopie seiner Kachel schreiben (auf dem Gelaende), ein Rueckgaengig-Schritt
+    /// -> (ID, Kachel)
+    pub fn objekt_anlegen(&mut self, v: &mut Viewer, rel: &str, pos: DVec2, rot: f64, texte: &[String]) -> Result<(i64, (i32, i32))> {
+        let ts = omsi_map::tile_size();
+        let k = ((pos.x / ts).floor() as i32, (pos.y / ts).floor() as i32);
+        if v.tile_file(k.0, k.1).is_none() {
+            anyhow::bail!("an dieser Stelle hat die Karte keine Kachel");
+        }
+        let id = v.next_object_id().max(self.naechste_objekt_id);
+        self.naechste_objekt_id = id + 1;
+        let z = crate::kreuzung::zahl;
+        let mut eintrag = vec!["[object]".to_string(), "0".into(), rel.to_string(), id.to_string(), z(pos.x - k.0 as f64 * ts),
+                               z(pos.y - k.1 as f64 * ts), "0".into(), z(rot.rem_euclid(360.0)), "0".into(), "0".into(), texte.len().to_string()];
+        eintrag.extend(texte.iter().cloned());
+        self.kacheln_aendern(v, &[k], |_, zeilen| {
+            while zeilen.last().is_some_and(|l| l.trim().is_empty()) {
+                zeilen.pop();
+            }
+            zeilen.push(String::new());
+            zeilen.extend(eintrag.iter().cloned());
+            zeilen.push(String::new());
+            Ok(1)
+        })?;
+        Ok((id, k))
+    }
+
+    /// ersten Text eines Objekts setzen (Name einer Haltestelle), ein Rueckgaengig-Schritt
+    pub fn objekt_text(&mut self, v: &mut Viewer, kachel: (i32, i32), id: i64, text: &str) -> Result<()> {
+        self.kacheln_aendern(v, &[kachel], |_, z| {
+            let i = (0..z.len()).find(|&i| z[i].trim().eq_ignore_ascii_case("[object]") && z.get(i + 3).and_then(|x| x.trim().parse::<i64>().ok()) == Some(id))
+                .with_context(|| format!("Objekt {id} nicht in seiner Kachel"))?;
+            let n: usize = z.get(i + 10).and_then(|x| x.trim().parse().ok()).unwrap_or(0);
+            if n == 0 || i + 11 >= z.len() {
+                anyhow::bail!("Objekt {id} hat keinen Namen");
+            }
+            z[i + 11] = text.to_string();
+            Ok(1)
+        })?;
+        Ok(())
     }
 
     /// Pfade eines Kreuzungsobjekts fuer die KI sperren / freigeben ([rule] no_cars; Werkzeug "Kreuzungen", Spuren) -

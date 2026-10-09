@@ -20,6 +20,7 @@ mod katalog;
 mod knoten;
 mod kreuzung;
 mod netz;
+mod orte;
 mod protokoll;
 mod speichern;
 mod spuren;
@@ -171,7 +172,7 @@ struct App {
     /// Stapel der Werkzeuge (Objekte, Strassen, Aendern) beim letzten Blick
     verlauf: Vec<Quelle>,
     verlauf_redo: Vec<Quelle>,
-    stapel: (usize, usize, usize, usize),
+    stapel: (usize, usize, usize, usize, usize),
     /// Bericht der vorigen Sitzung, einmal in der Statuszeile melden
     bericht_melden: Option<Option<PathBuf>>,
     /// Testlauf: Strasse, an der spaeter eine Kreuzung gebaut wird
@@ -246,6 +247,20 @@ struct App {
     welt_wahl: Option<(i32, i32)>,
     welt_unter: Option<(i32, i32)>,
     welt_frage: Option<(i32, i32)>,
+    /// World Editor: Unterfunktion, Einsetzpunkte/Haltestellen (Listen, Rueckgaengig), Name fuer neue, Setzen per
+    /// Klick an, Umbenennen (Eintrag, Text)
+    welt_modus: WeltModus,
+    orte: orte::Orte,
+    orte_name: String,
+    orte_setzen: bool,
+    orte_umbenennen: Option<(i64, String)>,
+}
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum WeltModus {
+    Kacheln,
+    Einsetzpunkte,
+    Haltestellen,
 }
 
 /// was die Pipette unter der Maus hat
@@ -272,6 +287,8 @@ enum Quelle {
     Strasse,
     Aendern,
     Welt,
+    /// Einsetzpunkte/Haltestellen (mit ihren Objekten in den Kacheln)
+    Orte,
 }
 
 /// Was die Oberflaeche ausloesen will (nach dem Zeichnen ausgefuehrt)
@@ -312,6 +329,14 @@ enum UiAktion {
     /// World Editor: Kachel anfuegen / wegnehmen
     KachelNeu((i32, i32)),
     KachelLoeschen((i32, i32)),
+    /// World Editor: Einsetzpunkte (Index in der Liste) und Haltestellen
+    WeltModus(WeltModus),
+    PunktUmbenennen(usize, String),
+    PunktLoeschen(usize),
+    HaltUmbenennen(orte::Haltestelle, String),
+    HaltLoeschen(orte::Haltestelle),
+    HaltAufnehmen(orte::Haltestelle),
+    Hinfahren(DVec3),
     /// Strasse bauen mit diesem Querschnitt (Pipette)
     StrasseUebernehmen(String),
     SplineLoeschen,
@@ -356,7 +381,7 @@ impl App {
             kreuzung_maus: None,
             verlauf: vec![],
             verlauf_redo: vec![],
-            stapel: (0, 0, 0, 0),
+            stapel: (0, 0, 0, 0, 0),
             pruefung: None,
             gestartet: Instant::now(),
             bilder: 0,
@@ -408,6 +433,11 @@ impl App {
             welt_wahl: None,
             welt_unter: None,
             welt_frage: None,
+            welt_modus: WeltModus::Kacheln,
+            orte: orte::Orte::default(),
+            orte_name: String::new(),
+            orte_setzen: false,
+            orte_umbenennen: None,
         }
     }
 
@@ -803,6 +833,8 @@ impl App {
                 Ok(Ok((ziel, ueberschrieben))) => {
                     self.bearb.aenderungen = 0;
                     self.welt.aenderungen = 0;
+                self.orte.aenderungen = 0;
+                    self.orte.aenderungen = 0;
                     self.strasse.aenderungen = 0;
                     if let Some(a) = self.aendern.as_mut() {
                         a.aenderungen = 0;
@@ -908,6 +940,14 @@ impl App {
             Vec::new()
         };
         let spur_ansicht = if self.bearb.werkzeug == Werkzeug::Kreuzung && self.spur_modus { self.spur_ansicht() } else { None };
+        if let (Werkzeug::Welt, true, Some(v), Some(k)) = (self.bearb.werkzeug, self.welt_modus != WeltModus::Kacheln, self.viewer.as_ref(), self.karte.as_ref()) {
+            let liste = self.welt.anfangsliste(v);
+            self.orte.laden(&self.root.join("maps").join(k), &liste);
+        }
+        let orte_halte: Vec<orte::Haltestelle> = match (self.bearb.werkzeug, self.welt_modus, self.viewer.as_ref()) {
+            (Werkzeug::Welt, WeltModus::Haltestellen, Some(v)) => self.orte.haltestellen(v),
+            _ => Vec::new(),
+        };
         let gewaehlt = self.bearb.wahl.and_then(|w| objekte.iter().find(|o| o.wahl == w).cloned());
         let edit = match gewaehlt.as_ref().map(|o| o.wahl) {
             Some(Wahl::Karte(id)) => self.viewer.as_ref().map(|v| v.object_edit(id)),
@@ -1205,11 +1245,98 @@ impl App {
                 });
             }
             if self.bearb.werkzeug == Werkzeug::Welt {
-                egui::Panel::right("welt").default_size(330.0).show(ctx, |ui| {
+                egui::Panel::right("welt").default_size(360.0).show(ctx, |ui| {
                     ui.heading("World Editor");
-                    let _ = ui.selectable_label(true, "Kacheln bearbeiten");
+                    for (m, t) in [(WeltModus::Kacheln, "Kacheln bearbeiten"), (WeltModus::Einsetzpunkte, "Einsetzpunkte"), (WeltModus::Haltestellen, "Haltestellen")] {
+                        if ui.selectable_label(self.welt_modus == m, t).clicked() && self.welt_modus != m {
+                            aktionen.push(UiAktion::WeltModus(m));
+                        }
+                    }
                     ui.add_enabled(false, egui::Button::new("Gelaende formen (folgt)"));
                     ui.separator();
+                    if self.welt_modus != WeltModus::Kacheln {
+                        let punkte = self.welt_modus == WeltModus::Einsetzpunkte;
+                        ui.label(egui::RichText::new(if punkte { "Einsetzpunkte" } else { "Haltestellen" }).strong());
+                        ui.label(if punkte { "Wo man bei \"Freie Fahrt\" startet (unsichtbares Objekt entrypoint_bus.sco + Eintrag in global.cfg)." }
+                                 else { "Haltestellen-Objekte (bus_stop.sco, Name = erster Text) und ihre Liste fuer die Fahrplaene (TTData/Busstops.cfg)." });
+                        ui.horizontal(|ui| {
+                            ui.add(egui::TextEdit::singleline(&mut self.orte_name).hint_text("Name").desired_width(170.0));
+                            let t = if self.orte_setzen { "Klick ins Bild ..." } else if punkte { "+ Einsetzpunkt setzen" } else { "+ Haltestelle setzen" };
+                            if ui.selectable_label(self.orte_setzen, t).on_hover_text("Klick ins Bild setzt ihn auf die naechste Fahrspur, in deren Richtung").clicked() {
+                                self.orte_setzen = !self.orte_setzen;
+                            }
+                        });
+                        ui.separator();
+                        let pos_jetzt: std::collections::HashMap<i64, DVec3> = self.viewer.as_ref().map(|v| v.hidden_objects().into_iter().map(|x| (x.0, x.1)).collect()).unwrap_or_default();
+                        egui::ScrollArea::vertical().auto_shrink([false, false]).show(ui, |ui| {
+                            if punkte {
+                                if self.orte.punkte().is_empty() {
+                                    ui.label(egui::RichText::new("keine Einsetzpunkte").weak());
+                                }
+                                for (i, p) in self.orte.punkte().iter().enumerate() {
+                                    let pos = pos_jetzt.get(&p.id).copied().unwrap_or(p.pos);
+                                    ui.horizontal(|ui| {
+                                        match self.orte_umbenennen.as_mut().filter(|x| x.0 == i as i64) {
+                                            Some((_, text)) => {
+                                                let r = ui.add(egui::TextEdit::singleline(text).desired_width(170.0));
+                                                if ui.button("OK").clicked() || (r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))) {
+                                                    aktionen.push(UiAktion::PunktUmbenennen(i, text.clone()));
+                                                }
+                                            }
+                                            None => {
+                                                ui.label(&p.name);
+                                                if ui.small_button("hin").clicked() {
+                                                    aktionen.push(UiAktion::Hinfahren(pos));
+                                                }
+                                                if ui.small_button("umbenennen").clicked() {
+                                                    self.orte_umbenennen = Some((i as i64, p.name.clone()));
+                                                }
+                                                if ui.small_button("loeschen").clicked() {
+                                                    aktionen.push(UiAktion::PunktLoeschen(i));
+                                                }
+                                            }
+                                        }
+                                    });
+                                }
+                            } else {
+                                if orte_halte.is_empty() {
+                                    ui.label(egui::RichText::new("keine Haltestellen").weak());
+                                }
+                                for h in &orte_halte {
+                                    let pos = pos_jetzt.get(&h.id).copied().unwrap_or(h.pos);
+                                    let gelistet = self.orte.busstops().iter().any(|b| b.id == h.id);
+                                    ui.horizontal(|ui| {
+                                        match self.orte_umbenennen.as_mut().filter(|x| x.0 == h.id) {
+                                            Some((_, text)) => {
+                                                let r = ui.add(egui::TextEdit::singleline(text).desired_width(170.0));
+                                                if ui.button("OK").clicked() || (r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter))) {
+                                                    aktionen.push(UiAktion::HaltUmbenennen(h.clone(), text.clone()));
+                                                }
+                                            }
+                                            None => {
+                                                ui.label(&h.name);
+                                                if !gelistet && ui.small_button("in Busstops.cfg").on_hover_text("fehlt in der Haltestellenliste der Fahrplaene - aufnehmen").clicked() {
+                                                    aktionen.push(UiAktion::HaltAufnehmen(h.clone()));
+                                                }
+                                                if ui.small_button("hin").clicked() {
+                                                    aktionen.push(UiAktion::Hinfahren(pos));
+                                                }
+                                                if ui.small_button("umbenennen").clicked() {
+                                                    self.orte_umbenennen = Some((h.id, h.name.clone()));
+                                                }
+                                                if ui.small_button("loeschen").clicked() {
+                                                    aktionen.push(UiAktion::HaltLoeschen(h.clone()));
+                                                }
+                                            }
+                                        }
+                                    });
+                                }
+                            }
+                        });
+                        ui.separator();
+                        ui.label(egui::RichText::new("Verschieben und drehen: Werkzeug Objekte mit Pfad-Ansicht (H). Strg+Z nimmt jede Aenderung zurueck; geschrieben wird beim Speichern (Einsetzpunkte in global.cfg, Haltestellen in TTData/Busstops.cfg).").small().weak());
+                        return;
+                    }
                     ui.label(egui::RichText::new("Kacheln bearbeiten").strong());
                     let n = self.viewer.as_ref().map(|v| v.map_tiles().len()).unwrap_or(0);
                     ui.label(format!("{n} Kacheln (je 300 x 300 m)"));
@@ -1525,7 +1652,48 @@ impl App {
             if let Some(o) = gewaehlt.as_ref() {
                 bearbeiten::markieren(&maler, &self.kam, o, bw, bh, egui::Color32::from_rgb(255, 60, 220), 3.0);
             }
-            if let (Werkzeug::Welt, Some(v)) = (self.bearb.werkzeug, self.viewer.as_ref()) {
+            if let (Werkzeug::Welt, true, Some(v)) = (self.bearb.werkzeug, self.welt_modus != WeltModus::Kacheln, self.viewer.as_ref()) {
+                let pt = |p: DVec3| bearbeiten::projizieren(&self.kam, p + DVec3::Z * 0.5, bw, bh).map(|(x, y, _)| egui::pos2(x, y));
+                let jetzt: std::collections::HashMap<i64, (DVec3, f64)> = v.hidden_objects().into_iter().map(|x| (x.0, (x.1, x.2))).collect();
+                let pfeil = |m: egui::Pos2, p: DVec3, rot: f64, c: egui::Color32| {
+                    if let Some(q) = pt(p + (netz::dir(rot) * 6.0).extend(0.0)) {
+                        maler.line_segment([m, q], egui::Stroke::new(2.5, c));
+                    }
+                };
+                if self.welt_modus == WeltModus::Einsetzpunkte {
+                    let c = egui::Color32::from_rgb(255, 200, 40);
+                    for p in self.orte.punkte() {
+                        let (pos, rot) = jetzt.get(&p.id).copied().unwrap_or((p.pos, p.rot));
+                        if let Some(m) = pt(pos) {
+                            maler.circle_filled(m, 6.0, c);
+                            pfeil(m, pos, rot, c);
+                            maler.text(m + egui::vec2(9.0, -9.0), egui::Align2::LEFT_BOTTOM, &p.name, egui::FontId::proportional(13.0), c);
+                        }
+                    }
+                } else {
+                    let c = egui::Color32::from_rgb(90, 170, 255);
+                    for h in &orte_halte {
+                        let pos = jetzt.get(&h.id).map(|x| x.0).unwrap_or(h.pos);
+                        if let Some(m) = pt(pos) {
+                            maler.rect_filled(egui::Rect::from_center_size(m, egui::vec2(11.0, 11.0)), 2.0, c);
+                            maler.text(m + egui::vec2(9.0, -9.0), egui::Align2::LEFT_BOTTOM, &h.name, egui::FontId::proportional(13.0), c);
+                        }
+                    }
+                }
+                // Vorschau beim Setzen: auf der naechsten Fahrspur
+                if self.orte_setzen {
+                    if let Some(g) = self.boden_unter_maus {
+                        let (pos, rot, auf_spur) = match orte::spur_bei(v, g.truncate()) { Some((p, r)) => (p, r, true), None => (g, 0.0, false) };
+                        let c = if auf_spur { egui::Color32::WHITE } else { egui::Color32::from_rgb(255, 120, 90) };
+                        if let Some(m) = pt(pos) {
+                            maler.circle_stroke(m, 8.0, egui::Stroke::new(2.5, c));
+                            pfeil(m, pos, rot, c);
+                            maler.text(m + egui::vec2(12.0, 8.0), egui::Align2::LEFT_TOP, if auf_spur { "Klick setzt hier (auf der Fahrspur)" } else { "keine Fahrspur in 8 m - Klick setzt trotzdem" }, egui::FontId::proportional(13.0), c);
+                        }
+                    }
+                }
+            }
+            if let (Werkzeug::Welt, true, Some(v)) = (self.bearb.werkzeug, self.welt_modus == WeltModus::Kacheln, self.viewer.as_ref()) {
                 let ts = 300.0;
                 let kacheln: std::collections::HashSet<(i32, i32)> = v.map_tiles().into_iter().collect();
                 let ziel = self.kam.ziel;
@@ -1988,6 +2156,7 @@ impl App {
                 self.verwerfen_frage = None;
                 self.bearb.aenderungen = 0;
                 self.welt.aenderungen = 0;
+                self.orte.aenderungen = 0;
                 self.strasse.aenderungen = 0;
                 if let Some(a) = self.aendern.as_mut() {
                     a.aenderungen = 0;
@@ -2058,6 +2227,47 @@ impl App {
                         }
                     }
                 }
+            }
+            UiAktion::WeltModus(m) => {
+                self.welt_modus = m;
+                self.orte_setzen = false;
+                self.orte_umbenennen = None;
+                if m != WeltModus::Kacheln {
+                    if let (Some(v), Some(k)) = (self.viewer.as_ref(), self.karte.clone()) {
+                        let liste = self.welt.anfangsliste(v);
+                        self.orte.laden(&self.root.join("maps").join(k), &liste);
+                    }
+                }
+            }
+            UiAktion::PunktUmbenennen(i, name) => {
+                self.orte_umbenennen = None;
+                self.meldung = match self.orte.punkt_umbenennen(i, &name) {
+                    Ok(()) => format!("Einsetzpunkt umbenannt: \"{name}\""),
+                    Err(e) => format!("{e:#}"),
+                };
+            }
+            UiAktion::PunktLoeschen(i) => {
+                let (Some(v), Some(a)) = (self.viewer.as_mut(), self.aendern.as_mut()) else { return };
+                self.meldung = self.orte.punkt_loeschen(v, a, i).unwrap_or_else(|e| format!("Einsetzpunkt nicht geloescht: {e:#}"));
+            }
+            UiAktion::HaltUmbenennen(h, name) => {
+                self.orte_umbenennen = None;
+                let (Some(v), Some(a)) = (self.viewer.as_mut(), self.aendern.as_mut()) else { return };
+                self.meldung = self.orte.halt_umbenennen(v, a, &h, &name).unwrap_or_else(|e| format!("nicht umbenannt: {e:#}"));
+            }
+            UiAktion::HaltLoeschen(h) => {
+                let (Some(v), Some(a)) = (self.viewer.as_mut(), self.aendern.as_mut()) else { return };
+                self.meldung = self.orte.halt_loeschen(v, a, &h).unwrap_or_else(|e| format!("Haltestelle nicht geloescht: {e:#}"));
+            }
+            UiAktion::HaltAufnehmen(h) => {
+                self.meldung = match self.orte.halt_aufnehmen(&h) {
+                    Ok(()) => format!("\"{}\" in Busstops.cfg aufgenommen", h.name),
+                    Err(e) => format!("{e:#}"),
+                };
+            }
+            UiAktion::Hinfahren(p) => {
+                self.kam.ziel = p;
+                self.kam.abstand = self.kam.abstand.min(120.0);
             }
             UiAktion::KachelNeu(k) => {
                 let (Some(v), Some(karte)) = (self.viewer.as_mut(), self.karte.clone()) else { return };
@@ -2269,6 +2479,11 @@ impl App {
                 match speichern::vorbereiten(v, &self.bearb, &self.strasse.netz, &self.strasse.gesetzte_kreuzungen(), &kopien, kreuzungen, &karte) {
                     Ok(mut paket) => {
                         paket.kacheln = self.welt.speicherliste(v);
+                        paket.orte = self.orte.daten(v).map(|d| (d, v.map_tile_refs()));
+                        // Objekte aus dem World Editor stehen schon in den Kacheln: [NextIDCode] hinter ihre IDs
+                        if paket.orte.is_some() {
+                            paket.naechste_id = Some(paket.naechste_id.unwrap_or(0).max(v.next_object_id()));
+                        }
                         let root = self.root.clone();
                         self.meldung = format!("speichere {karte} ({} geaenderte Dateien) ...", paket.dateien.len());
                         protokoll::aktion(&format!("Speichern: {karte} ueberschreiben"));
@@ -2285,6 +2500,11 @@ impl App {
                 match speichern::vorbereiten(v, &self.bearb, &self.strasse.netz, &self.strasse.gesetzte_kreuzungen(), &kopien, kreuzungen, &alt) {
                     Ok(mut paket) => {
                         paket.kacheln = self.welt.speicherliste(v);
+                        paket.orte = self.orte.daten(v).map(|d| (d, v.map_tile_refs()));
+                        // Objekte aus dem World Editor stehen schon in den Kacheln: [NextIDCode] hinter ihre IDs
+                        if paket.orte.is_some() {
+                            paket.naechste_id = Some(paket.naechste_id.unwrap_or(0).max(v.next_object_id()));
+                        }
                         let root = self.root.clone();
                         self.meldung = format!("speichere {neu} ({} geaenderte Dateien, {} neue Objekte, {} neue Splines) ...", paket.dateien.len(), paket.neue_objekte, paket.neue_splines);
                         self.speichern_job = Some(std::thread::spawn(move || speichern::karte_anlegen(&root, &alt, &neu, &paket).map(|p| (p, false))));
@@ -2301,11 +2521,17 @@ impl App {
     /// Strassen - zu seinem Schritt)
     fn verlauf_pruefen(&mut self) {
         let jetzt = self.stapel_jetzt();
-        let (b0, s0, a0, w0) = self.stapel;
+        let (b0, s0, a0, w0, o0) = self.stapel;
         let mut neu = false;
         if jetzt.1 > s0 {
             for _ in s0..jetzt.1 {
                 self.verlauf.push(Quelle::Strasse);
+            }
+            neu = true;
+        } else if jetzt.4 > o0 {
+            // Einsetzpunkt/Haltestelle: die gleichzeitig geschriebenen Kacheln gehoeren zu diesem Schritt
+            for _ in o0..jetzt.4 {
+                self.verlauf.push(Quelle::Orte);
             }
             neu = true;
         } else if jetzt.2 > a0 {
@@ -2332,14 +2558,14 @@ impl App {
         self.stapel = jetzt;
     }
 
-    fn stapel_jetzt(&self) -> (usize, usize, usize, usize) {
-        (self.bearb.undo_len(), self.strasse.undo_len(), self.aendern.as_ref().map(|a| a.undo_len()).unwrap_or(0), self.welt.undo_len())
+    fn stapel_jetzt(&self) -> (usize, usize, usize, usize, usize) {
+        (self.bearb.undo_len(), self.strasse.undo_len(), self.aendern.as_ref().map(|a| a.undo_len()).unwrap_or(0), self.welt.undo_len(), self.orte.undo_len())
     }
 
     /// Aenderungen seit dem Oeffnen (alle Werkzeuge)
     fn geaendert(&self) -> usize {
         let aendern = self.aendern.as_ref().map(|a| a.aenderungen).unwrap_or(0);
-        self.welt.aenderungen + self.strasse.aenderungen + self.bearb.aenderungen + aendern
+        self.welt.aenderungen + self.orte.aenderungen + self.strasse.aenderungen + self.bearb.aenderungen + aendern
     }
 
     /// letzten Schritt (welches Werkzeug auch immer) zuruecknehmen bzw. wiederholen
@@ -2364,6 +2590,13 @@ impl App {
                 }
                 None => false,
             },
+            Quelle::Orte => match if zurueck { self.orte.rueckgaengig(v, self.aendern.as_mut()) } else { self.orte.wiederholen(v, self.aendern.as_mut()) } {
+                Ok(b) => b,
+                Err(e) => {
+                    self.meldung = format!("{} fehlgeschlagen: {e:#}", if zurueck { "Rueckgaengig" } else { "Wiederholen" });
+                    false
+                }
+            },
             Quelle::Welt => match if zurueck { self.welt.rueckgaengig(v) } else { self.welt.wiederholen(v) } {
                 Ok(b) => b,
                 Err(e) => {
@@ -2376,7 +2609,7 @@ impl App {
             if zurueck { self.verlauf_redo.push(q) } else { self.verlauf.push(q) }
             if q != Quelle::Objekte {
                 self.meldung = format!("{} ({})", if zurueck { "rueckgaengig" } else { "wiederholt" },
-                                       match q { Quelle::Strasse => "Strasse bauen", Quelle::Aendern => "Aendern", Quelle::Objekte => "Objekte", Quelle::Welt => "Kacheln" });
+                                       match q { Quelle::Strasse => "Strasse bauen", Quelle::Aendern => "Aendern", Quelle::Objekte => "Objekte", Quelle::Welt => "Kacheln", Quelle::Orte => "Einsetzpunkte/Haltestellen" });
             }
         }
         self.anschluesse.vergessen();
@@ -2475,6 +2708,9 @@ impl App {
         self.spur_ziel = None;
         self.spur_zufahrt = None;
         self.welt = welt::Welt::default();
+        self.orte = orte::Orte::default();
+        self.orte_setzen = false;
+        self.orte_umbenennen = None;
         self.welt_wahl = None;
         self.welt_frage = None;
         if let Some(v) = self.viewer.as_mut() {
@@ -3097,7 +3333,19 @@ impl ApplicationHandler for App {
                     if button == MouseButton::Right {
                         self.rechts_start = self.maus;
                     }
-                    if button == MouseButton::Left && self.bearb.werkzeug == Werkzeug::Welt {
+                    if button == MouseButton::Left && self.bearb.werkzeug == Werkzeug::Welt && self.welt_modus != WeltModus::Kacheln && self.orte_setzen {
+                        if let (Some(g), Some(v), Some(a)) = (self.boden_unter_maus, self.viewer.as_mut(), self.aendern.as_mut()) {
+                            let (pos, rot) = orte::spur_bei(v, g.truncate()).unwrap_or((g, 0.0));
+                            let punkte = self.welt_modus == WeltModus::Einsetzpunkte;
+                            let name = if self.orte_name.trim().is_empty() {
+                                if punkte { format!("Einsetzpunkt {}", self.orte.punkte().len() + 1) } else { "Neue Haltestelle".to_string() }
+                            } else { self.orte_name.trim().to_string() };
+                            let erg = if punkte { self.orte.punkt_neu(v, a, pos, rot, &name) } else { self.orte.halt_neu(v, a, pos, rot, &name) };
+                            self.meldung = erg.unwrap_or_else(|e| format!("nicht gesetzt: {e:#}"));
+                        }
+                        self.orte_setzen = false;
+                    }
+                    if button == MouseButton::Left && self.bearb.werkzeug == Werkzeug::Welt && self.welt_modus == WeltModus::Kacheln {
                         if let (Some(k), Some(v)) = (self.welt_unter, self.viewer.as_ref()) {
                             let kacheln = v.map_tiles();
                             if kacheln.contains(&k) {

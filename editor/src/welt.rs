@@ -35,6 +35,11 @@ impl Welt {
         self.undo.len()
     }
 
+    /// Kachelliste beim Oeffnen der Karte (auf sie zeigen die Kachelnummern in global.cfg und TTData)
+    pub fn anfangsliste(&self, v: &Viewer) -> Liste {
+        self.anfang.clone().unwrap_or_else(|| v.map_tile_refs())
+    }
+
     /// (Liste beim Oeffnen, jetzige Liste), wenn sich etwas geaendert hat
     pub fn speicherliste(&self, v: &Viewer) -> Option<(Liste, Liste)> {
         let alt = self.anfang.clone()?;

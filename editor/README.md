@@ -174,6 +174,15 @@ Speichern wird die Liste neu geschrieben und die Kachelnummern der Einsetzpunkte
 `TTData/Busstops.cfg` umgerechnet (Einträge auf gelöschten Kacheln fallen weg). Jeder Schritt ist im gemeinsamen
 Rückgängig. Technik: openOMSI `Viewer::set_map_tiles` (Kachelliste zur Laufzeit).
 
+**World Editor → Einsetzpunkte / Haltestellen:** Listen mit „hin“ (Kamera), „umbenennen“, „löschen“; Name eingeben
+und „+ setzen“, dann Klick ins Bild: der Punkt kommt auf die nächste Fahrspur (bis 8 m), in deren Richtung.
+Einsetzpunkte sind `Generic\entrypoint_bus.sco` + Eintrag in global.cfg `[entrypoints]`, Haltestellen
+`Genericus_stop.sco` (Name = erster Text) + Eintrag in `TTData/Busstops.cfg`; Haltestellen, die in Busstops.cfg
+fehlen, lassen sich aufnehmen. Die Objekte stehen sofort in den Sitzungskopien der Kacheln (verschieben/drehen mit dem
+Objekte-Werkzeug bei Pfad-Ansicht H); beim Speichern werden alle Einsetzpunkte aus den fertigen Kacheln neu berechnet
+(Index in der Kachel – alle Objekt-Einträge gezählt wie die „Object Nr.“-Kommentare –, Lage, Drehung, Kachelnummer)
+und Busstops.cfg neu geschrieben. Ein Strg+Z nimmt Objekt und Listeneintrag zusammen zurück.
+
 **Rückgängig/Wiederholen** (Strg+Z / Strg+Y) gilt über alle Werkzeuge: der jeweils letzte Schritt, egal in welchem
 Werkzeug man gerade ist (eine gebaute Straße samt Kreuzungen und aufgeschnittenen Straßen ist ein Schritt).
 
