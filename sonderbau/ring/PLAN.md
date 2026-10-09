@@ -47,10 +47,16 @@ im Straßenbau (`omsigen/sonderbau_entwurf.py`, `python -m omsigen.ring_entwurf 
    OMSI-Bogenregel (Test). Offen für Etappe 3: Kreuzung und die Ein-/Ausfädelungen an beiden Enden.
 3. **Kreuzung:** ein Kreuzungsobjekt mit allen Spuren laut OSM (Abbiegespuren, Busspur), Ampel mit Phasen, rote
    Radstreifen, Sperrflächen.
-   **Stand:** ein Objekt `Kreuzung_Ludwigsallee` (omsigen editorkreuzung) mit 6 Armen (Schießhausbrücke,
-   Ludwigsallee Ost, 4 Rampenenden), 9 Abbiegespuren nach OSM `turn:lanes` (`ring_strassen.VERBINDUNGEN`), Ampel mit
-   3 Phasen (Ludwigsallee / Rampe West / Rampe Ost, 85 s), Haltlinien, rote Radfurten, Sperrfläche der Insel Ost im
-   Objekt selbst. Die Platte liegt in der Ausgleichsebene durch die Armenden (Ost +1,44 %, Nord −0,77 %) – als
-   Neigung/Rollen des Objekts, die Straßenenden sind auf die Ebene angeglichen (±1 cm). Bahnbrücke genau unter der
-   Schießhausbrücke. Ein-/Ausfädeln: laut OSM erst außerhalb des Sonderbaus (s ≈ 0 und ≈ 299) → beim Einbau.
+   **Stand (2. Fassung, nach Luftbild-Vergleich):** eigenes Objekt `Kreuzung_Ludwigsallee` aus
+   `omsigen/ring_kreuzung.py`, alle Lagen im DOP40 vermessen (Konstanten oben im Modul):
+   - Fahrbahn mit ausgerundeten Ecken (R 6 m), Gehwege an den Ecken, Inseln an den halbrunden Trogenden, Verkehrsinsel
+     Ost, Fahrbahnteiler West; Brüstungen mit Geländer an den Ecken über dem Bahneinschnitt und um die Trogöffnungen.
+   - Markierungen im Objekt: Haltlinien, Spurlinien, Sperrflächen, Pfeile (OSM turn:lanes), BUS, Radaufstellfläche
+     mit Radhaltlinie, rote Radfurten mit gestrichelten Rändern, Fußgängerfurten, Leitlinien der Linksabbieger.
+   - Höhe: glatte Fläche, die jeden Arm in Höhe und Steigung trifft (gemessen ±4 cm 1 m innerhalb); Pfade folgen ihr.
+   - 9 Abbiegespuren (korrigiert: von Westen links = Würzburg, rechts = Frankfurt), Zufahrten bis zur Haltlinie, Ampel
+     3 Phasen, 20 Signale/Masten auf Gehwegen und Inseln (keine fliegenden Ampeln mehr).
+   - Rampen-Querschnitte nach Luftbild (Sperrfläche außen: West-Nord, Ost-Süd), neuer Baukasten-Belag „Sperrfläche“.
+   - Trog endet halbrund (Apsis) an der Decke; Bahnbrücke endet an den Eckbrüstungen.
+
 4. **Einbau:** als Einzelstück in die Karte (ein Rückgängig-Schritt, Speichern wie gewohnt).

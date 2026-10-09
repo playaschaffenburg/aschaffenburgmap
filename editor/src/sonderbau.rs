@@ -107,32 +107,16 @@ pub fn strassen_anlegen(ae: &mut crate::aendern::Aendern, v: &mut openomsi_game:
     Ok(n)
 }
 
-/// Kreuzung des Sonderbaus: Arme (Strassenenden), Abbiegespuren, geneigte Ebene der Platte
+/// Kreuzung des Sonderbaus: fertiges Objekt von omsigen (ring_kreuzung) mit Vorfahrt-Regeln und Ampeln; die Signale
+/// tragen die Hoehe ihres Standorts (Gehweg/Insel, absolut), ihre Hoehe ueber dem Gelaende ergibt sich beim Setzen
 #[derive(Clone, Debug)]
 pub struct KreuzungPlan {
     pub name: String,
-    /// (Strasse, Lage, Richtung von der Kreuzung weg, Splinerichtung weg von der Kreuzung, Rolle)
-    pub arme: Vec<(String, glam::DVec3, f64, bool, crate::kreuzung::Rolle)>,
-    pub verbindungen: Vec<[usize; 4]>,
-    /// z0, Neigung Ost, Neigung Nord, Bezugspunkt
-    pub ebene: (f64, f64, f64, DVec2),
-    pub ampel: bool,
-    /// weitere Felder fuer omsigen editorkreuzung: "phasen" (Ampelphase je Arm), "markierung" (Flaechen auf der Platte)
-    pub extra: serde_json::Value,
-}
-
-impl KreuzungPlan {
-    pub fn z(&self, p: DVec2) -> f64 {
-        let (z0, gx, gy, c) = self.ebene;
-        z0 + gx * (p.x - c.x) + gy * (p.y - c.y)
-    }
-
-    /// Neigung und Rollen fuer das [object] (Grad, wie die Karte sie schreibt: positive Neigung senkt die Nase/Norden,
-    /// positives Rollen hebt die rechte Seite/Osten - openOMSI map_rotation/object_rotation)
-    pub fn neigung_rollen(&self) -> (f64, f64) {
-        let (_, gx, gy, _) = self.ebene;
-        (-gy.atan().to_degrees(), gx.atan().to_degrees())
-    }
+    pub gesetzt: crate::kreuzung::Gesetzt,
+    /// je Signal: Hoehe des Bodens, auf dem es steht (absolut), None bei Signalen am Ausleger
+    pub boden: Vec<Option<f64>>,
+    pub phasen: Vec<usize>,
+    pub umlauf: Option<f64>,
 }
 
 pub fn kreuzungen_lesen(datei: &Path) -> Result<Vec<KreuzungPlan>> {
@@ -140,56 +124,47 @@ pub fn kreuzungen_lesen(datei: &Path) -> Result<Vec<KreuzungPlan>> {
     let mut out = Vec::new();
     for k in j["kreuzungen"].as_array().map(|a| a.as_slice()).unwrap_or(&[]) {
         let f = |v: &serde_json::Value| v.as_f64().unwrap_or(0.0);
-        let arme = k["arme"].as_array().context("Arme fehlen")?.iter().map(|a| {
-            let rolle = match a["rolle"].as_str() {
-                Some("haupt") => crate::kreuzung::Rolle::Haupt,
-                Some("neben") => crate::kreuzung::Rolle::Neben,
-                _ => crate::kreuzung::Rolle::Gleich,
-            };
-            (a["strasse"].as_str().unwrap_or("").to_string(), glam::DVec3::new(f(&a["pos"][0]), f(&a["pos"][1]), f(&a["z"])),
-             f(&a["h"]), a["away"].as_bool().unwrap_or(false), rolle)
+        let liste = k["signale"].as_array().map(|a| a.as_slice()).unwrap_or(&[]);
+        let signale = liste.iter().map(|g| crate::kreuzung::Signal {
+            art: g["art"].as_str().unwrap_or("").to_string(),
+            datei: g["datei"].as_str().unwrap_or("").to_string(),
+            pos: g["x"].as_f64().zip(g["y"].as_f64()).map(|(x, y)| DVec2::new(x, y)),
+            hoehe: f(&g["hoehe"]),
+            rot: f(&g["rot"]),
+            gruppe: g["gruppe"].as_i64(),
+            eltern: g["eltern"].as_u64().map(|x| x as usize),
+            anhang: g["anhang"].as_i64().unwrap_or(0),
         }).collect();
-        let verbindungen = k["verbindungen"].as_array().map(|l| l.iter().filter_map(|v| {
-            let a = v.as_array()?;
-            Some([0, 1, 2, 3].map(|i| a.get(i).and_then(|x| x.as_u64()).unwrap_or(0) as usize))
-        }).collect()).unwrap_or_default();
-        let e = &k["ebene"];
+        let gesetzt = crate::kreuzung::Gesetzt {
+            rel: k["rel"].as_str().context("Kreuzung ohne Datei")?.to_string(),
+            pos: glam::DVec3::new(f(&k["ursprung"][0]), f(&k["ursprung"][1]), 0.0),
+            rules: k["rules"].as_array().map(|l| l.iter().filter_map(|r| Some((r[0].as_u64()? as usize, r[1].as_i64()? as i32))).collect()).unwrap_or_default(),
+            no_cars: k["no_cars"].as_array().map(|l| l.iter().filter_map(|x| x.as_u64().map(|x| x as usize)).collect()).unwrap_or_default(),
+            signale,
+        };
         out.push(KreuzungPlan {
-            name: k["name"].as_str().unwrap_or("Kreuzung").to_string(), arme, verbindungen,
-            ebene: (f(&e["z0"]), f(&e["gx"]), f(&e["gy"]), DVec2::new(f(&e["xc"]), f(&e["yc"]))),
-            ampel: k["ampel"].as_bool().unwrap_or(false),
-            extra: serde_json::json!({"phasen": k["phasen"], "markierung": k["markierung"]}),
+            name: k["name"].as_str().unwrap_or("Kreuzung").to_string(),
+            gesetzt,
+            boden: liste.iter().map(|g| g["z_boden"].as_f64()).collect(),
+            phasen: k["phasen"].as_array().map(|l| l.iter().filter_map(|x| x.as_u64().map(|x| x as usize)).collect()).unwrap_or_default(),
+            umlauf: k["umlauf"].as_f64(),
         });
     }
     Ok(out)
 }
 
-/// Kreuzungsobjekt bauen (omsigen editorkreuzung: Platte, genau die geplanten Abbiegespuren, Ampel mit Phasen) und mit
-/// Neigung, Vorfahrt-Regeln und Ampeln in die Karte (Sitzung) setzen. Die Ampeln stehen auf der Platte (ihre Hoehe
-/// gilt ueber dem Gelaende, das unter der Kreuzung abgesenkt sein kann). -> (Objekt, Anzahl Signale)
-pub fn kreuzung_anlegen(ae: &mut crate::aendern::Aendern, v: &mut openomsi_game::viewer::Viewer, root: &Path, ordner: &Path, rel_ordner: &str,
-                        plan: &KreuzungPlan, strassen: &[Strasse]) -> Result<(crate::kreuzung::Objekt, usize)> {
-    let mut arme = Vec::new();
-    for (name, pos, h, weg, rolle) in &plan.arme {
-        let st = strassen.iter().find(|s| &s.name == name).with_context(|| format!("Arm {name}: Strasse fehlt"))?;
-        let sli = format!("Splines\\{}\\{}.sli", crate::speichern::EIGEN, st.querschnitt.datei());
-        arme.push(crate::kreuzung::Arm { pos: *pos, richtung: *h, sli, weg: *weg, rolle: *rolle, gesperrt: false });
-    }
-    let o = crate::kreuzung::erzeugen_voll(root, ordner, rel_ordner, &plan.name, &arme, plan.ampel, None, Some(&plan.verbindungen), Some(&plan.extra))?;
-    let mut signale = o.signale.clone();
-    for sg in signale.iter_mut().filter(|s| s.art != "oben") {
-        if let Some(p) = sg.pos {
-            let boden = v.terrain_height(p.x, p.y).unwrap_or(plan.z(p));
-            sg.hoehe += plan.z(p) - boden;
+/// Kreuzungsobjekt mit Regeln und Ampeln in die Karte (Sitzung) setzen; die Ampeln stehen auf dem Boden ihres
+/// Standorts (das Gelaende darunter kann abgesenkt sein) -> Anzahl Signale/Masten
+pub fn kreuzung_anlegen(ae: &mut crate::aendern::Aendern, v: &mut openomsi_game::viewer::Viewer, plan: &KreuzungPlan) -> Result<usize> {
+    let mut g = plan.gesetzt.clone();
+    for (sg, boden) in g.signale.iter_mut().zip(&plan.boden) {
+        if let (Some(p), Some(b)) = (sg.pos, boden) {
+            let gelaende = v.terrain_height(p.x, p.y).unwrap_or(*b);
+            sg.hoehe += b - gelaende;
         }
     }
-    let g = crate::kreuzung::Gesetzt { rel: o.rel.clone(), pos: o.ursprung.extend(plan.z(o.ursprung)), rules: o.rules.clone(),
-                                       no_cars: o.no_cars.clone(), signale: signale.clone() };
-    let mut id = ae.neue_ids(v, 1 + signale.len() as i64);
-    let (k, mut eintraege) = crate::speichern::kreuzung_eintraege(&g, &mut id);
-    let (neigung, rollen) = plan.neigung_rollen();
-    eintraege[0][8] = crate::kreuzung::zahl(neigung);
-    eintraege[0][9] = crate::kreuzung::zahl(rollen);
+    let mut id = ae.neue_ids(v, 1 + g.signale.len() as i64);
+    let (k, eintraege) = crate::speichern::kreuzung_eintraege(&g, &mut id);
     ae.kacheln_aendern(v, &[k], |_, zeilen| {
         for f in &eintraege {
             zeilen.push(String::new());
@@ -197,7 +172,7 @@ pub fn kreuzung_anlegen(ae: &mut crate::aendern::Aendern, v: &mut openomsi_game:
         }
         Ok(eintraege.len())
     })?;
-    Ok((o, signale.len()))
+    Ok(g.signale.len())
 }
 
 /// abzusenkende Gelaendepunkte: (Kachel, Spalte, Zeile ab Sueden, Hoehe)
@@ -285,24 +260,29 @@ mod tests {
             assert!(v.preview_terrain(k.0, k.1, t), "Kachel {k:?} nicht geladen");
         }
         println!("{} Gelaendepunkte in {} Kacheln abgesenkt", senken.len(), kacheln.len());
-        // Etappe 3: Kreuzung (Ampeln auf der Platte, ueber dem abgesenkten Gelaende)
-        let ordner = root.join("Sceneryobjects/Aschaffenburg/Aburg_Newgen/Sonderbau_Ring");
+        // Etappe 3: Kreuzung (Ampeln auf Gehwegen und Inseln, ueber dem abgesenkten Gelaende)
         for plan in kreuzungen_lesen(&json).unwrap() {
-            let (o, n) = kreuzung_anlegen(&mut ae, &mut v, root, &ordner, r"Sceneryobjects\Aschaffenburg\Aburg_Newgen\Sonderbau_Ring", &plan, &strassen).unwrap();
-            println!("{}: {} Abbiegespuren ({} fehlgeschlagen), {} Signale/Masten, Phasen {:?}, Umlauf {:?} s, Neigung/Rollen {:?}",
-                     plan.name, o.spuren, o.fehlgeschlagen, n, o.phasen, o.umlauf, plan.neigung_rollen());
-            assert_eq!(o.fehlgeschlagen, 0);
-            assert_eq!(o.spuren, plan.verbindungen.len());
-            // die geneigte Platte trifft die Strassenenden: Oberflaeche 2 m innerhalb jedes Arms = Ebene + 0,10 m
+            let n = kreuzung_anlegen(&mut ae, &mut v, &plan).unwrap();
+            println!("{}: {} Signale/Masten, {} Regeln, Phasen {:?}, Umlauf {:?} s", plan.name, n, plan.gesetzt.rules.len(), plan.phasen, plan.umlauf);
+            assert!(n >= 12);
+            // die Kreuzung trifft die Strassen: Oberflaeche 1 m innerhalb jedes Strassenendes = Spline + 0,10 m
             v.tiles_around(mitte, 1).unwrap();
-            for (name, pos, h, _, _) in &plan.arme {
-                let r = h.to_radians();
-                let p = pos.truncate() - DVec2::new(r.sin(), r.cos()) * 2.0;
-                let ist = v.surface_height(p.x, p.y);
-                println!("  {name:20} Ebene {:.2}  Platte {:?}", plan.z(p) + 0.10, ist.map(|x| (x * 100.0).round() / 100.0));
-            }
-            for p in [DVec2::new(1096.0, -266.5), DVec2::new(1085.0, -260.0), DVec2::new(1085.0, -273.0), DVec2::new(1085.0, -266.0), DVec2::new(1075.0, -266.0)] {
-                println!("  Platte bei {p:?}: {:?} ueber der Ebene", v.surface_height(p.x, p.y).map(|z| ((z - plan.z(p)) * 1000.0).round() / 1000.0));
+            let o = plan.gesetzt.pos.truncate();
+            for st in &strassen {
+                for (p, z, h) in [st.elemente.first().map(|e| (e.pos, e.z, e.richtung + 180.0)), st.elemente.last().map(|e| {
+                    let c = crate::netz::Stueck { start: e.pos, richtung: e.richtung, laenge: e.laenge, radius: e.radius };
+                    let (q, hq) = c.ende();
+                    (q, e.z + e.dh, hq)
+                })].into_iter().flatten() {
+                    if (p - o).length() > 45.0 || st.name == "Ring" {
+                        continue;
+                    }
+                    let r = h.to_radians();
+                    let q = p + DVec2::new(r.sin(), r.cos()) * 1.0;
+                    let ist = v.surface_height(q.x, q.y);
+                    println!("  {:20} Strasse {:.2}  Kreuzung {:?}", st.name, z + 0.10, ist.map(|x| (x * 100.0).round() / 100.0));
+                    assert!(ist.map(|x| (x - z - 0.10).abs() < 0.08).unwrap_or(false), "{}: Kreuzung trifft die Strasse nicht", st.name);
+                }
             }
         }
         v.tiles_around(mitte, 1).unwrap();
@@ -326,6 +306,10 @@ mod tests {
                 (DVec3::new(1084.0, -266.0, 11.0), 0.0, -65.0, 75.0, "kreuzung_oben"),
                 (DVec3::new(1080.0, -266.0, 12.0), 95.0, -6.0, 45.0, "kreuzung_west"),
                 (DVec3::new(1075.0, -262.0, 12.0), 180.0, -8.0, 35.0, "kreuzung_rampe"),
+                (DVec3::new(1057.0, -269.5, 10.5), 90.0, -75.0, 16.0, "zufahrt_west"),
+                (DVec3::new(1085.0, -252.0, 10.5), 180.0, -55.0, 22.0, "insel_nord"),
+                (DVec3::new(1085.0, -247.0, 9.0), 180.0, -88.0, 14.0, "trog_nord_oben"),
+                (DVec3::new(1110.0, -261.0, 11.5), 270.0, -75.0, 16.0, "zufahrt_ost"),
                 (DVec3::new(1070.0, -385.0, 6.5), 10.0, -4.0, 30.0, "sued_einfahrt"),
                 (DVec3::new(1056.0, -266.0, 6.0), 0.0, -12.0, 35.0, "bahnbruecke"),
             ];

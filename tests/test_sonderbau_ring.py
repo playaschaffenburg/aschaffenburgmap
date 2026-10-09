@@ -26,3 +26,31 @@ def test_kasten_aussen():
     for a, b, c, _ in m.F:
         n = np.array(m.V[a][3:6])
         assert np.dot((V[a] + V[b] + V[c]) / 3 - mitte, n) > 0
+
+
+def test_kreuzung_hoehenflaeche_trifft_die_arme():
+    """die Kreuzungsflaeche liegt an jedem Armende genau auf Hoehe der Strasse und laeuft mit deren Steigung weiter"""
+    from omsigen.ring_kreuzung import Arm, hoehenflaeche
+    q = dict(teile=[dict(art='fahrspur', breite=3.5, richtung='zurueck'), dict(art='fahrspur', breite=3.5, richtung='vor')])
+    roh = [dict(strasse='a', rolle='haupt', pos=[-20.0, 0.0], h=270.0, away=True, z=10.0, g=0.02, querschnitt=q),
+           dict(strasse='b', rolle='haupt', pos=[20.0, 0.0], h=90.0, away=True, z=11.0, g=0.03, querschnitt=q),
+           dict(strasse='c', rolle='neben', pos=[0.0, 20.0], h=0.0, away=False, z=10.2, g=-0.04, querschnitt=q)]
+    arme = [Arm(i, a) for i, a in enumerate(roh)]
+    z = hoehenflaeche(arme)
+    for a in roh:
+        assert abs(z(a['pos'][0], a['pos'][1] + 1.0 * (a['h'] in (90.0, 270.0))) - a['z']) < 0.01
+    m = z(0.0, 0.0)
+    assert 10.0 < m < 11.0
+
+
+def test_kreuzung_spuren_von_rechts():
+    """Spuren je Arm: ankommend/abgehend, von rechts in Fahrtrichtung gezaehlt"""
+    from omsigen.ring_kreuzung import Arm
+    q = dict(teile=[dict(art='gehweg', breite=2.5, richtung='vor'), dict(art='busspur', breite=3.0, richtung='zurueck'),
+                    dict(art='fahrspur', breite=3.5, richtung='zurueck'), dict(art='fahrspur', breite=3.5, richtung='zurueck'),
+                    dict(art='fahrspur', breite=3.5, richtung='vor'), dict(art='gehweg', breite=2.5, richtung='vor')])
+    # Ostarm: Spline West -> Ost beginnt an der Kreuzung; ankommend = 'zurueck' (nach Westen), rechts = Norden
+    a = Arm(0, dict(strasse='o', rolle='haupt', pos=[0.0, 0.0], h=90.0, away=True, z=0, g=0, querschnitt=q))
+    rein, raus = a.spuren()
+    assert [t['art'] for _, t in rein] == ['busspur', 'fahrspur', 'fahrspur']
+    assert rein[0][0] < rein[1][0] < rein[2][0] and len(raus) == 1

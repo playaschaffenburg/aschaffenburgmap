@@ -29,14 +29,16 @@ from .kreuzung import x_file
 RING = ['159575718', '227934178', '7975056', '227934179']
 WEST = ['227934180', '183815409', '23781579']          # Einbahn nach Sueden
 OST = ['233369539', '23781578', '7925387']             # (umgedreht: Nord -> Sued) Einbahn nach Norden
-DECKE = (-253.5, -279.0)                               # Unterfuehrung: Nord- und Suedkante (y)
+DECKE = (-248.9, -284.0)                               # Unterfuehrung: wo die Trogwaende an die Decke stossen (y)
+S_PLATTE = (107.0, 161.0)                              # Achs-Stationen unter dem Kreuzungsobjekt (ohne Rampenplatten)
 SCHRITT = 2.0
 STUECK = 40.0                                          # m je Wand-Objekt
 
 TEX = {'beton': 'betonwand1.bmp', 'klinker': 'AB_klinker.bmp', 'gabionen': 'AB_gabionen.bmp',
        'lsw_gruen': 'AB_lsw_gruen.bmp', 'glas': 'AB_glas.tga', 'gelaender': 'AB_gelaender.bmp',
        'decke': 'AB_beton_dunkel.bmp', 'pflanzen': 'AB_bodendecker.bmp', 'asphalt': 'str_asphdrk.bmp',
-       'boden': 'AB_boden.bmp', 'weiss': 'AB_weiss.bmp', 'rot': 'AB_radfurt.bmp', 'sperr': 'AB_sperrflaeche.tga'}
+       'boden': 'AB_boden.bmp', 'weiss': 'AB_weiss.bmp', 'radfurt': 'AB_radfurt.bmp', 'sperr': 'AB_sperrflaeche.tga',
+       'gehweg': 'str_gehweg02.bmp', 'bord': 'str_side1.bmp', 'busbeton': 'str_betonplatten.bmp'}
 
 
 # ------------------------------------------------------------------ Geometrie-Helfer
@@ -77,6 +79,23 @@ class Mesh:
             self.F += [(i0, i0 + 1, i0 + 2, m), (i0, i0 + 2, i0 + 3, m)]
         else:
             self.F += [(i0, i0 + 2, i0 + 1, m), (i0, i0 + 3, i0 + 2, m)]
+
+    def dreieck(self, key, p, uv, n):
+        """Dreieck p0..p2 (je (x, y, z)), sichtbar zur Seite n"""
+        p = [np.asarray(q, float) for q in p]
+        n = np.asarray(n, float)
+        n = n / np.linalg.norm(n)
+        m = self.mat(key)
+        X = [(q[0], q[2], q[1]) for q in p]
+        N = (n[0], n[2], n[1])
+        a, b, c = (np.array(X[i]) for i in range(3))
+        if np.linalg.norm(np.cross(b - a, c - a)) < 1e-9:
+            return
+        vorne = np.dot(np.cross(b - a, c - a), N) >= 0
+        i0 = len(self.V)
+        for (x, y, z), (u, v) in zip(X, uv):
+            self.V.append((x, y, z) + tuple(N) + (u, v))
+        self.F.append((i0, i0 + 1, i0 + 2, m) if vorne else (i0, i0 + 2, i0 + 1, m))
 
     def leer(self):
         return not self.F
@@ -128,7 +147,13 @@ def linie(ways, ids, umdrehen=False):
     return np.array(pts, float)
 
 
-TRENNSTREIFEN = 1.5      # Ringwand (Sichtflaeche) bis Fahrbahnkante der Rampe: Wand 0,5 m + Bruestung/Bord
+def trennstreifen(seite, s):
+    """Ringwand (Sichtflaeche) bis Fahrbahnkante der Rampe nach Luftbild (ring_strassen.RAMPEN), Nord/Sued der Kreuzung"""
+    from .ring_strassen import RAMPEN
+    nord = s < 131.0
+    return next(r['trenn'] for r in RAMPEN.values() if r['seite'] == seite and (r['s'][1] is not None) == nord)
+
+
 WAND = 0.5               # Dicke der Trennwand
 
 
@@ -169,8 +194,8 @@ def aus_entwurf(entwurf, dgm, E0, N0, nn0, schritt=SCHRITT):
         for sd, vz in (('w', -1), ('o', 1)):
             aussen_t = tq[f'rampe_aussen_{sd}'][i]
             if np.isnan(aussen_t):
-                aussen_t = (ra if vz < 0 else rb) + vz * (TRENNSTREIFEN + 6.5)
-            innen = (ra if vz < 0 else rb) + vz * TRENNSTREIFEN
+                aussen_t = (ra if vz < 0 else rb) + vz * (trennstreifen(sd, s) + 6.5)
+            innen = (ra if vz < 0 else rb) + vz * trennstreifen(sd, s)
             a, b = (aussen_t, innen) if vz < 0 else (innen, aussen_t)
             e[sd] = dict(a=float(a), b=float(b), z=float(zw[sd][i]), g=np.nan)
         roh.append(e)
@@ -206,7 +231,7 @@ def fuge(e, seite):
 
 def im_knoten(e):
     """Station im Bereich der Ludwigsallee (dort keine Aussenwaende, die Kreuzung liegt darueber)"""
-    return DECKE[1] - 1.0 <= e['p'][1] <= DECKE[0] + 1.0
+    return -280.0 <= e['p'][1] <= -247.0          # dort beginnen die Eckbruestungen des Kreuzungsobjekts
 
 
 def aussen(e, seite):
@@ -228,15 +253,24 @@ def rand(e, seite):
     return e['ra'] - 1.0 if seite == 'w' else e['rb'] + 1.0
 
 
-def trennwand(roh, seite, o):
+def trennwand(roh, seite, o, platte=None):
     """Stuetzwand zwischen Ring und Rampe `seite` ('w'/'o'): Linie in der Mitte der Fuge; Ring-Seite Klinkerfelder mit
-    Pfeilern alle 5 m, Kappe, Bruestung mit Gelaender zur Rampe -> Mesh (Objektursprung o)"""
+    Pfeilern alle 5 m, Kappe, Bruestung mit Gelaender zur Rampe -> Mesh (Objektursprung o). Unter dem
+    Kreuzungsobjekt (`platte`: Hoehe z(x, y)) endet die Wand knapp unter dessen Flaeche, ohne Bruestung."""
     m = Mesh()
     vz = -1 if seite == 'w' else 1
+    unter = lambda e: platte is not None and S_PLATTE[0] <= e['s'] <= S_PLATTE[1]
     lauf = []                                # zusammenhaengende Stuecke mit Rampe hoeher als der Ring
     for e in roh:
         t = fuge(e, seite)
-        lauf.append(None if t is None else (e, t, e[seite]['z']))
+        if t is None:
+            lauf.append(None)
+            continue
+        z = e[seite]['z']
+        if unter(e):
+            q = welt(e, t, 0)
+            z = min(z, float(platte(q[0], q[1])) - 0.1)
+        lauf.append((e, t, z))
     s_ges = 0.0
     letzte = None
     for i in range(len(lauf) - 1):
@@ -259,7 +293,7 @@ def trennwand(roh, seite, o):
                [(s_ges / 2, za), ((s_ges + laenge) / 2, zb), ((s_ges + laenge) / 2, kappe_b - 0.4), (s_ges / 2, kappe_a - 0.4)], n_ring)
         m.quad('beton', [p(ea, ri_a, kappe_a - 0.4), p(eb, ri_b, kappe_b - 0.4), p(eb, ri_b, kappe_b), p(ea, ri_a, kappe_a)],
                [(s_ges / 4, 0), ((s_ges + laenge) / 4, 0), ((s_ges + laenge) / 4, 0.1), (s_ges / 4, 0.1)], n_ring)
-        if not (ea['unter_decke'] and eb['unter_decke']):
+        if not (ea['unter_decke'] and eb['unter_decke']) and not (unter(ea) or unter(eb)):
             # Bruestung 0,5 m ueber der Rampe, Rueckseite zur Rampe, darauf Gelaender bis 1,1 m
             br_a, br_b = kappe_a + 0.5, kappe_b + 0.5
             m.quad('beton', [p(ea, ri_a, kappe_a), p(eb, ri_b, kappe_b), p(eb, ri_b, br_b), p(ea, ri_a, br_a)],
@@ -357,48 +391,27 @@ def aussenwand(roh, seite, o):
     return m
 
 
-def decke(roh, ludwig_z, o):
-    """Unterfuehrung: Betonplatte ueber dem Ring zwischen den Trennwaenden, an beiden Stirnseiten halbrund
-    vorspringend (Luftbild), Unterseite dunkler Beton, Stirnseiten Beton"""
+def decke(T, z_top, o):
+    """Unterfuehrung: Betonplatte zwischen den Trogwaenden unter dem Kreuzungsobjekt; an beiden Enden endet der Trog
+    halbrund (Luftbild): die Stirnseite der Decke folgt dem Halbkreis. Unterseite dunkler Beton"""
+    from .ring_kreuzung import fein_dreiecke
     m = Mesh()
-    unter = [e for e in roh if e['unter_decke']]
-    if not unter:
-        return m
-    e_n, e_s = unter[0], unter[-1]
-    breite_l = min(e['ra'] for e in unter) - 0.5
-    breite_r = max(e['rb'] for e in unter) + 0.5
-    r = (breite_r - breite_l) / 2.0
-    oben = ludwig_z - 0.05
     dicke = 1.1
-    # Umriss: gerade Seiten an den Trennwaenden, Halbkreise an Nord- und Suedkante (Mittelpunkte auf der Achse)
-    def umriss():
-        pts = []
-        for e_, sgn in ((e_n, 1), (e_s, -1)):
-            mitte = e_['p'] + e_['quer'] * (breite_l + r)
-            d = -e_['d'] * sgn                        # nach aussen (Nord bei e_n)
-            for k in range(17):
-                w = math.pi * k / 16
-                q = mitte + e_['quer'] * (math.cos(w) * r * sgn) + d * (math.sin(w) * r * 0.6)
-                pts.append(q)
-        return pts
-    U = [np.array([q[0], q[1]]) - o[:2] for q in umriss()]
-    n = len(U)
-    c = sum(U) / n
-    for i in range(n):
-        a, b = U[i], U[(i + 1) % n]
-        # Stirn/Seiten
-        aussen = np.array([b[1] - a[1], a[0] - b[0]])
-        if np.dot(aussen, (a + b) / 2 - c) < 0:
-            aussen = -aussen
-        L = np.linalg.norm(b - a)
-        m.quad('beton', [(a[0], a[1], oben - dicke - o[2]), (b[0], b[1], oben - dicke - o[2]), (b[0], b[1], oben - o[2] + 0.3), (a[0], a[1], oben - o[2] + 0.3)],
-               [(0, 0), (L / 4, 0), (L / 4, 0.35), (0, 0.35)], (aussen[0], aussen[1], 0))
-        # Unterseite (Faecher)
-        m.quad('decke', [(c[0], c[1], oben - dicke - o[2]), (b[0], b[1], oben - dicke - o[2]), (a[0], a[1], oben - dicke - o[2]), (c[0], c[1], oben - dicke - o[2])],
-               [(c[0] / 4, c[1] / 4), (b[0] / 4, b[1] / 4), (a[0] / 4, a[1] / 4), (c[0] / 4, c[1] / 4)], (0, 0, -1))
-        # Oberseite (bis Etappe 3 die Kreuzung darueber liegt)
-        m.quad('beton', [(c[0], c[1], oben - o[2]), (a[0], a[1], oben - o[2]), (b[0], b[1], oben - o[2]), (c[0], c[1], oben - o[2])],
-               [(c[0] / 4, c[1] / 4), (a[0] / 4, a[1] / 4), (b[0] / 4, b[1] / 4), (c[0] / 4, c[1] / 4)], (0, 0, 1))
+    for c in fein_dreiecke(T['decke'], 4.0):
+        m.dreieck('decke', [(x - o[0], y - o[1], z_top - dicke - o[2]) for x, y in c], [(x / 4, y / 4) for x, y in c], (0, 0, -1))
+        m.dreieck('beton', [(x - o[0], y - o[1], z_top - o[2]) for x, y in c], [(x / 4, y / 4) for x, y in c], (0, 0, 1))
+    for name in ('nord', 'sued'):
+        info = T[name]
+        mitte, rr, d = info['mitte'], info['r'], info['richtung']
+        quer = np.array([d[1], -d[0]])
+        pts = [mitte + quer * rr * math.cos(w) + d * rr * math.sin(w) for w in np.linspace(0, math.pi, 33)]
+        for a, b in zip(pts[:-1], pts[1:]):
+            mid = (a + b) / 2
+            nrm = (mitte - mid) / np.linalg.norm(mitte - mid)        # zur Trogoeffnung hin
+            L = float(np.linalg.norm(b - a))
+            m.quad('beton', [(a[0] - o[0], a[1] - o[1], z_top - dicke - 0.3 - o[2]), (b[0] - o[0], b[1] - o[1], z_top - dicke - 0.3 - o[2]),
+                             (b[0] - o[0], b[1] - o[1], z_top - o[2]), (a[0] - o[0], a[1] - o[1], z_top - o[2])],
+                   [(0, 0), (L / 4, 0), (L / 4, 0.35), (0, 0.35)], (nrm[0], nrm[1], 0))
     return m
 
 
@@ -415,10 +428,11 @@ def strassen_raender(q):
     return -mitte, x - mitte
 
 
-def bahnbruecke(st, gel, o):
+def bahnbruecke(st, gel, o, z_platte=None):
     """Bruecke der Schiesshausbruecke ueber die Bahn, genau unter der Strasse (Etappe 2): Platte so breit wie der
     Querschnitt, Bruestungen mit Gelaender an den Raendern, Widerlager dort, wo der Bahneinschnitt (DGM) beginnt und
-    endet. -> (Mesh, Hoehe der Fahrbahn in der Mitte)"""
+    endet. Jenseits des Splines (auf dem Kreuzungsobjekt) gilt die Hoehe `z_platte(x, y)`; dort gibt es keine
+    Bruestungen, das Kreuzungsobjekt fuehrt sie gerundet um die Ecken. -> (Mesh, Hoehe der Fahrbahn in der Mitte)"""
     m = Mesh()
     el = st['elemente']
     p0 = np.array([el[0]['x'], el[0]['y']])
@@ -428,10 +442,14 @@ def bahnbruecke(st, gel, o):
     L = sum(e['laenge'] for e in el)
     kum = np.array([e['kum'] for e in el] + [L])
     zs = np.array([e['z'] for e in el] + [el[-1]['z'] + el[-1]['dh']])
-    z_bei = lambda a: float(np.interp(a, kum, zs))
+    def z_bei(a):
+        if a > L and z_platte is not None:
+            q = p0 + u * a
+            return float(z_platte(q[0], q[1]))
+        return float(np.interp(a, kum, zs))
     links, rechts = strassen_raender(st['querschnitt'])
     # Einschnitt: wo das Gelaende in der Strassenmitte mehr als 2 m unter der Fahrbahn liegt
-    A = np.arange(0, L, 0.5)
+    A = np.arange(0, L + 30.0, 0.5)
     P = p0[None, :] + A[:, None] * u[None, :]
     tief = gel.h(P[:, 0], P[:, 1]) < np.array([z_bei(a) for a in A]) - 2.0
     if not tief.any():
@@ -443,10 +461,13 @@ def bahnbruecke(st, gel, o):
     N = lambda du, dn, dz: (u[0] * du + n[0] * dn, u[1] * du + n[1] * dn, dz)
     bl, br = -links + 0.35, -rechts - 0.35                   # Aussenkanten quer (links positiv)
     za, zb = z_bei(a0) - 0.05, z_bei(a1) - 0.05
+    a1_voll = a1
     dicke = 1.2
     m.quad('decke', [W(a0, bl, za - dicke), W(a1, bl, zb - dicke), W(a1, br, zb - dicke), W(a0, br, za - dicke)],
            [(0, 0), ((a1 - a0) / 4, 0), ((a1 - a0) / 4, (bl - br) / 4), (0, (bl - br) / 4)], N(0, 0, -1))
-    for b, sgn in ((bl, 1), (br, -1)):
+    a1, zb_alt = min(a1, L), zb
+    zb = z_bei(a1) - 0.05
+    for b, sgn in ((bl, 1), (br, -1)) if a1 > a0 + 0.5 else ():
         bi = b - sgn * 0.3
         m.quad('beton', [W(a0, b, za - dicke), W(a1, b, zb - dicke), W(a1, b, zb + 1.1), W(a0, b, za + 1.1)],
                [(0, 0), ((a1 - a0) / 4, 0), ((a1 - a0) / 4, 0.6), (0, 0.6)], N(0, sgn, 0))
@@ -463,6 +484,7 @@ def bahnbruecke(st, gel, o):
             zz = z_bei(a) - 0.05
             kasten(m, 'gelaender', q[0] - 0.04, q[0] + 0.04, q[1] - 0.04, q[1] + 0.04, zz + 1.1 - o[2], zz + 2.16 - o[2])
     # Widerlager: Waende von der Sohle bis unter die Platte, zur Bahn hin Klinker
+    a1, zb = a1_voll, zb_alt
     for a, sgn, z in ((a0, 1, za), (a1, -1, zb)):
         m.quad('klinker', [W(a, br, sohle - 0.5), W(a, bl, sohle - 0.5), W(a, bl, z - dicke), W(a, br, z - dicke)],
                [(0, sohle), ((bl - br) / 2, sohle), ((bl - br) / 2, z - dicke), (0, z - dicke)], N(sgn, 0, 0), beidseitig=True)
@@ -480,50 +502,19 @@ def _spuren_quer(q, arten):
     return out
 
 
-def markierung(strassen, kreuzung):
-    """Markierungen auf der Kreuzungsplatte (editorkreuzung baut sie ins Kreuzungsobjekt): Haltlinien an den
-    Zufahrten, rote Radfurten entlang der Ludwigsallee, Sperrflaeche der Verkehrsinsel Ost (Luftbild)
-    -> Liste dict(tex, alpha, ecken (Welt), m)"""
+def platte_gelaende(platte, zf):
+    """Gelaendepunkte unter dem Kreuzungsobjekt (mindestens 1,5 m innerhalb), 0,4 m unter seiner Flaeche"""
     out = []
-    nach_name = {st['name']: st for st in strassen}
-
-    def flaeche(key, ecken, tex=1.0):
-        out.append(dict(tex=TEX[key], alpha=TEX[key].endswith('.tga'), ecken=[[float(c[0]), float(c[1])] for c in ecken], m=tex))
-
-    def rahmen(arm):
-        """Endpunkt, Richtung von der Kreuzung weg, 'rechts der Splinerichtung' als Vektor"""
-        h = math.radians(arm['h'])
-        weg = np.array([math.sin(h), math.cos(h)])
-        rechts_weg = np.array([weg[1], -weg[0]])
-        return np.array(arm['pos']), weg, (rechts_weg if arm['away'] else -rechts_weg)
-
-    # Haltlinien: ueber die ankommenden Spuren, 1 m in der Kreuzung, 0,5 m breit
-    for arm in kreuzung['arme']:
-        q = nach_name[arm['strasse']]['querschnitt']
-        spuren = [(a, b) for a, b, r in _spuren_quer(q, ('fahrspur', 'busspur')) if (r == 'vor') != arm['away']]
-        if not spuren:
-            continue
-        p, weg, sr_ = rahmen(arm)
-        b0, b1 = min(a for a, _ in spuren), max(b for _, b in spuren)
-        c = p - weg * 1.0
-        flaeche('weiss', [c + sr_ * b0, c + sr_ * b1, c + sr_ * b1 - weg * 0.5, c + sr_ * b0 - weg * 0.5])
-    # Radfurten entlang der Ludwigsallee (beide Arme laufen West -> Ost: rechts der Splinerichtung = Sueden)
-    w = next(a for a in kreuzung['arme'] if a['strasse'] == 'Schiesshausbruecke')
-    oa = next(a for a in kreuzung['arme'] if a['strasse'] == 'Ludwigsallee_Ost')
-    pw, _, sw = rahmen(w)
-    po, _, so = rahmen(oa)
-    rad_w = _spuren_quer(nach_name['Schiesshausbruecke']['querschnitt'], ('radfahrstreifen',))
-    rad_o = _spuren_quer(nach_name['Ludwigsallee_Ost']['querschnitt'], ('radfahrstreifen',))
-    sued_o = max(rad_o, key=lambda r: r[0])
-    nord_o = min(rad_o, key=lambda r: r[0])
-    sued_w = rad_w[0] if rad_w else sued_o
-    flaeche('rot', [pw + sw * sued_w[0], po + so * sued_o[0], po + so * sued_o[1], pw + sw * sued_w[1]], tex=4.0)
-    # Nordseite: im Westarm faehrt der Radverkehr auf der Busspur - die Furt laeuft an deren linken Rand
-    links_w, _ = strassen_raender(nach_name['Schiesshausbruecke']['querschnitt'])
-    breite = nord_o[1] - nord_o[0]
-    flaeche('rot', [pw + sw * links_w, po + so * nord_o[0], po + so * nord_o[1], pw + sw * (links_w + breite)], tex=4.0)
-    # Sperrflaeche der Verkehrsinsel Ost (Luftbild: x 1089..1105, y -265..-268), schraffiert
-    flaeche('sperr', [np.array([1089.0, -268.0]), np.array([1103.0, -268.0]), np.array([1103.0, -265.0]), np.array([1089.0, -265.0])], tex=2.0)
+    innen = platte.buffer(-1.5)
+    x0, y0, x1, y1 = platte.bounds
+    from shapely.geometry import Point as _P
+    for kx in range(int(math.floor(x0 / 300)), int(math.floor(x1 / 300)) + 1):
+        for ky in range(int(math.floor(y0 / 300)), int(math.floor(y1 / 300)) + 1):
+            for zeile in range(61):
+                for spalte in range(61):
+                    x, y = kx * 300 + spalte * 5.0, ky * 300 + zeile * 5.0
+                    if x0 <= x <= x1 and y0 <= y <= y1 and innen.contains(_P(x, y)):
+                        out.append([kx, ky, spalte, zeile, round(float(zf(x, y)) - 0.4, 3)])
     return out
 
 
@@ -548,13 +539,16 @@ def flaechen(roh, o):
     p = lambda e, t, z: welt(e, t, z - 0.05) - o
     for ea, eb in zip(roh[:-1], roh[1:]):
         pa, pb = profil(ea), profil(eb)
-        for (a0, a1, za), (b0, b1, zb) in zip(pa, pb):
+        unter_platte = S_PLATTE[0] <= ea['s'] and eb['s'] <= S_PLATTE[1]
+        for k_, ((a0, a1, za), (b0, b1, zb)) in enumerate(zip(pa, pb)):
             if a1 - a0 < 0.05 and b1 - b0 < 0.05:
                 continue
+            if unter_platte and k_ != 1:
+                continue                         # Rampen: dort liegt das Kreuzungsobjekt
             q = [p(ea, a0, za), p(eb, b0, zb), p(eb, b1, zb), p(ea, a1, za)]
             m.quad('asphalt', q, [((c[0] + o[0]) / 5, (c[1] + o[1]) / 5) for c in q], (0, 0, 1))
         # Stufen zwischen den Flaechen (wo keine Trennwand steht, sind sie niedrig)
-        for k in (0, 1):
+        for k in (() if unter_platte else (0, 1)):
             ta, tb = pa[k][1], pb[k][1]
             q = [p(ea, ta, pa[k][2]), p(eb, tb, pb[k][2]), p(eb, tb, pb[k + 1][2]), p(ea, ta, pa[k + 1][2])]
             m.quad('beton', q, [(0, 0), (0.5, 0), (0.5, 0.2), (0, 0.2)], None, beidseitig=True)
@@ -726,13 +720,15 @@ def texturen(omsi, ziel):
     p = (rng.normal(0, 18, (128, 128, 3)) + (70, 105, 55)).clip(0, 255).astype(np.uint8)
     Image.fromarray(p).save(os.path.join(ziel, TEX['pflanzen']))
     shutil.copy(os.path.join(marcel, 'str_asphdrk.bmp'), os.path.join(ziel, TEX['asphalt']))
+    for t in ('str_gehweg02.bmp', 'str_side1.bmp', 'str_betonplatten.bmp'):
+        shutil.copy(os.path.join(marcel, t), os.path.join(ziel, t))
     Image.new('RGB', (8, 8), (235, 235, 230)).save(os.path.join(ziel, TEX['weiss']))
     # Radfurt: dieselbe rote Asphalttextur wie die Radstreifen der Baukasten-Querschnitte (sonst einfarbig)
     rot = os.path.join(omsi, 'Splines', 'Aschaffenburg', 'texture', 'AB_asphalt_rot.bmp')
     if os.path.isfile(rot):
-        shutil.copy(rot, os.path.join(ziel, TEX['rot']))
+        shutil.copy(rot, os.path.join(ziel, TEX['radfurt']))
     else:
-        Image.new('RGB', (8, 8), (176, 62, 52)).save(os.path.join(ziel, TEX['rot']))
+        Image.new('RGB', (8, 8), (176, 62, 52)).save(os.path.join(ziel, TEX['radfurt']))
     # Sperrflaeche: weisse Schraegstreifen (45 Grad), sonst durchsichtig; 2 m je Textur
     sp = np.zeros((128, 128, 4), np.uint8)
     yy, xx = np.mgrid[0:128, 0:128]
@@ -783,37 +779,58 @@ def bauen(omsi, karte, osm_pfad, entwurf_pfad, nn0, ost0, nord0, cache):
     roh, _ = aus_entwurf(entwurf, dgm, ost0, nord0, nn0)
     karte_gel = Kartengelaende(os.path.join(omsi, 'maps', karte))
     liste = []
+    # Etappe 2: Strassen auf dem Entwurf
+    from .ring_strassen import planen, text
+    from .sonderbau_entwurf import Gelaende
+    gel = Gelaende.laden(dgm, ost0, nord0, nn0, 1000, 1170, -460, -100)
+    strassen, arme = planen(entwurf, gel, ways)
+    print(text(strassen))
+    # Etappe 3: Kreuzung als eigenes Objekt (ring_kreuzung)
+    from . import ring_kreuzung as rk, ring_strassen as rs
+    from .sonderbau_entwurf import achse_aus_json, versatz_aus_json
+    from shapely.ops import unary_union
+    achse = achse_aus_json(entwurf['achse'])
+    K = {k_: versatz_aus_json(v) for k_, v in entwurf['kanten'].items()}
+    kz = rk.bauen(achse, K, strassen, arme, gel, rs.VERBINDUNGEN, rs.PHASEN, rs.PFEILE,
+                  [n_ for n_ in rs.RAMPEN])
+    O = kz['O']
+    name = 'Kreuzung_Ludwigsallee'
+    alpha = [TEX[k_] for k_ in kz['mesh'].mats if TEX[k_].endswith('.tga')]
+    with open(os.path.join(ordner, 'model', name + '.x'), 'w', newline='') as f:
+        f.write(x_file(kz['mesh'].V, kz['mesh'].F, [(k_, TEX[k_]) for k_ in kz['mesh'].mats]))
+    with open(os.path.join(ordner, name + '.sco'), 'w', encoding='cp1252', newline='') as f:
+        f.write(rk.sco_text('Ring/Ludwigsallee Kreuzung', name + '.x', kz, alpha))
+    F = kz['flaechen']
+    print(f"Kreuzung: {len(kz['pfade'])} Pfadstuecke, {len(kz['ketten'])} Abbiegespuren, {len(kz['regeln'])} Regeln, "
+          f"{len(kz['mesh'].F)} Dreiecke, Signale nicht auf Gehweg/Insel: {kz['lose_signale']}")
+    kreuzung = dict(name=name, rel=rel + '\\' + name + '.sco', ursprung=[float(O[0]), float(O[1])], rules=kz['regeln'], no_cars=[],
+                    signale=kz['signale'], phasen=kz['plan']['phase'], umlauf=kz['plan']['umlauf'],
+                    abbiegen=[dict(von=k_['von'], nach=k_['nach'], mv=k_['mv']) for k_ in kz['ketten']])
+    # Decke unter dem Kreuzungsobjekt, Bahnbruecke bis an seine Eckbruestungen
+    T = kz['trog']
+    zs = [float(kz['zf'](x, y)) for g_ in rk._polys(T['decke']) for x, y in np.array(g_.exterior.coords)]
+    o = np.array([T['nord']['mitte'][0], T['nord']['mitte'][1], 0.0])
+    schreiben(ordner, rel, 'Unterfuehrung', decke(T, min(zs) - 0.12, o), o, liste)
+    st_w = next(st for st in strassen if st['name'] == 'Schiesshausbruecke')
+    o = np.array([st_w['elemente'][0]['x'], st_w['elemente'][0]['y'], 0.0])
+    bb, _ = bahnbruecke(st_w, gel, o, kz['zf'])
+    schreiben(ordner, rel, 'Bahnbruecke', bb, o, liste)
     # Waende in Stuecken von STUECK m (Ursprung je Stueck: erster Punkt auf der Ring-Achse, Hoehe 0)
     n = int(STUECK / SCHRITT)
     for k in range(0, len(roh) - 1, n):
         teil = roh[k:k + n + 1]
         o = np.array([teil[0]['p'][0], teil[0]['p'][1], 0.0])
         for seite in ('w', 'o'):
-            schreiben(ordner, rel, f'Trennwand_{seite}_{k // n:02d}', trennwand(teil, seite, o), o, liste)
+            schreiben(ordner, rel, f'Trennwand_{seite}_{k // n:02d}', trennwand(teil, seite, o, kz['zf']), o, liste)
             schreiben(ordner, rel, f'Aussenwand_{seite}_{k // n:02d}', aussenwand(teil, seite, o), o, liste)
         schreiben(ordner, rel, f'Sohle_{k // n:02d}', flaechen(teil, o), o, liste)
         schreiben(ordner, rel, f'Deckel_{k // n:02d}', deckel(teil, karte_gel, o), o, liste)
-    ludwig_z = float(np.median(dgm.hoehen(ost0 + np.arange(1078.0, 1092.0), np.full(14, nord0 - 266.0)))) - nn0
-    unter = [e for e in roh if e['unter_decke']]
-    o = np.array([unter[0]['p'][0], unter[0]['p'][1], 0.0]) if unter else np.zeros(3)
-    schreiben(ordner, rel, 'Unterfuehrung', decke(roh, ludwig_z, o), o, liste)
     messung = [dict(s=e['s'], x=float(e['p'][0]), y=float(e['p'][1]), ring=[float(e['ra']), float(e['rb']), float(e['zr'])],
                     west=None if e['w'] is None else [e['w'][k] for k in ('a', 'b', 'z', 'g')],
                     ost=None if e['o'] is None else [e['o'][k] for k in ('a', 'b', 'z', 'g')], decke=bool(e['unter_decke'])) for e in roh]
-    # Etappe 2: Strassen auf dem Entwurf
-    from .ring_strassen import planen, text
-    from .sonderbau_entwurf import Gelaende
-    gel = Gelaende.laden(dgm, ost0, nord0, nn0, 1000, 1170, -460, -100)
-    strassen, kreuzung = planen(entwurf, gel, ways)
-    print(text(strassen))
-    e = kreuzung['ebene']
-    print(f"Kreuzung: {len(kreuzung['arme'])} Arme, Ebene {e['z0']:.2f} m, Neigung Ost {e['gx'] * 100:+.2f} %, Nord {e['gy'] * 100:+.2f} %")
-    st_w = next(st for st in strassen if st['name'] == 'Schiesshausbruecke')
-    o = np.array([st_w['elemente'][0]['x'], st_w['elemente'][0]['y'], 0.0])
-    bb, _ = bahnbruecke(st_w, gel, o)
-    schreiben(ordner, rel, 'Bahnbruecke', bb, o, liste)
-    kreuzung['markierung'] = markierung(strassen, kreuzung)
-    out = dict(karte=karte, nn0=nn0, objekte=liste, strassen=strassen, kreuzungen=[kreuzung], gelaende=gelaende(roh), messung=messung, quellen=['OpenStreetMap (ODbL)', 'DGM1/DOP40 Bayerische Vermessungsverwaltung (CC BY 4.0)'])
+    platte = unary_union([F['fahrbahn'], F['gehweg'], F['inseln']])
+    out = dict(karte=karte, nn0=nn0, objekte=liste, strassen=strassen, kreuzungen=[kreuzung],
+               gelaende=gelaende(roh) + platte_gelaende(platte, kz['zf']), messung=messung, quellen=['OpenStreetMap (ODbL)', 'DGM1/DOP40 Bayerische Vermessungsverwaltung (CC BY 4.0)'])
     with open(os.path.join(ordner, 'sonderbau_ring.json'), 'w', encoding='utf-8') as f:
         json.dump(out, f, indent=1)
     return out

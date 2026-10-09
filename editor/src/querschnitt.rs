@@ -126,6 +126,8 @@ pub enum Belag {
     Kopfstein,
     Beton,
     Gras,
+    /// Sperrflaeche: Asphalt mit weissen Schraegstreifen
+    Sperr,
 }
 
 pub struct Textur {
@@ -138,7 +140,7 @@ pub struct Textur {
 }
 
 impl Belag {
-    pub const ALLE: [Belag; 7] = [Belag::Asphalt, Belag::Rot, Belag::Platten, Belag::Verbund, Belag::Kopfstein, Belag::Beton, Belag::Gras];
+    pub const ALLE: [Belag; 8] = [Belag::Asphalt, Belag::Rot, Belag::Platten, Belag::Verbund, Belag::Kopfstein, Belag::Beton, Belag::Gras, Belag::Sperr];
 
     pub fn name(self) -> &'static str {
         match self {
@@ -149,6 +151,7 @@ impl Belag {
             Belag::Kopfstein => "Kopfsteinpflaster",
             Belag::Beton => "Betonplatten",
             Belag::Gras => "Gras",
+            Belag::Sperr => "Sperrflaeche (schraffiert)",
         }
     }
 
@@ -161,6 +164,7 @@ impl Belag {
             Belag::Kopfstein => "kopfstein",
             Belag::Beton => "beton",
             Belag::Gras => "gras",
+            Belag::Sperr => "sperr",
         }
     }
 
@@ -177,6 +181,8 @@ impl Belag {
             Belag::Kopfstein => Textur { datei: "str_kopfstein.bmp", marcel: true, u: (0.0, 0.94), m_je_u: 3.9, v_je_m: 0.2 },
             Belag::Beton => Textur { datei: "str_betonplatten.bmp", marcel: true, u: (0.0, 0.98), m_je_u: 3.9, v_je_m: 0.2 },
             Belag::Gras => Textur { datei: "gras1.bmp", marcel: true, u: (0.0, 1.0), m_je_u: 4.0, v_je_m: 0.25 },
+            // 4 m x 4 m je Textur: die Streifen liegen unter 45 Grad, gleich wie breit der Streifen ist
+            Belag::Sperr => Textur { datei: "AB_sperrflaeche.bmp", marcel: false, u: (0.0, 1.0), m_je_u: 4.0, v_je_m: 0.25 },
         }
     }
 }
@@ -593,6 +599,22 @@ pub fn texturen_bereitstellen(root: &Path, texturen: &[&str]) -> Result<()> {
                 if marcel.join("str_asphdrk.bmp.cfg").is_file() {
                     std::fs::copy(marcel.join("str_asphdrk.bmp.cfg"), ziel.join("AB_asphalt_rot.bmp.cfg"))?;
                 }
+            }
+            "AB_sperrflaeche.bmp" => {
+                // Asphalt mit weissen Schraegstreifen unter 45 Grad (Textur = 4 m x 4 m): Abstand quer 1,41 m (zwei je
+                // Kachel, damit die Streifen ueber die Kachelgrenzen weiterlaufen), 0,42 m breit
+                let img = image::open(marcel.join("str_asphdrk.bmp")).context(r"Splines\Marcel\texture\str_asphdrk.bmp fehlt")?.to_rgb8();
+                let (w, h) = (img.width() as f64, img.height() as f64);
+                let abstand = 4.0 / std::f64::consts::SQRT_2 / 2.0;
+                let out = image::ImageBuffer::from_fn(img.width(), img.height(), |x, y| {
+                    let d = (x as f64 / w + y as f64 / h) * 4.0 / std::f64::consts::SQRT_2;
+                    if d.rem_euclid(abstand) < 0.42 {
+                        image::Rgb([232, 232, 226])
+                    } else {
+                        *img.get_pixel(x, y)
+                    }
+                });
+                out.save(&z)?;
             }
             _ => {
                 let q = marcel.join(t);
