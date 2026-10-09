@@ -40,6 +40,11 @@ im Straßenbau (`omsigen/sonderbau_entwurf.py`, `python -m omsigen.ring_entwurf 
    (Sitzungsordner, die Karte bleibt unverändert) → `etappe1/*.png`.
 2. **Straßen:** Ring, Rampen, Ludwigsallee als Splines mit passenden Querschnitten (Baukasten) und Höhen aus dem
    DGM1, genau entlang OSM.
+   **Stand:** `omsigen/ring_strassen.py` (läuft in `sonderbau_ring` mit): Ring auf der Achse (16 Elemente, 2 Spuren
+   Gegenverkehr), Rampen als konzentrische Parallelen (West +9,38 m, Ost −9,73 m, je 1 Spur, im Kreuzungsbereich
+   s 117–145 unterbrochen), Schießhausbrücke und Ludwigsallee-Ost als Geraden entlang OSM bis an den
+   Kreuzungsbereich. Querschnitte `AB_SB_*` (Baukasten), Höhen aus den Gradienten bzw. DGM1. Elemente lückenlos nach
+   OMSI-Bogenregel (Test). Offen für Etappe 3: Kreuzung und die Ein-/Ausfädelungen an beiden Enden.
 3. **Kreuzung:** ein Kreuzungsobjekt mit allen Spuren laut OSM (Abbiegespuren, Busspur), Ampel mit Phasen, rote
    Radstreifen, Sperrflächen.
 4. **Einbau:** als Einzelstück in die Karte (ein Rückgängig-Schritt, Speichern wie gewohnt).

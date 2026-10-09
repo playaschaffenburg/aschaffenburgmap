@@ -699,7 +699,13 @@ def bauen(omsi, karte, osm_pfad, entwurf_pfad, nn0, ost0, nord0, cache):
     messung = [dict(s=e['s'], x=float(e['p'][0]), y=float(e['p'][1]), ring=[float(e['ra']), float(e['rb']), float(e['zr'])],
                     west=None if e['w'] is None else [e['w'][k] for k in ('a', 'b', 'z', 'g')],
                     ost=None if e['o'] is None else [e['o'][k] for k in ('a', 'b', 'z', 'g')], decke=bool(e['unter_decke'])) for e in roh]
-    out = dict(karte=karte, nn0=nn0, objekte=liste, gelaende=gelaende(roh), messung=messung, quellen=['OpenStreetMap (ODbL)', 'DGM1/DOP40 Bayerische Vermessungsverwaltung (CC BY 4.0)'])
+    # Etappe 2: Strassen auf dem Entwurf
+    from .ring_strassen import planen, text
+    from .sonderbau_entwurf import Gelaende
+    gel = Gelaende.laden(dgm, ost0, nord0, nn0, 1000, 1170, -460, -100)
+    strassen = planen(entwurf, gel, ways)
+    print(text(strassen))
+    out = dict(karte=karte, nn0=nn0, objekte=liste, strassen=strassen, gelaende=gelaende(roh), messung=messung, quellen=['OpenStreetMap (ODbL)', 'DGM1/DOP40 Bayerische Vermessungsverwaltung (CC BY 4.0)'])
     with open(os.path.join(ordner, 'sonderbau_ring.json'), 'w', encoding='utf-8') as f:
         json.dump(out, f, indent=1)
     return out

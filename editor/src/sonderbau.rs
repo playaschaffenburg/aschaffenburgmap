@@ -32,6 +32,81 @@ pub fn lesen(datei: &Path) -> Result<Vec<Teil>> {
         .collect())
 }
 
+/// ein [spline_h]-Element (Kartenkoordinaten, Hoehe absolut)
+#[derive(Clone, Debug)]
+pub struct Element {
+    pub pos: DVec2,
+    pub z: f64,
+    pub richtung: f64,
+    pub laenge: f64,
+    pub radius: f64,
+    pub stg_a: f64,
+    pub stg_e: f64,
+    pub dh: f64,
+    pub kum: f64,
+}
+
+/// Strasse des Sonderbaus: Querschnitt (Baukasten) und Elemente in Fahrtrichtung des Splines
+#[derive(Clone, Debug)]
+pub struct Strasse {
+    pub name: String,
+    pub querschnitt: crate::querschnitt::Querschnitt,
+    pub elemente: Vec<Element>,
+}
+
+pub fn strassen_lesen(datei: &Path) -> Result<Vec<Strasse>> {
+    let j: serde_json::Value = serde_json::from_slice(&std::fs::read(datei)?)?;
+    let mut out = Vec::new();
+    for s in j["strassen"].as_array().map(|a| a.as_slice()).unwrap_or(&[]) {
+        let q = crate::querschnitt::Querschnitt::aus_json(&s["querschnitt"]).with_context(|| format!("Querschnitt von {}", s["name"]))?;
+        let w = |e: &serde_json::Value, k: &str| e[k].as_f64().unwrap_or(0.0);
+        let elemente = s["elemente"].as_array().map(|a| a.as_slice()).unwrap_or(&[]).iter().map(|e| Element {
+            pos: DVec2::new(w(e, "x"), w(e, "y")), z: w(e, "z"), richtung: w(e, "richtung"), laenge: w(e, "laenge"),
+            radius: w(e, "radius"), stg_a: w(e, "stg_a"), stg_e: w(e, "stg_e"), dh: w(e, "dh"), kum: w(e, "kum"),
+        }).collect();
+        out.push(Strasse { name: s["name"].as_str().unwrap_or("").to_string(), querschnitt: q, elemente });
+    }
+    Ok(out)
+}
+
+/// Strassen in die Karte (Sitzung) schreiben: .sli aus dem Querschnitt (eigener Spline-Ordner), je Element ein
+/// [spline_h] (verkettet ueber Vorgaenger/Nachfolger) -> Anzahl Splines; ein Rueckgaengig-Schritt
+pub fn strassen_anlegen(ae: &mut crate::aendern::Aendern, v: &mut openomsi_game::viewer::Viewer, root: &Path, strassen: &[Strasse]) -> Result<usize> {
+    let ts = omsi_map::tile_size();
+    let z = crate::kreuzung::zahl;
+    let mut je_kachel: std::collections::BTreeMap<(i32, i32), Vec<Vec<String>>> = Default::default();
+    let mut n = 0;
+    for st in strassen {
+        if st.elemente.is_empty() {
+            continue;
+        }
+        let sli = crate::querschnitt::schreiben(root, &st.querschnitt, &st.querschnitt.datei())?;
+        let id0 = ae.neue_ids(v, st.elemente.len() as i64);
+        for (i, e) in st.elemente.iter().enumerate() {
+            let k = ((e.pos.x / ts).floor() as i32, (e.pos.y / ts).floor() as i32);
+            let id = id0 + i as i64;
+            je_kachel.entry(k).or_default().push(vec![
+                "[spline_h]".to_string(), "0".into(), sli.clone(), id.to_string(),
+                if i > 0 { (id - 1).to_string() } else { "0".into() },
+                if i + 1 < st.elemente.len() { (id + 1).to_string() } else { "0".into() },
+                z(e.pos.x - k.0 as f64 * ts), z(e.z), z(e.pos.y - k.1 as f64 * ts), z(e.richtung.rem_euclid(360.0)), z(e.laenge),
+                z(e.radius), z(e.stg_a), z(e.stg_e), z(e.dh), "0".into(), "0".into(), "0".into(), "0".into(), z(e.kum),
+            ]);
+            n += 1;
+        }
+    }
+    let kacheln: Vec<(i32, i32)> = je_kachel.keys().copied().collect();
+    ae.kacheln_aendern(v, &kacheln, |k, zeilen| {
+        let liste = je_kachel.get(&k).cloned().unwrap_or_default();
+        for f in &liste {
+            zeilen.push(String::new());
+            zeilen.extend(f.iter().cloned());
+        }
+        Ok(liste.len())
+    })?;
+    Ok(n)
+}
+
 /// abzusenkende Gelaendepunkte: (Kachel, Spalte, Zeile ab Sueden, Hoehe)
 pub fn gelaende_lesen(datei: &Path) -> Result<Vec<((i32, i32), usize, usize, f32)>> {
     let j: serde_json::Value = serde_json::from_slice(&std::fs::read(datei)?)?;
@@ -72,7 +147,7 @@ mod tests {
         let mut ae = crate::aendern::Aendern::neu(&v);
         // bisherige Strassen an der Stelle weg (nur in der Sitzung), damit das Bild das Bauwerk zeigt
         ae.aktualisieren(&v);
-        let im_bereich = |p: DVec2| (1035.0..1125.0).contains(&p.x) && (-428.0..-130.0).contains(&p.y);
+        let im_bereich = |p: DVec2| (1030.0..1140.0).contains(&p.x) && (-428.0..-130.0).contains(&p.y);
         ae.auswahl = ae.kacheln.values().flatten().filter(|s| {
             s.punkte().iter().any(|(q, _)| im_bereich(q.truncate()))
         }).map(|s| s.id).collect();
@@ -101,6 +176,10 @@ mod tests {
         for t in &teile {
             ae.objekt_anlegen_hoehe(&mut v, &t.rel, t.pos, t.hoehe, 0.0, &[]).unwrap();
         }
+        // Etappe 2: Strassen
+        let strassen = strassen_lesen(&json).unwrap();
+        assert!(strassen.len() >= 5, "{} Strassen", strassen.len());
+        println!("{} Splines angelegt", strassen_anlegen(&mut ae, &mut v, root, &strassen).unwrap());
         v.tiles_around(mitte, 1).unwrap();
         let senken = gelaende_lesen(&json).unwrap();
         let mut kacheln: std::collections::HashMap<(i32, i32), omsi_map::Terrain> = Default::default();

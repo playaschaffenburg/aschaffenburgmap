@@ -337,6 +337,13 @@ impl Aendern {
         self.objekt_anlegen_hoehe(v, rel, pos, 0.0, rot, texte)
     }
 
+    /// `n` neue, in der Karte freie IDs (fuer Splines und Objekte) -> erste
+    pub(crate) fn neue_ids(&mut self, v: &Viewer, n: i64) -> i64 {
+        let id = v.next_object_id().max(self.naechste_objekt_id);
+        self.naechste_objekt_id = id + n;
+        id
+    }
+
     /// wie `objekt_anlegen`, mit Hoehe (ueber dem Gelaende bzw. absolut bei [absheight]-Objekten)
     pub fn objekt_anlegen_hoehe(&mut self, v: &mut Viewer, rel: &str, pos: DVec2, hoehe: f64, rot: f64, texte: &[String]) -> Result<(i64, (i32, i32))> {
         let ts = omsi_map::tile_size();
