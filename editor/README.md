@@ -210,7 +210,11 @@ Gelände je Kachel aus dem **DGM1 Bayern** (1 m, je Rasterpunkt das Mittel über
 weltweiten **Terrain Tiles** (AWS Open Data, ~30 m); die Startstraße bekommt Höhe und Steigung des Geländes, darunter
 wird es auf Fahrbahnhöhe gebracht. Angelegt wird im Hintergrund (Fortschritt in der Kartenauswahl). **Erweitern:** im
 World Editor angefügte Kacheln einer Karte mit Ort bekommen das echte Gelände ihrer Stelle (am Rand genau an die
-Nachbarn angeglichen, auch wenn dort geformt wurde; Auslauf 40 m) und ihr Luftbild.
+Nachbarn angeglichen, auch wenn dort geformt wurde; Auslauf 40 m) und ihr Luftbild. Ohne gewählten Treffer nimmt „Erstellen“ den
+ersten Treffer des eingetippten Orts. **Ort nachträglich festlegen** (Karten ohne Ort, z. B. ältere): World Editor →
+Kacheln bearbeiten → „Ort der Karte“ (oder Knopf „Luftbild …“ oben): suchen, Treffer wählen, „Ort festlegen“ – wahlweise
+mit echtem Gelände für die vorhandenen Kacheln (ein Rückgängig-Schritt; Straßen behalten ihre Höhe). Die Ortsdatei
+kommt beim Speichern in die Karte.
 
 **Luftbild** (Karten mit Ort, Leiste oben: „Luftbild“ + Deckkraft-Regler): je geladener Kachel ein Ausschnitt aus dem
 **DOP40 Bayern** (40 cm, WMS in EPSG:25832, genau auf die Kachel), im Hintergrund geholt und als Ebene auf das

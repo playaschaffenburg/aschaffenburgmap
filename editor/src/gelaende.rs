@@ -312,6 +312,28 @@ impl Gelaende {
         Ok(Some(format!("Gelaende: {} ({} Kachel{}, {:+.1} bis {:+.1} m)", st.modus.name(), n, if n == 1 { "" } else { "n" }, lo, hi)))
     }
 
+    /// Gelaende ganzer Kacheln ersetzen (Ort festlegen: echtes Gelaende), ein Rueckgaengig-Schritt
+    pub fn uebernehmen(&mut self, v: &mut Viewer, ordner: &Path, neu: Vec<(Kachel, Vec<f32>)>) -> Result<usize> {
+        let mut kacheln = Vec::new();
+        for (k, h) in neu {
+            let Some(alt) = v.tile_terrain(k.0, k.1).filter(|t| t.cells == N as usize) else { continue };
+            if h.len() != alt.heights.len() {
+                continue;
+            }
+            kacheln.push((k, alt, Terrain { cells: N as usize, heights: h }));
+        }
+        if kacheln.is_empty() {
+            return Ok(0);
+        }
+        let s = Schritt { kacheln };
+        schreiben(v, ordner, &s, false)?;
+        let n = s.kacheln.len();
+        self.undo.push(s);
+        self.redo.clear();
+        self.aenderungen += 1;
+        Ok(n)
+    }
+
     /// Strich verwerfen (z. B. Werkzeugwechsel ohne Loslassen): Vorschau zuruecknehmen
     pub fn abbrechen(&mut self, v: &mut Viewer) {
         if let Some(st) = self.strich.take() {
@@ -477,6 +499,14 @@ mod tests {
         g.loslassen(&mut v, &ordner).unwrap();
         v.tiles_around(glam::DVec3::new(150.0, 150.0, 0.0), 1).unwrap();
         assert!((v.terrain_height(strasse.x, strasse.y).unwrap() - s0).abs() < 0.01, "Gelaende unter der Strasse veraendert");
+        // ganze Kachel ersetzen (Ort festlegen) und zurueck
+        let vorher = v.terrain_height(150.0, 150.0).unwrap();
+        assert_eq!(g.uebernehmen(&mut v, &ordner, vec![((0, 0), vec![3.0; 61 * 61])]).unwrap(), 1);
+        v.tiles_around(glam::DVec3::new(150.0, 150.0, 0.0), 1).unwrap();
+        assert!((v.terrain_height(150.0, 150.0).unwrap() - 3.0).abs() < 1e-3);
+        assert!(g.rueckgaengig(&mut v, &ordner).unwrap());
+        v.tiles_around(glam::DVec3::new(150.0, 150.0, 0.0), 1).unwrap();
+        assert!((v.terrain_height(150.0, 150.0).unwrap() - vorher).abs() < 1e-3);
     }
 
     /// geschuetzte Punkte bleiben

@@ -270,6 +270,9 @@ struct App {
     ort_wahl: Option<geo::Ort>,
     ort_job: Option<std::thread::JoinHandle<Result<Vec<geo::Ort>>>>,
     neue_karte_job: Option<(String, std::thread::JoinHandle<Result<()>>)>,
+    /// Ort einer geoeffneten Karte nachtraeglich festlegen (Bezug, Gelaende der Kacheln), mit Gelaende ersetzen
+    ort_setzen_job: Option<std::thread::JoinHandle<Result<(geo::Bezug, Vec<geo::KachelDaten>)>>>,
+    ort_gelaende: bool,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -330,7 +333,10 @@ enum UiAktion {
     /// Karte in den Papierkorb
     KarteLoeschen(String),
     /// neue Karte anlegen und oeffnen
-    KarteNeu(karten::NeueKarte, Option<geo::Ort>),
+    /// neue Karte: Angaben, gewaehlter Ort, sonst Suchtext (erster Treffer)
+    KarteNeu(karten::NeueKarte, Option<geo::Ort>, String),
+    /// Ort der geoeffneten Karte festlegen (mit echtem Gelaende fuer die vorhandenen Kacheln)
+    OrtFestlegen(geo::Ort, bool),
     /// Ort fuer eine neue Karte suchen
     OrtSuchen(String),
     /// Objekte aus Ordnern anderer Karten in die geoeffnete Karte holen (dann neu laden)
@@ -475,6 +481,8 @@ impl App {
             ort_wahl: None,
             ort_job: None,
             neue_karte_job: None,
+            ort_setzen_job: None,
+            ort_gelaende: true,
         }
     }
 
@@ -682,6 +690,36 @@ impl App {
                 Err(_) => self.meldung = "Ortssuche fehlgeschlagen".into(),
             }
         }
+        if self.ort_setzen_job.as_ref().is_some_and(|j| j.is_finished()) {
+            let erg = self.ort_setzen_job.take().unwrap().join();
+            let ordner = self.sitzungsordner();
+            match (erg, ordner) {
+                (Ok(Ok((b, daten))), Some(ordner)) => {
+                    let _ = std::fs::create_dir_all(&ordner);
+                    match b.schreiben(&ordner) {
+                        Ok(()) => {
+                            let mut m = format!("Ort festgelegt: {} (Mitte der Kachel 0 0)", b.ort.split(',').next().unwrap_or(""));
+                            if !daten.is_empty() {
+                                if let Some(v) = self.viewer.as_mut() {
+                                    let neu: Vec<((i32, i32), Vec<f32>)> = daten.into_iter().filter_map(|d| Some((d.kachel, d.gelaende?))).collect();
+                                    match self.gelaende.uebernehmen(v, &ordner, neu) {
+                                        Ok(n) => m += &format!(" - echtes Gelaende fuer {n} Kachel(n), Strg+Z nimmt es zurueck"),
+                                        Err(e) => m += &format!(" - Gelaende nicht uebernommen: {e:#}"),
+                                    }
+                                }
+                            }
+                            self.luftbild.karte(Some(b));
+                            // die Ortsdatei kommt beim Speichern in die Karte
+                            self.welt.aenderungen += 1;
+                            self.meldung = m;
+                        }
+                        Err(e) => self.meldung = format!("Ort nicht festgelegt: {e:#}"),
+                    }
+                }
+                (Ok(Err(e)), _) => self.meldung = format!("Ort nicht festgelegt: {e:#}"),
+                _ => self.meldung = "Ort nicht festgelegt".into(),
+            }
+        }
         if self.neue_karte_job.as_ref().is_some_and(|j| j.1.is_finished()) {
             let (ordner, job) = self.neue_karte_job.take().unwrap();
             match job.join() {
@@ -857,6 +895,9 @@ impl App {
                             });
                             ui.label(egui::RichText::new("Der Ort liegt in der Mitte der Kachel 0 0. Gelaende: DGM1 Bayern (1 m), sonst weltweit Terrain Tiles (~30 m). Luftbild (DOP40, nur Bayern) mit Regler oben im Editor. Die Karte liegt im UTM-Gitter: im World Editor angefuegte Kacheln bekommen das echte Gelaende und Luftbild ihrer Stelle.").small().weak());
                         }
+                        None if !self.ort_text.trim().is_empty() => {
+                            ui.colored_label(egui::Color32::from_rgb(255, 200, 80), "Noch kein Ort gewaehlt: \"Suchen\" und einen Treffer anklicken - sonst nimmt \"Erstellen\" den ersten Treffer.");
+                        }
                         None => {
                             ui.label(egui::RichText::new("Ohne Ort: flaches Gelaende, kein Luftbild.").small().weak());
                         }
@@ -868,7 +909,7 @@ impl App {
                     }
                     ui.horizontal(|ui| {
                         if ui.add_enabled(ordner_ok && !n.anzeige.trim().is_empty() && self.neue_karte_job.is_none(), egui::Button::new(egui::RichText::new("Erstellen und oeffnen").strong())).clicked() {
-                            aktionen.push(UiAktion::KarteNeu(n.clone(), self.ort_wahl.clone()));
+                            aktionen.push(UiAktion::KarteNeu(n.clone(), self.ort_wahl.clone(), self.ort_text.clone()));
                             zu = true;
                         }
                         if ui.button("Abbrechen").clicked() {
@@ -1158,6 +1199,9 @@ impl App {
                             ui.spinner();
                         }
                         ui.separator();
+                    } else if self.viewer.is_some() && ui.button("Luftbild ...").on_hover_text("Die Karte hat noch keinen Ort: World Editor -> Kacheln bearbeiten -> Ort der Karte festlegen").clicked() {
+                        aktionen.push(UiAktion::Werkzeug(Werkzeug::Welt));
+                        aktionen.push(UiAktion::WeltModus(WeltModus::Kacheln));
                     }
                     ui.checkbox(&mut self.hilfe.an, "Pfade (H)").on_hover_text("Pfade (blau Strasse, gelb Kreuzung, gruen Gehweg, orange Gleis, lila unsichtbare Strasse) und unsichtbare Objekte zeigen - wie \"Show paths\" im nEditor");
                     ui.separator();
@@ -1584,6 +1628,41 @@ impl App {
                             ui.label(format!("{o} Objekte, {sp} Splines"));
                             if ui.button("Kachel loeschen (Entf)").clicked() {
                                 self.welt_frage = Some(k);
+                            }
+                        }
+                    }
+                    ui.separator();
+                    ui.label(egui::RichText::new("Ort der Karte").strong());
+                    match self.luftbild.bezug.clone() {
+                        Some(b) => {
+                            ui.label(format!("{}", b.ort.split(',').take(2).collect::<Vec<_>>().join(",")));
+                            ui.label(egui::RichText::new(format!("UTM {} {:.0} / {:.0}, NN {:.0} m = 0. Neue Kacheln bekommen das echte Gelaende und Luftbild ihrer Stelle.", b.zone, b.ost0, b.nord0, b.nn0)).small().weak());
+                        }
+                        None => {
+                            ui.label(egui::RichText::new("Die Karte hat keinen Ort. Mit Ort: Luftbild (Regler oben), echtes Gelaende fuer neue Kacheln. Der Ort kommt in die Mitte der Kachel 0 0.").small());
+                            ui.horizontal(|ui| {
+                                let r = ui.add(egui::TextEdit::singleline(&mut self.ort_text).hint_text("Ort, Adresse oder 49.97, 9.14").desired_width(190.0));
+                                let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                                if (ui.add_enabled(self.ort_job.is_none(), egui::Button::new("Suchen")).clicked() || enter) && !self.ort_text.trim().is_empty() {
+                                    aktionen.push(UiAktion::OrtSuchen(self.ort_text.clone()));
+                                }
+                                if self.ort_job.is_some() || self.ort_setzen_job.is_some() {
+                                    ui.spinner();
+                                }
+                            });
+                            egui::ScrollArea::vertical().id_salt("orte_welt").max_height(100.0).show(ui, |ui| {
+                                for o in &self.ort_treffer {
+                                    let text = if o.name.chars().count() > 60 { format!("{}...", o.name.chars().take(60).collect::<String>()) } else { o.name.clone() };
+                                    if ui.selectable_label(self.ort_wahl.as_ref() == Some(o), text).clicked() {
+                                        self.ort_wahl = Some(o.clone());
+                                    }
+                                }
+                            });
+                            ui.checkbox(&mut self.ort_gelaende, "Gelaende der vorhandenen Kacheln ersetzen").on_hover_text("Echtes Gelaende fuer alle Kacheln der Karte (Strg+Z nimmt es zurueck). Vorhandene Strassen behalten ihre Hoehe - sinnvoll vor allem bei neuen, noch leeren Karten.");
+                            if ui.add_enabled(self.ort_wahl.is_some() && self.ort_setzen_job.is_none(), egui::Button::new("Ort festlegen")).clicked() {
+                                if let Some(o) = self.ort_wahl.clone() {
+                                    aktionen.push(UiAktion::OrtFestlegen(o, self.ort_gelaende));
+                                }
                             }
                         }
                     }
@@ -2716,23 +2795,44 @@ impl App {
                 self.karten = karten::finden(&self.root);
                 self.kartenwahl = Some(ordner);
             }
-            UiAktion::KarteNeu(n, ort) => {
+            UiAktion::KarteNeu(n, ort, text) => {
                 if self.neue_karte_job.is_some() {
                     return;
                 }
                 let root = self.root.clone();
-                self.meldung = match &ort {
-                    Some(o) => format!("lege \"{}\" an - Gelaende fuer {} wird geholt ...", n.anzeige, o.name),
-                    None => format!("lege \"{}\" an ...", n.anzeige),
+                let text = if ort.is_none() { text.trim().to_string() } else { String::new() };
+                self.meldung = match (&ort, text.is_empty()) {
+                    (Some(o), _) => format!("lege \"{}\" an - Gelaende fuer {} wird geholt ...", n.anzeige, o.name),
+                    (None, false) => format!("lege \"{}\" an - suche \"{text}\" und hole das Gelaende ...", n.anzeige),
+                    (None, true) => format!("lege \"{}\" an ...", n.anzeige),
                 };
                 protokoll::aktion(&format!("Neue Karte: {} ({})", n.ordner, ort.as_ref().map(|o| o.name.as_str()).unwrap_or("ohne Ort")));
                 self.neue_karte_job = Some((n.ordner.trim().to_string(), std::thread::spawn(move || -> Result<()> {
                     let mut n = n;
+                    // Ort eingetippt, aber kein Treffer gewaehlt: der erste Treffer
+                    let ort = match ort {
+                        Some(o) => Some(o),
+                        None if !text.is_empty() => Some(geo::suchen(&text)?.into_iter().next().with_context(|| format!("Ort \"{text}\" nicht gefunden"))?),
+                        None => None,
+                    };
                     if let Some(o) = ort {
                         n.bezug = Some(geo::Bezug::fuer(&o)?);
                     }
                     karten::neue_karte(&root, &n).map(|_| ())
                 })));
+            }
+            UiAktion::OrtFestlegen(ort, gelaende) => {
+                let Some(v) = self.viewer.as_ref() else { return };
+                if self.ort_setzen_job.is_some() {
+                    return;
+                }
+                let kacheln = v.map_tiles();
+                self.meldung = format!("lege den Ort fest: {} ...", ort.name);
+                self.ort_setzen_job = Some(std::thread::spawn(move || {
+                    let b = geo::Bezug::fuer(&ort)?;
+                    let daten = if gelaende { geo::kacheln(&b, &kacheln, true, false)?.0 } else { Vec::new() };
+                    Ok((b, daten))
+                }));
             }
             UiAktion::OrtSuchen(text) => {
                 if self.ort_job.is_none() && !text.trim().is_empty() {
