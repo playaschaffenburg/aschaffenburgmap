@@ -34,7 +34,7 @@ im Straßenbau (`omsigen/sonderbau_entwurf.py`, `python -m omsigen.ring_entwurf 
 1. **Bauwerk-Objekt:** Trog (Wände, Trennwände, Lärmschutz), Unterführung (Decke mit Rundung, Klinker innen) –
    aus den gemessenen Linien und DGM1-Höhen, als Objekte; Prüfbild aus openOMSI gegen die Fotos.
    **Stand:** `python -m omsigen.sonderbau_ring --omsi … --karte Aburg_Newgen --osm sonderbau/ring/osm_map.xml`
-   erzeugt 41 Objekte in `Sceneryobjects/Aschaffenburg/Aburg_Newgen/Sonderbau_Ring/` (Trennwände, Außenwände,
+   erzeugt aus dem Entwurf (`entwurf/entwurf.json`) 38 Objekte in `Sceneryobjects/Aschaffenburg/Aburg_Newgen/Sonderbau_Ring/` (Trennwände, Außenwände,
    Sohle/Rampenplatten, Deckel, Unterführung, Bahnbrücke) und `sonderbau_ring.json` (Lage, abzusenkende
    Geländepunkte, Messung). Prüfbilder: `cargo test --release ring_bauwerk -- --ignored` mit `OMSI_BILD`
    (Sitzungsordner, die Karte bleibt unverändert) → `etappe1/*.png`.

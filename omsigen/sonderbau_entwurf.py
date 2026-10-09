@@ -342,3 +342,22 @@ def versatz_anpassen(s, t, toleranz=0.12, max_stuecke=6, min_laenge=12.0, raster
     abschnitte[0][0] = min(abschnitte[0][0], s.min())
     abschnitte[-1][1] = max(abschnitte[-1][1], s.max())
     return Versatz(abschnitte)
+
+
+# ------------------------------------------------------------------ Laden (entwurf.json)
+def achse_aus_json(j):
+    return Achse(j['x'], j['y'], math.radians(j['richtung_grad']),
+                 [(e['laenge'], 0.0 if e['radius'] is None else 1.0 / e['radius']) for e in j['elemente']])
+
+
+def gradiente_aus_json(j):
+    return Gradiente(j['knoten'], j['hoehen'], j['ausrundung'])
+
+
+def versatz_aus_json(j):
+    return Versatz([(a['von'], a['bis'], a['abstand']) for a in j])
+
+
+def weich_max(a, b, k=0.4):
+    """glattes Maximum (Uebergang ueber etwa k): Rampe laeuft ohne Knick in den Ring ein"""
+    return (a + b + np.sqrt((a - b) ** 2 + k * k)) / 2

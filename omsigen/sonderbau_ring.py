@@ -3,9 +3,9 @@
 Ein Einzelstueck fuer genau diese Stelle (siehe sonderbau/ring/PLAN.md): der Ring im Trog, die Rampen links und rechts
 auf Stuetzmauern, die Unterfuehrung unter der Ludwigsallee und die Bruecke der Ludwigsallee ueber die Bahn.
 
-Vorgehen: entlang der Ring-Achse (OSM) alle 2 m ein Querschnitt durch das DGM1 (1 m, Bayern). Darin liegen die drei
-Fahrbahnen als ebene Stufen: der Ring unten, die Rampen daneben hoeher (oder gleich hoch, wo sie einmuenden). Aus den
-Stufenkanten und -hoehen entstehen die Waende:
+Vorgehen: alles folgt dem Entwurf (omsigen.ring_entwurf -> sonderbau/ring/entwurf/entwurf.json): Ring-Achse aus
+Geraden und Boegen, Wandlinien in festem Abstand zur Achse, Hoehen als Gradienten mit Ausrundung. Alle 2 m Station
+entlang der Achse; die Waende:
 - Trennwaende Ring/Rampe: Stuetzwand von der Ring-Sohle bis zur Rampe, zur Ring-Seite Klinkerfelder zwischen
   Betonpfeilern, oben Betonkappe, Bruestung mit Gelaender zur Rampe hin.
 - Aussenwand West: Gabionen, darauf eine gruene Laermschutzwand.
@@ -16,6 +16,7 @@ Stufenkanten und -hoehen entstehen die Waende:
 Ausgabe: Objekte (.sco + model/*.x + texture/) im Ordner der Karte und `sonderbau_ring.json` mit ihrer Lage
 (Kartenkoordinaten, Hoehe absolut in der Karte = NN - nn0). Aufruf:
     python -m omsigen.sonderbau_ring --omsi <OMSI-Ordner> --karte Aburg_Newgen --osm sonderbau/ring/osm_map.xml
+        [--entwurf sonderbau/ring/entwurf/entwurf.json]
 Daten: OpenStreetMap (ODbL), DGM1/DOP40 Bayerische Vermessungsverwaltung (CC BY 4.0)."""
 import argparse, json, math, os, shutil, sys
 import xml.etree.ElementTree as ET
@@ -28,7 +29,6 @@ from .kreuzung import x_file
 RING = ['159575718', '227934178', '7975056', '227934179']
 WEST = ['227934180', '183815409', '23781579']          # Einbahn nach Sueden
 OST = ['233369539', '23781578', '7925387']             # (umgedreht: Nord -> Sued) Einbahn nach Norden
-Y_NORD, Y_SUED = -142.0, -414.0                        # Bereich des Trogs (Kartenkoordinaten)
 DECKE = (-253.5, -279.0)                               # Unterfuehrung: Nord- und Suedkante (y)
 SCHRITT = 2.0
 STUECK = 40.0                                          # m je Wand-Objekt
@@ -128,113 +128,60 @@ def linie(ways, ids, umdrehen=False):
     return np.array(pts, float)
 
 
-def schnitt(poly, a, d):
-    """Schnittpunkt der Geraden a + t*d (d Einheitsvektor) mit dem Polygonzug -> t (naechster an 0) oder None"""
-    best = None
-    for p, q in zip(poly[:-1], poly[1:]):
-        e = q - p
-        den = d[0] * (-e[1]) - d[1] * (-e[0])
-        if abs(den) < 1e-9:
-            continue
-        r = p - a
-        t = (r[0] * (-e[1]) - r[1] * (-e[0])) / den
-        u = (d[0] * r[1] - d[1] * r[0]) / den
-        if 0 <= u <= 1 and (best is None or abs(t) < abs(best)):
-            best = t
-    return best
+TRENNSTREIFEN = 1.5      # Ringwand (Sichtflaeche) bis Fahrbahnkante der Rampe: Wand 0,5 m + Bruestung/Bord
+WAND = 0.5               # Dicke der Trennwand
 
 
-def stationen(ring, schritt):
-    """Punkte, Querrichtung (nach Osten) und Weg entlang der Ring-Achse im Bereich Y_SUED..Y_NORD"""
-    seg = np.hypot(*np.diff(ring, axis=0).T)
-    s = np.concatenate([[0], np.cumsum(seg)])
-    out = []
-    for t in np.arange(0, s[-1], schritt):
-        k = min(np.searchsorted(s, t, side='right') - 1, len(seg) - 1)
-        f = (t - s[k]) / seg[k]
-        p = ring[k] + (ring[k + 1] - ring[k]) * f
-        if not (Y_SUED <= p[1] <= Y_NORD):
-            continue
-        d = (ring[k + 1] - ring[k]) / seg[k]               # Nord -> Sued
-        quer = np.array([-d[1], d[0]])                     # rechts von Sued = ...
-        if quer[0] < 0:
-            quer = -quer                                   # immer nach Osten
-        out.append((p, quer, d))
-    return out
-
-
-def stufe(h, ts, t0, z, tol=0.45):
-    """zusammenhaengende Stufe auf Hoehe z um t0: (links, rechts) im Querschnitt"""
-    i0 = int(np.argmin(np.abs(ts - t0)))
-    lo = hi = i0
-    while lo > 0 and abs(h[lo - 1] - z) < tol:
-        lo -= 1
-    while hi < len(ts) - 1 and abs(h[hi + 1] - z) < tol:
-        hi += 1
-    return ts[lo], ts[hi]
-
-
-def glatt(werte, fenster=5):
-    a = np.array(werte, float)
-    out = a.copy()
-    k = fenster // 2
-    for i in range(len(a)):
-        w = a[max(0, i - k):i + k + 1]
-        w = w[~np.isnan(w)]
-        out[i] = np.median(w) if len(w) else np.nan
-    return out
-
-
-def vermessen(ways, dgm, E0, N0, nn0):
-    ring = linie(ways, RING)
-    west = linie(ways, WEST)
-    ost = linie(ways, OST, umdrehen=True)
-    st = stationen(ring, SCHRITT)
-    ts = np.arange(-28.0, 28.01, 0.5)
+def aus_entwurf(entwurf, dgm, E0, N0, nn0, schritt=SCHRITT):
+    """Stationen aus dem Entwurf (ring_entwurf: Achse, Kantenabstaende, Gradienten) - alles glatt, parallel zur
+    Achse. Je Station dasselbe Format wie frueher die Messung: p, quer (nach Osten), d (Nord -> Sued), s, zr (Ring),
+    ra/rb (Ringwaende West/Ost, quer gemessen), w/o: Rampe mit a/b (Kanten West/Ost), z (Hoehe), g (Gelaende hinter der
+    Aussenwand, als Gradiente geglaettet)"""
+    from .sonderbau_entwurf import (achse_aus_json, gradiente_aus_json, versatz_aus_json, weich_max,
+                                    gradiente_anpassen, ohne_ausreisser)
+    achse = achse_aus_json(entwurf['achse'])
+    K = {k: versatz_aus_json(v) for k, v in entwurf['kanten'].items()}
+    G = {k: gradiente_aus_json(v) for k, v in entwurf['hoehen'].items()}
+    # Bereich: wo es Ringwaende gibt
+    von = min(min(a for a, _, _ in K[k].a) for k in ('ring_w', 'ring_o'))
+    bis = max(max(b for _, b, _ in K[k].a) for k in ('ring_w', 'ring_o'))
+    S = np.arange(von, bis + 1e-6, schritt)
+    A = achse.punkte(S)
+    zr = G['ring'].z(S)
+    # Kanten: Entwurf t > 0 = rechts von Nord -> Sued = West; hier quer nach Osten -> Vorzeichen drehen
+    tq = {k: -v.t(S) for k, v in K.items()}
+    zw = {sd: weich_max(np.where((S >= G[f'rampe_{sd}'].k[0] - 30) & (S <= G[f'rampe_{sd}'].k[-1] + 30), G[f'rampe_{sd}'].z(S), -99), zr) for sd in ('w', 'o')}
     roh = []
-    for p, quer, d in st:
-        xs, ys = p[0] + quer[0] * ts, p[1] + quer[1] * ts
-        h = dgm.hoehen(E0 + xs, N0 + ys) - nn0
-        zr = float(np.median(h[np.abs(ts) <= 1.5]))
-        unter_decke = DECKE[1] <= p[1] <= DECKE[0]
-        if unter_decke:
-            # dort zeigt das DGM die Decke: Ring-Sohle aus den Nachbarn (spaeter interpoliert)
-            zr = np.nan
-            ra, rb = -4.2, 4.2
-        else:
-            ra, rb = stufe(h, ts, 0.0, zr)
-        tw, to = schnitt(west, p, -quer), schnitt(ost, p, quer)
-        e = dict(p=p, quer=quer, d=d, zr=zr, ra=ra, rb=rb, unter_decke=unter_decke)
-        for name, t, vz in (('w', tw, -1), ('o', to, 1)):
-            if t is None:
-                e[name] = None
-                continue
-            t = t * vz
-            z = float(np.median(h[np.abs(ts - t) <= 1.0]))
-            a, b = stufe(h, ts, t, z)
-            # Gelaende aussen: 3 m hinter der Fahrbahnkante
-            g = float(np.interp(a - 3.0 if vz < 0 else b + 3.0, ts, h))
-            e[name] = dict(t=t, z=z, a=a, b=b, g=g)
+    for i, s in enumerate(S):
+        x, y, th = A[i]
+        d = np.array([math.cos(th), math.sin(th)])
+        quer = np.array([-d[1], d[0]])
+        if quer[0] < 0:
+            quer = -quer
+        ra = tq['ring_w'][i] if not np.isnan(tq['ring_w'][i]) else -4.6
+        rb = tq['ring_o'][i] if not np.isnan(tq['ring_o'][i]) else 4.6
+        e = dict(s=float(s), p=np.array([x, y]), quer=quer, d=d, zr=float(zr[i]), ra=float(ra), rb=float(rb),
+                 unter_decke=DECKE[1] <= y <= DECKE[0])
+        for sd, vz in (('w', -1), ('o', 1)):
+            aussen_t = tq[f'rampe_aussen_{sd}'][i]
+            if np.isnan(aussen_t):
+                aussen_t = (ra if vz < 0 else rb) + vz * (TRENNSTREIFEN + 6.5)
+            innen = (ra if vz < 0 else rb) + vz * TRENNSTREIFEN
+            a, b = (aussen_t, innen) if vz < 0 else (innen, aussen_t)
+            e[sd] = dict(a=float(a), b=float(b), z=float(zw[sd][i]), g=np.nan)
         roh.append(e)
-    # glaetten (Kanten springen im 1-m-DGM um eine Zelle)
-    for key in ('zr', 'ra', 'rb'):
-        werte = glatt([e[key] for e in roh])
-        for e, w in zip(roh, werte):
-            e[key] = w
-    # Ring-Sohle unter der Decke: linear zwischen den Raendern
-    zr = np.array([e['zr'] for e in roh])
-    ok = ~np.isnan(zr)
-    idx = np.arange(len(zr))
-    zr[~ok] = np.interp(idx[~ok], idx[ok], zr[ok])
-    for e, z in zip(roh, zr):
-        e['zr'] = float(z)
-    for name in ('w', 'o'):
-        for key in ('z', 'a', 'b', 'g', 't'):
-            werte = glatt([e[name][key] if e[name] else np.nan for e in roh])
-            for e, w in zip(roh, werte):
-                if e[name] is not None and not np.isnan(w):
-                    e[name][key] = float(w)
-    return roh
+    # Gelaende hinter den Aussenwaenden (3 m), je Seite als Gradiente geglaettet - Mauerkronen ohne Wellen
+    for sd, vz in (('w', -1), ('o', 1)):
+        t = np.array([(e[sd]['a'] if vz < 0 else e[sd]['b']) + vz * 3.0 for e in roh])
+        P = np.array([e['p'] + e['quer'] * tt for e, tt in zip(roh, t)])
+        g = dgm.hoehen(E0 + P[:, 0], N0 + P[:, 1]) - nn0
+        knoten = np.array([im_knoten(e) for e in roh])
+        g = np.where(knoten, np.nan, g)
+        gr, _ = ohne_ausreisser(S, g, lambda a, b: gradiente_anpassen(a, b, toleranz=0.2, max_stuecke=8, min_laenge=10.0),
+                                lambda gg, x: gg.z(x), 0.8)
+        for e, wert in zip(roh, gr.z(S)):
+            e[sd]['g'] = float(wert)
+    return roh, achse
 
 
 # ------------------------------------------------------------------ Bauteile
@@ -249,9 +196,8 @@ def fuge(e, seite):
     vz = -1 if seite == 'w' else 1
     if r is None or r['z'] - e['zr'] < 0.4 and not e['unter_decke']:
         return None
-    kante_ring = e['ra'] if vz < 0 else e['rb']
-    kante_rampe = r['b'] if vz < 0 else r['a']
-    return (kante_ring + kante_rampe) / 2.0 if abs(kante_ring - kante_rampe) < 3.0 else kante_ring + vz * 0.4
+    # die Ringwand-Kante ist die Sichtflaeche zum Ring; die Wand steht dahinter
+    return (e['ra'] if vz < 0 else e['rb']) + vz * WAND / 2
 
 
 def im_knoten(e):
@@ -264,7 +210,7 @@ def aussen(e, seite):
     r = e[seite]
     if r is None or im_knoten(e) or r['z'] - e['zr'] < 0.4 and abs(r['g'] - r['z']) < 0.6:
         return None
-    return r['a'] - 0.2 if seite == 'w' else r['b'] + 0.2
+    return r['a'] if seite == 'w' else r['b']
 
 
 def rand(e, seite):
@@ -301,7 +247,7 @@ def trennwand(roh, seite, o):
         ra_a, ra_b = ta + vz * dicke / 2, tb + vz * dicke / 2
         za, zb = ea['zr'] - 0.3, eb['zr'] - 0.3
         kappe_a, kappe_b = oa + 0.05, ob + 0.05
-        laenge = float(np.linalg.norm(welt(eb, tb, 0) - welt(ea, ta, 0)))
+        s_ges, laenge = ea['s'], eb['s'] - ea['s']        # Teilung nach Station: Pfeiler und Fugen laufen durch
         n_ring = np.append(-vz * ea['quer'], 0)
         p = lambda e, t, z: welt(e, t, z) - o
         # Klinker bis 0,4 m unter die Kappe, darueber Beton
@@ -361,7 +307,7 @@ def aussenwand(roh, seite, o):
         if a is None or b is None:
             continue
         (ea, ta, za, ga), (eb, tb, zb, gb) = a, b
-        laenge = float(np.linalg.norm(welt(eb, tb, 0) - welt(ea, ta, 0)))
+        s_ges, laenge = ea['s'], eb['s'] - ea['s']        # Teilung nach Station: Pfeiler und Fugen laufen durch
         n_innen = np.append(-vz * ea['quer'], 0)          # zur Rampe hin
         hoch_a, hoch_b = max(ga, za) + 0.3, max(gb, zb) + 0.3
         if seite == 'w':
@@ -708,14 +654,16 @@ def schreiben(ordner, rel_ordner, name, mesh, o, liste):
     liste.append(dict(name=name, rel=rel_ordner + '\\' + name + '.sco', x=float(o[0]), y=float(o[1]), z=float(o[2]), dreiecke=len(mesh.F)))
 
 
-def bauen(omsi, karte, osm_pfad, nn0, ost0, nord0, cache):
+def bauen(omsi, karte, osm_pfad, entwurf_pfad, nn0, ost0, nord0, cache):
     ordner = os.path.join(omsi, 'Sceneryobjects', 'Aschaffenburg', karte, 'Sonderbau_Ring')
     rel = f'Sceneryobjects\\Aschaffenburg\\{karte}\\Sonderbau_Ring'
     os.makedirs(os.path.join(ordner, 'model'), exist_ok=True)
     texturen(omsi, os.path.join(ordner, 'texture'))
     ways = lade_osm(osm_pfad, ost0, nord0)
     dgm = Dgm1(cache)
-    roh = vermessen(ways, dgm, ost0, nord0, nn0)
+    with open(entwurf_pfad, encoding='utf-8') as f:
+        entwurf = json.load(f)
+    roh, _ = aus_entwurf(entwurf, dgm, ost0, nord0, nn0)
     karte_gel = Kartengelaende(os.path.join(omsi, 'maps', karte))
     liste = []
     # Waende in Stuecken von STUECK m (Ursprung je Stueck: erster Punkt auf der Ring-Achse, Hoehe 0)
@@ -735,7 +683,7 @@ def bauen(omsi, karte, osm_pfad, nn0, ost0, nord0, cache):
     o = np.array([1056.0, -266.0, 0.0])
     bb, _ = bahnbruecke(ways, dgm, ost0, nord0, nn0, o)
     schreiben(ordner, rel, 'Bahnbruecke', bb, o, liste)
-    messung = [dict(x=float(e['p'][0]), y=float(e['p'][1]), ring=[float(e['ra']), float(e['rb']), float(e['zr'])],
+    messung = [dict(s=e['s'], x=float(e['p'][0]), y=float(e['p'][1]), ring=[float(e['ra']), float(e['rb']), float(e['zr'])],
                     west=None if e['w'] is None else [e['w'][k] for k in ('a', 'b', 'z', 'g')],
                     ost=None if e['o'] is None else [e['o'][k] for k in ('a', 'b', 'z', 'g')], decke=bool(e['unter_decke'])) for e in roh]
     out = dict(karte=karte, nn0=nn0, objekte=liste, gelaende=gelaende(roh), messung=messung, quellen=['OpenStreetMap (ODbL)', 'DGM1/DOP40 Bayerische Vermessungsverwaltung (CC BY 4.0)'])
@@ -749,6 +697,7 @@ def main():
     ap.add_argument('--omsi', required=True)
     ap.add_argument('--karte', required=True)
     ap.add_argument('--osm', required=True)
+    ap.add_argument('--entwurf', default=os.path.join('sonderbau', 'ring', 'entwurf', 'entwurf.json'))
     ap.add_argument('--cache', default=os.path.join(os.environ.get('LOCALAPPDATA', '.'), 'omsi-editor', 'geodaten'))
     a = ap.parse_args()
     geo = {}
@@ -757,7 +706,7 @@ def main():
             if '=' in z and not z.startswith('#'):
                 k, v = z.split('=', 1)
                 geo[k.strip()] = v.strip()
-    out = bauen(a.omsi, a.karte, a.osm, float(geo['nn0']), float(geo['ost0']), float(geo['nord0']), a.cache)
+    out = bauen(a.omsi, a.karte, a.osm, a.entwurf, float(geo['nn0']), float(geo['ost0']), float(geo['nord0']), a.cache)
     for o in out['objekte']:
         print(f"{o['name']:24s} {o['dreiecke']:6d} Dreiecke  bei {o['x']:.1f} {o['y']:.1f}")
     print(f"{len(out['objekte'])} Objekte, {len(out['messung'])} Querschnitte")
