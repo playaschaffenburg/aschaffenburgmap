@@ -10,7 +10,7 @@
 
 use glam::{DVec2, DVec3};
 
-pub const MAX_ELEMENT: f64 = 50.0; // laengere Elemente werden geteilt (Hoehenverlauf)
+pub const MAX_ELEMENT: f64 = 20.0; // laengere Elemente werden geteilt (Hoehenverlauf)
 pub const MAX_PLAN: f64 = 5000.0; // laengere Stuecke sind entartete Planungen (Ziel hinter der Fahrtrichtung)
 
 /// Richtungsvektor (waagerecht) fuer eine Richtung in Grad
@@ -327,6 +327,18 @@ pub struct Kante {
     pub ring: bool,
     /// Einbahn: die KI faehrt nur in eine Richtung (die Spuren der anderen bekommen [rule] no_cars)
     pub einbahn: Einbahn,
+    /// Rampen dieser Strasse: Damm/Einschnitt oder Stuetzmauern (bauwerke.rs)
+    pub bauweise: Bauweise,
+}
+
+/// wie eine Strasse ueber bzw. unter dem Gelaende gebaut wird (Bruecken entstehen in beiden Faellen ab genug Hoehe)
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Bauweise {
+    /// aufgeschuetteter Damm bzw. Einschnitt mit Boeschungen
+    #[default]
+    Damm,
+    /// Stuetzmauern an den Fahrbahnraendern
+    Mauer,
 }
 
 /// Fahrtrichtungen einer Strasse fuer die KI (Optik und Querschnitt bleiben): in Splinerichtung (bei einer eigenen
@@ -382,6 +394,8 @@ pub struct Netz {
     naechste: u32,
     /// halbe Breite (aussen, groessere Seite) je Querschnitt - fuer die Kuerzung an Kreuzungen
     pub breiten: std::collections::BTreeMap<String, f64>,
+    /// Bauweise neuer Kanten (Werkzeug "Strasse bauen")
+    pub bauweise_neu: Bauweise,
 }
 
 /// ein Arm einer Kreuzung des Netzes (Knoten mit 3 und mehr Kanten)
@@ -443,7 +457,7 @@ impl Netz {
 
     pub fn kante_neu(&mut self, a: u32, b: u32, sli: &str, ha: f64, hb: f64) -> u32 {
         let id = self.neue_id();
-        self.kanten.push(Kante { id, a, b, sli: sli.to_string(), ha, hb, ring: false, einbahn: Einbahn::Beide });
+        self.kanten.push(Kante { id, a, b, sli: sli.to_string(), ha, hb, ring: false, einbahn: Einbahn::Beide, bauweise: self.bauweise_neu });
         id
     }
 
@@ -733,7 +747,7 @@ mod tests {
     fn hoehe_glatt_und_genau() {
         let st = verbinden(DVec2::ZERO, 0.0, DVec2::new(0.0, 120.0), 0.0);
         let el = mit_hoehe(&st, 10.0, 0.0, 16.0, 0.0);
-        assert_eq!(el.len(), 3); // 120 m in Stuecken <= 50 m
+        assert_eq!(el.len(), 6); // 120 m in Stuecken <= 20 m (MAX_ELEMENT)
         assert!((el[0].z - 10.0).abs() < 1e-9 && el[0].stg_a.abs() < 1e-9);
         assert!(el.last().unwrap().stg_e.abs() < 1e-9);
         // Elementgrenzen: Steigung durchgehend

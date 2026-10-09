@@ -124,7 +124,7 @@ impl Gitter {
     }
 
     /// Wert in alle Kacheln schreiben, die den Punkt haben; die geaenderten Kacheln
-    fn setzen(&mut self, gx: i32, gy: i32, h: f32, geaendert: &mut HashSet<Kachel>) {
+    pub fn setzen(&mut self, gx: i32, gy: i32, h: f32, geaendert: &mut HashSet<Kachel>) {
         for (tx, ix) in lagen(gx) {
             for (ty, iy) in lagen(gy) {
                 if let Some(t) = self.kacheln.get_mut(&(tx, ty)) {

@@ -286,7 +286,15 @@ pub struct Strassenbau {
     objekte: HashMap<u32, NetzObjekt>,
     objekt_cache: HashMap<String, kreuzung::Objekt>,
     /// Ordner der Kreuzungsobjekte (vom Aendern-Werkzeug: Sitzungsordner) und sein Name
-    kreuzungs_ordner: Option<(PathBuf, String)>,
+    pub kreuzungs_ordner: Option<(PathBuf, String)>,
+    /// OMSI-Ordner (eigene Splines der Bruecken/Mauern)
+    pub root: Option<PathBuf>,
+    /// Bruecke ab so viel Luft unter der Fahrbahn (m)
+    pub bruecke_ab: f64,
+    /// Bruecken, Rampen, Mauern des Netzes (bauwerke.rs), gezeichnet, und die Kacheln mit Gelaende-Vorschau
+    pub bauwerke: crate::bauwerke::Plan,
+    bauwerke_gpu: Vec<TileGpu>,
+    gelaende_vorschau: std::collections::HashSet<(i32, i32)>,
     /// letzter Fehler beim Erzeugen eines Kreuzungsobjekts
     pub kreuzung_fehler: Option<String>,
     /// Querschnitt fuer Kreisverkehre (Einbahn)
@@ -298,7 +306,9 @@ impl Default for Strassenbau {
         Strassenbau { netz: Netz::default(), sli: None, modus: Modus::Kurve, hoehe: 0.0, start: None, plan: None,
                       vorschau: vec![], gezeichnet: HashMap::new(), undo: vec![], redo: vec![], aenderungen: 0,
                       uebernehmen: true, spuren_cache: HashMap::new(), zeiger: None, objekte: HashMap::new(),
-                      objekt_cache: HashMap::new(), kreuzungs_ordner: None, kreuzung_fehler: None, kreisel_sli: None }
+                      objekt_cache: HashMap::new(), kreuzungs_ordner: None, kreuzung_fehler: None, kreisel_sli: None, root: None,
+                      bruecke_ab: crate::bauwerke::BRUECKE_AB, bauwerke: Default::default(), bauwerke_gpu: Vec::new(),
+                      gelaende_vorschau: Default::default() }
     }
 }
 
@@ -1079,6 +1089,56 @@ impl Strassenbau {
             v.remove_object(g);
         }
         self.kreuzungen_aktualisieren(v);
+        self.bauwerke_aktualisieren(v);
+    }
+
+    /// Bruecken, Rampen und Mauern neu planen und zeigen (Begleit-Splines, Pfeiler, Gelaende)
+    pub fn bauwerke_aktualisieren(&mut self, v: &mut Viewer) {
+        let kanten = |sli: &str| v.spline_lanes(sli).map(|(_, (l, r))| (-(l as f64), r as f64)).unwrap_or((-5.0, 5.0));
+        let plan = crate::bauwerke::planen(v, &self.netz, &kanten, self.bruecke_ab);
+        if let Some(root) = &self.root {
+            if let Err(e) = crate::bauwerke::splines_schreiben(root, &plan) {
+                log::warn!("Bruecken-/Mauer-Splines: {e:#}");
+            }
+        }
+        for g in self.bauwerke_gpu.drain(..) {
+            v.remove_object(g);
+        }
+        for (sli, el, kante, cum) in &plan.begleit {
+            if let Some(g) = v.add_spline(sli, &el.kurve(*kante, *cum)) {
+                self.bauwerke_gpu.push(g);
+            }
+        }
+        if let (Some(root), Some((ordner, tag))) = (&self.root, &self.kreuzungs_ordner) {
+            for p in &plan.pfeiler {
+                match crate::bauwerke::pfeiler_objekt(root, ordner, p.breite, p.hoehe) {
+                    Ok(name) => {
+                        let rel = format!("Sceneryobjects\\{}\\{tag}\\{name}", crate::speichern::EIGEN);
+                        if let Some(g) = v.add_object(&rel, p.fuss, p.richtung) {
+                            self.bauwerke_gpu.push(g);
+                        }
+                    }
+                    Err(e) => log::warn!("Pfeiler: {e:#}"),
+                }
+            }
+        }
+        self.bauwerke = plan;
+        self.gelaende_zeigen(v);
+    }
+
+    /// das Gelaende der Bauwerke (wieder) zeigen - nach jedem Neuladen von Kacheln noetig; Kacheln, die keines mehr
+    /// brauchen, bekommen ihr eigenes zurueck
+    pub fn gelaende_zeigen(&mut self, v: &mut Viewer) {
+        let neu: std::collections::HashSet<(i32, i32)> = self.bauwerke.gelaende.keys().copied().collect();
+        for k in self.gelaende_vorschau.difference(&neu) {
+            if let Some(t) = v.tile_terrain(k.0, k.1) {
+                v.preview_terrain(k.0, k.1, &t);
+            }
+        }
+        for (k, t) in &self.bauwerke.gelaende {
+            v.preview_terrain(k.0, k.1, t);
+        }
+        self.gelaende_vorschau = neu;
     }
 
     /// Kreuzungsobjekte des Netzes: fuer jeden Knoten mit 3 und mehr Armen eines (von omsigen, je Anordnung der Arme

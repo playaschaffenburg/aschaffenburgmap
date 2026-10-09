@@ -90,6 +90,18 @@ Gespeichert nach `Splines\Aschaffenburg\AB_<Name>.sli` mit Bauanleitung `AB_<Nam
 Texturen in `Splines\Aschaffenburg\texture` (Beläge aus `Splines\Marcel\texture` kopiert, Markierungen und roter
 Asphalt erzeugt). Herkunft im Katalog: „Eigene (Baukasten)“. „Speichern und damit bauen“ wechselt gleich zu Straße bauen.
 
+**Brücken und Rampen** (wie Transport Fever 2; Höhe der Punkte beim Bauen mit Bild ↑/↓): was gebaut wird, folgt aus
+Lage und Höhe der eigenen Straßen und dem Gelände darunter und wird nach jeder Änderung neu berechnet – Strg+Z auf die
+Straße nimmt Brücke, Damm und Mauern mit zurück. Je Spline-Stück (höchstens 20 m): mit wenigstens „Brücke ab“ m Luft
+(Standard 5 m) wird es eine **Brücke** – Begleit-Spline `Splines\Aschaffenburg\AB_bruecke_<l>_<r>.sli` mit Platte
+(1,2 m) und Brüstung (1 m) auf genau derselben Kurve wie die Fahrbahn (ohne Pfade, die Spuren bleiben unberührt; wie
+in den Standardkarten), Pfeiler als Objekte an den Stückgrenzen, wo genug Luft ist (nicht auf vorhandenen Straßen).
+Darunter **Rampen** nach der gewählten Bauweise: **Damm** (Gelände unter der Straße eben aufgeschüttet, daneben
+Böschung 1 : 1,5; liegt die Straße tiefer, ein Einschnitt) oder **Stützmauer** (Betonwände an den Fahrbahnrändern,
+`AB_mauer_unten/oben_…`, Gelände nur unter der Fahrbahn abgesenkt – für die Stadt). Vorhandene Straßen der Karte werden
+nicht zugeschüttet. Vorschau sofort (Brückenkörper, Pfeiler, Gelände); beim Speichern kommen Begleit-Splines, Pfeiler
+(`Sceneryobjects\Aschaffenburg\<Karte>\Pfeiler_*.sco`, `[absheight]`) und die `.terrain` der Kacheln in die Karte.
+
 **Übergänge zwischen Querschnitten** („Straße bauen“ → „Übergang setzen“): Klick auf ein freies Straßenende (blau) setzt
 dort einen Übergang vom Querschnitt dieser Straße auf den gewählten – ein Objekt (`.sco` + `.x` + Pfade) wie die
 Kreuzungen, denn eine OMSI-Spline hat über ihre ganze Länge dasselbe Profil. Teile beider Seiten werden einander

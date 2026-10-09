@@ -484,6 +484,78 @@ pub fn vorbereiten(v: &Viewer, b: &Bearbeiten, netz: &crate::netz::Netz, netz_kr
     Ok(Paket { dateien, naechste_id: (id > start).then_some(id), neue_objekte, neue_splines, staging, kreuzungen, kacheln: None, orte: None })
 }
 
+/// Bruecken, Mauern (Begleit-Splines), Pfeiler und das Gelaende der Rampen in die Kacheln des Pakets schreiben
+pub fn bauwerke_anhaengen(v: &Viewer, paket: &mut Paket, plan: &crate::bauwerke::Plan, pfeiler_ordner: Option<(&Path, &str)>, root: &Path, alt: &str) -> Result<()> {
+    if plan.begleit.is_empty() && plan.pfeiler.is_empty() && plan.gelaende.is_empty() {
+        return Ok(());
+    }
+    let ordner = paket.staging.join("maps").join(alt);
+    std::fs::create_dir_all(&ordner)?;
+    let groesse = omsi_map::tile_size();
+    let kachel = |x: f64, y: f64| ((x / groesse).floor() as i32, (y / groesse).floor() as i32);
+    let mut id = paket.naechste_id.unwrap_or(0).max(v.next_object_id());
+    let mut je_kachel: std::collections::BTreeMap<(i32, i32), Vec<Vec<String>>> = Default::default();
+    for (sli, x, _, cum) in &plan.begleit {
+        let (tx, ty) = kachel(x.stueck.start.x, x.stueck.start.y);
+        je_kachel.entry((tx, ty)).or_default().push(vec![
+            "[spline_h]".to_string(), "0".into(), sli.clone(), id.to_string(), "0".into(), "0".into(),
+            zahl(x.stueck.start.x - tx as f64 * groesse), zahl(x.z), zahl(x.stueck.start.y - ty as f64 * groesse),
+            zahl(x.stueck.richtung.rem_euclid(360.0)), zahl(x.stueck.laenge), zahl(x.stueck.radius),
+            zahl(x.stg_a), zahl(x.stg_e), zahl(x.dh), "0".into(), "0".into(), "0".into(), "0".into(), zahl(*cum),
+        ]);
+        id += 1;
+        paket.neue_splines += 1;
+    }
+    if let Some((po, tag)) = pfeiler_ordner {
+        for p in &plan.pfeiler {
+            let name = crate::bauwerke::pfeiler_objekt(root, po, p.breite, p.hoehe)?;
+            let (tx, ty) = kachel(p.fuss.x, p.fuss.y);
+            je_kachel.entry((tx, ty)).or_default().push(vec![
+                "[object]".to_string(), "0".into(), format!("Sceneryobjects\\{EIGEN}\\{tag}\\{name}"), id.to_string(),
+                zahl(p.fuss.x - tx as f64 * groesse), zahl(p.fuss.y - ty as f64 * groesse), zahl(p.fuss.z),
+                zahl(p.richtung.rem_euclid(360.0)), "0".into(), "0".into(), "0".into(),
+            ]);
+            id += 1;
+            paket.neue_objekte += 1;
+        }
+    }
+    for ((tx, ty), liste) in je_kachel {
+        let quelle = v.tile_file(tx, ty).with_context(|| format!("Kachel {tx} {ty}: die Karte hat dort keine Kachel (Bruecke/Pfeiler ausserhalb)"))?;
+        let name = quelle.file_name().context("Kachel ohne Namen")?.to_owned();
+        let ziel = ordner.join(&name);
+        let bytes = if ziel.exists() { std::fs::read(&ziel)? } else { std::fs::read(&quelle)? };
+        let (mut text, utf16) = dekodieren(&bytes);
+        let eol = if text.contains("\r\n") { "\r\n" } else { "\n" };
+        if !text.ends_with('\n') {
+            text.push_str(eol);
+        }
+        for f in liste {
+            text.push_str(eol);
+            for z in f {
+                text.push_str(&z);
+                text.push_str(eol);
+            }
+        }
+        std::fs::write(&ziel, kodieren(&text, utf16))?;
+        if !paket.dateien.contains(&ziel) {
+            paket.dateien.push(ziel);
+        }
+    }
+    // Gelaende der Rampen: ganze .terrain der Kacheln
+    for ((tx, ty), t) in &plan.gelaende {
+        let Some(quelle) = v.tile_file(*tx, *ty) else { continue };
+        let name = format!("{}.terrain", quelle.file_name().context("Kachel ohne Namen")?.to_string_lossy());
+        let ziel = ordner.join(&name);
+        std::fs::write(&ziel, t.to_bytes())?;
+        if !paket.dateien.contains(&ziel) {
+            paket.dateien.push(ziel);
+        }
+    }
+    paket.naechste_id = Some(id);
+    log::info!("Bauwerke gespeichert: {}", plan.text());
+    Ok(())
+}
+
 /// alles in einem Schritt (Tests)
 #[cfg(test)]
 pub fn alles_speichern(v: &Viewer, b: &Bearbeiten, netz: &crate::netz::Netz, alt: &str, neu: &str, root: &Path) -> Result<PathBuf> {

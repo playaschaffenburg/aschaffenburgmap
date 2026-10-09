@@ -286,7 +286,7 @@ pub struct Modell {
 }
 
 impl Modell {
-    fn material(&mut self, datei: &str) -> usize {
+    pub fn material(&mut self, datei: &str) -> usize {
         match self.materialien.iter().position(|m| m == datei) {
             Some(i) => i,
             None => {
@@ -297,7 +297,7 @@ impl Modell {
     }
 
     /// Viereck p0 p1 p2 p3 (umlaufend) mit uv, sichtbar zur Seite `n` (Objektkoordinaten x rechts, y vor, z hoch)
-    fn viereck(&mut self, mat: usize, p: [[f64; 3]; 4], uv: [[f64; 2]; 4], n: [f64; 3]) {
+    pub fn viereck(&mut self, mat: usize, p: [[f64; 3]; 4], uv: [[f64; 2]; 4], n: [f64; 3]) {
         // in .x-Koordinaten (x, z hoch -> y, y vor -> z)
         let q: Vec<[f64; 3]> = p.iter().map(|a| [a[0], a[2], a[1]]).collect();
         let nn = [n[0], n[2], n[1]];

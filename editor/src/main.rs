@@ -13,6 +13,7 @@
 mod aendern;
 mod anschluss;
 mod baukasten;
+mod bauwerke;
 mod bearbeiten;
 mod gelaende;
 mod geo;
@@ -285,6 +286,8 @@ struct App {
     /// Strasse bauen, Uebergang setzen: an, feste Laenge (sonst Vorschlag), freies Ende unter der Maus mit Plan
     /// (Breiten A/B links und rechts, Laenge)
     uebergang_modus: bool,
+    /// Stand, bei dem das Gelaende der Bauwerke zuletzt gezeigt wurde (geladene Kacheln, Aenderungszaehler)
+    bauwerke_stand: (Vec<(i32, i32)>, usize, usize, usize),
     uebergang_laenge: Option<f64>,
     uebergang_unter: Option<(uebergang::Stelle, (i64, bool), Option<UebergangPlan>)>,
 }
@@ -368,6 +371,8 @@ enum UiAktion {
     /// Querschnitt gespeichert: (.sli, Querschnitt, gleich damit bauen)
     QsGespeichert(String, querschnitt::Querschnitt, bool),
     Messen,
+    /// Bruecken/Rampen neu planen (Einstellung geaendert)
+    BauwerkeNeu,
     /// Objekte aus Ordnern anderer Karten in die geoeffnete Karte holen (dann neu laden)
     ObjekteHolen,
     /// "Speichern": die geoeffnete Karte ueberschreiben (eigene sofort, fremde nach Rueckfrage)
@@ -517,6 +522,7 @@ impl App {
             mess_a: None,
             mess_b: None,
             uebergang_modus: false,
+            bauwerke_stand: Default::default(),
             uebergang_laenge: None,
             uebergang_unter: None,
         }
@@ -534,6 +540,8 @@ impl App {
         if let Some(v) = self.viewer.as_mut() {
             let cam = v.open_map(&self.karten[i].global)?;
             self.aendern = Some(aendern::Aendern::neu(v));
+            self.strasse.kreuzungs_ordner = self.aendern.as_ref().map(|a| a.kreuzungs_ordner());
+            self.strasse.root = Some(self.root.clone());
             self.kamera_von(&cam);
             let (ziel, weite) = (self.kam.ziel, self.sichtweite());
             if let Some(v) = self.viewer.as_mut() {
@@ -567,6 +575,8 @@ impl App {
         v.stream(self.kam.ziel, self.sichtweite(), std::time::Duration::from_millis(STREAM_BUDGET_MS));
         self.gui = Some(Self::gui_neu(&window, &v.renderer.device, self.ui_format));
         self.aendern = Some(aendern::Aendern::neu(&v));
+        self.strasse.kreuzungs_ordner = self.aendern.as_ref().map(|a| a.kreuzungs_ordner());
+        self.strasse.root = Some(self.root.clone());
         self.surface = Some(surface);
         self.viewer = Some(v);
         self.karte = Some(self.karten[i].ordner.clone());
@@ -634,6 +644,15 @@ impl App {
         if let Some(v) = self.viewer.as_mut() {
             v.stream(ziel, weite, std::time::Duration::from_millis(STREAM_BUDGET_MS));
             self.luftbild.aktualisieren(v);
+            if !self.strasse.bauwerke.gelaende.is_empty() {
+                let mut kacheln = v.loaded_tile_keys();
+                kacheln.sort();
+                let stand = (kacheln, self.aendern.as_ref().map(|a| a.aenderungen).unwrap_or(0), self.gelaende.aenderungen, self.welt.aenderungen);
+                if stand != self.bauwerke_stand {
+                    self.bauwerke_stand = stand;
+                    self.strasse.gelaende_zeigen(v);
+                }
+            }
             self.hilfe.aktualisieren(v);
             self.bearb.unsichtbare = self.hilfe.an;
             if self.bearb.werkzeug == Werkzeug::Strasse {
@@ -1484,6 +1503,26 @@ impl App {
                         aktionen.push(UiAktion::ZugBeenden);
                     }
                     ui.checkbox(&mut self.strasse.uebernehmen, "an vorhandenen Strassen deren Querschnitt uebernehmen");
+                    ui.horizontal(|ui| {
+                        ui.label("Rampen:");
+                        for (b, t, hilfe) in [(netz::Bauweise::Damm, "Damm", "ueber dem Gelaende aufgeschuettet, darunter ein Einschnitt - mit Boeschungen 1 : 1,5"),
+                                              (netz::Bauweise::Mauer, "Stuetzmauer", "Betonwaende an den Fahrbahnraendern - braucht kaum Platz (Stadt)")] {
+                            if ui.selectable_label(self.strasse.netz.bauweise_neu == b, t).on_hover_text(hilfe).clicked() {
+                                self.strasse.netz.bauweise_neu = b;
+                            }
+                        }
+                    });
+                    ui.horizontal(|ui| {
+                        ui.label("Bruecke ab");
+                        if ui.add(egui::DragValue::new(&mut self.strasse.bruecke_ab).range(2.0..=20.0).speed(0.1).suffix(" m")).on_hover_text("so viel Luft unter der Fahrbahn macht aus der Strasse eine Bruecke (mit Pfeilern)").changed() {
+                            aktionen.push(UiAktion::BauwerkeNeu);
+                        }
+                        ui.label(egui::RichText::new("Hoehe: Bild auf/ab").small().weak());
+                    });
+                    let bw = self.strasse.bauwerke.text();
+                    if !bw.is_empty() {
+                        ui.label(egui::RichText::new(bw).small());
+                    }
                     let frei = self.anschluesse.liste.iter().filter(|a| a.frei).count();
                     ui.label(egui::RichText::new(format!("{} Knoten, {} Strassenstuecke | {} freie Enden vorhandener Strassen (blau)", self.strasse.netz.knoten.len(), self.strasse.netz.kanten.len(), frei)).small().weak());
                     ui.separator();
@@ -3009,6 +3048,11 @@ impl App {
                     }
                 }
             }
+            UiAktion::BauwerkeNeu => {
+                if let Some(v) = self.viewer.as_mut() {
+                    self.strasse.bauwerke_aktualisieren(v);
+                }
+            }
             UiAktion::Messen => {
                 self.messen = !self.messen;
                 if self.messen {
@@ -3080,6 +3124,16 @@ impl App {
                         if paket.orte.is_some() {
                             paket.naechste_id = Some(paket.naechste_id.unwrap_or(0).max(v.next_object_id()));
                         }
+                        // Bruecken, Mauern, Pfeiler und das Gelaende der Rampen
+                        let pfeiler = self.aendern.as_ref().map(|a| a.kreuzungs_ordner());
+                        if let Err(e) = speichern::bauwerke_anhaengen(v, &mut paket, &self.strasse.bauwerke, pfeiler.as_ref().map(|(o, t)| (o.as_path(), t.as_str())), &self.root, &karte) {
+                            self.meldung = format!("Speichern fehlgeschlagen (Bauwerke): {e:#}");
+                            return;
+                        }
+                        // die Pfeiler liegen bei den Kreuzungsobjekten der Sitzung: mit ihnen in den Ordner der Karte
+                        if paket.kreuzungen.is_none() && !self.strasse.bauwerke.pfeiler.is_empty() {
+                            paket.kreuzungen = pfeiler;
+                        }
                         let root = self.root.clone();
                         self.meldung = format!("speichere {karte} ({} geaenderte Dateien) ...", paket.dateien.len());
                         protokoll::aktion(&format!("Speichern: {karte} ueberschreiben"));
@@ -3100,6 +3154,16 @@ impl App {
                         // Objekte aus dem World Editor stehen schon in den Kacheln: [NextIDCode] hinter ihre IDs
                         if paket.orte.is_some() {
                             paket.naechste_id = Some(paket.naechste_id.unwrap_or(0).max(v.next_object_id()));
+                        }
+                        // Bruecken, Mauern, Pfeiler und das Gelaende der Rampen
+                        let pfeiler = self.aendern.as_ref().map(|a| a.kreuzungs_ordner());
+                        if let Err(e) = speichern::bauwerke_anhaengen(v, &mut paket, &self.strasse.bauwerke, pfeiler.as_ref().map(|(o, t)| (o.as_path(), t.as_str())), &self.root, &alt) {
+                            self.meldung = format!("Speichern fehlgeschlagen (Bauwerke): {e:#}");
+                            return;
+                        }
+                        // die Pfeiler liegen bei den Kreuzungsobjekten der Sitzung: mit ihnen in den Ordner der Karte
+                        if paket.kreuzungen.is_none() && !self.strasse.bauwerke.pfeiler.is_empty() {
+                            paket.kreuzungen = pfeiler;
                         }
                         let root = self.root.clone();
                         self.meldung = format!("speichere {neu} ({} geaenderte Dateien, {} neue Objekte, {} neue Splines) ...", paket.dateien.len(), paket.neue_objekte, paket.neue_splines);
