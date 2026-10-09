@@ -1399,6 +1399,12 @@ impl Strassenbau {
                 }
                 format!("{} Strassenstueck(e) auf {} umgestellt", ids.len(), sli.rsplit('\\').next().unwrap_or(""))
             }
+            KantenAenderung::Einbahn(art) => {
+                for e in self.netz.kanten.iter_mut().filter(|e| ids.contains(&e.id)) {
+                    e.einbahn = *art;
+                }
+                format!("{} Strassenstueck(e): {}", ids.len(), art.text())
+            }
             KantenAenderung::Umkehren => {
                 for e in self.netz.kanten.iter_mut().filter(|e| ids.contains(&e.id)) {
                     let (ha, hb) = (e.ha, e.hb);
@@ -1454,6 +1460,7 @@ impl Strassenbau {
 pub enum KantenAenderung {
     Querschnitt(String),
     Umkehren,
+    Einbahn(netz::Einbahn),
     Loeschen,
 }
 
@@ -1556,9 +1563,14 @@ mod tests {
         kopieren(&root.join("maps/Grundorf"), &test_root.join("maps/Grundorf"));
         let start = v.next_object_id();
         let erwartet: usize = s.netz.kanten.iter().map(|e| s.netz.elemente(e).len()).sum();
+        // die erste Strasse als Einbahn (Fahrtrichtung a -> b): die Gegenspur bekommt [rule] no_cars
+        let erste = s.netz.kanten[0].id;
+        s.kanten_aendern(&mut v, &[erste], &KantenAenderung::Einbahn(netz::Einbahn::Vor));
+        let einbahn_splines = s.netz.elemente(s.netz.kante(erste).unwrap()).len();
         let ziel = crate::speichern::alles_speichern(&v, &Bearbeiten::neu(Werkzeug::Strasse), &s.netz, "Grundorf", "Grundorf_strasse", &test_root).unwrap();
         // mit openOMSIs Kachel-Parser lesen
         let mut neue: Vec<(omsi_geometry::SplineCurve, i64, i64, i64)> = Vec::new();
+        let mut gesperrt = 0;
         for e in std::fs::read_dir(&ziel).unwrap().flatten() {
             let n = e.file_name().to_string_lossy().to_string();
             let Some(rest) = n.strip_prefix("tile_").and_then(|r| r.strip_suffix(".map")) else { continue };
@@ -1567,11 +1579,15 @@ mod tests {
             let t = omsi_map::Tile::load(&e.path()).unwrap();
             for sp in t.splines.iter().filter(|sp| sp.id >= start) {
                 let o = glam::DVec2::new(tx as f64 * 300.0, ty as f64 * 300.0);
+                if sp.rules.iter().any(|r| r.kind.eq_ignore_ascii_case("no_cars")) {
+                    gesperrt += 1;
+                }
                 assert!(sp.delta_h.is_some(), "spline_h erwartet");
                 neue.push((omsi_geometry::SplineCurve::from_map(sp, o), sp.id, sp.prev_id, sp.next_id));
             }
         }
         assert_eq!(neue.len(), erwartet, "Anzahl Splines");
+        assert_eq!(gesperrt, einbahn_splines, "Einbahn: jeder Spline der ersten Strasse mit no_cars");
         // jedes Ende liegt (Lage, Hoehe, Richtung) genau am Anfang eines anderen Splines, ausser den zwei Zugenden
         let mut offen = 0;
         for (k, ..) in &neue {

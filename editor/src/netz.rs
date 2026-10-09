@@ -313,6 +313,44 @@ pub struct Kante {
     pub hb: f64,
     /// Teil eines Kreisverkehrs (hat an seinen Kreuzungen Vorfahrt)
     pub ring: bool,
+    /// Einbahn: die KI faehrt nur in eine Richtung (die Spuren der anderen bekommen [rule] no_cars)
+    pub einbahn: Einbahn,
+}
+
+/// Fahrtrichtungen einer Strasse fuer die KI (Optik und Querschnitt bleiben): in Splinerichtung (bei einer eigenen
+/// Strasse: von a nach b), dagegen, oder beide
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+pub enum Einbahn {
+    #[default]
+    Beide,
+    Vor,
+    Zurueck,
+}
+
+impl Einbahn {
+    /// Indizes der Fahrzeugpfade (in der .sli), die gesperrt werden: `pfade` je Pfad (Art, Richtung 0 mit / 1 gegen /
+    /// 2 beide Splinerichtungen); `gespiegelt`: der Spline ist gespiegelt (seine Pfade laufen andersherum)
+    pub fn gesperrt(self, pfade: &[(u8, u8)], gespiegelt: bool) -> Vec<usize> {
+        pfade.iter().enumerate().filter_map(|(i, &(art, r))| {
+            if art != 0 || r > 1 {
+                return None;
+            }
+            let gegen = (r == 1) != gespiegelt;
+            match self {
+                Einbahn::Beide => None,
+                Einbahn::Vor => gegen.then_some(i),
+                Einbahn::Zurueck => (!gegen).then_some(i),
+            }
+        }).collect()
+    }
+
+    pub fn text(self) -> &'static str {
+        match self {
+            Einbahn::Beide => "beide Richtungen",
+            Einbahn::Vor => "Einbahn in Pfeilrichtung",
+            Einbahn::Zurueck => "Einbahn gegen den Pfeil",
+        }
+    }
 }
 
 #[derive(Clone, Debug, Default, PartialEq)]
@@ -383,7 +421,7 @@ impl Netz {
 
     pub fn kante_neu(&mut self, a: u32, b: u32, sli: &str, ha: f64, hb: f64) -> u32 {
         let id = self.neue_id();
-        self.kanten.push(Kante { id, a, b, sli: sli.to_string(), ha, hb, ring: false });
+        self.kanten.push(Kante { id, a, b, sli: sli.to_string(), ha, hb, ring: false, einbahn: Einbahn::Beide });
         id
     }
 
@@ -591,8 +629,10 @@ impl Netz {
         self.kanten.retain(|k| k.id != id);
         self.kante_neu(e.a, m, &e.sli, e.ha, h);
         self.kanten.last_mut().unwrap().ring = e.ring;
+        self.kanten.last_mut().unwrap().einbahn = e.einbahn;
         self.kante_neu(m, e.b, &e.sli, h, e.hb);
         self.kanten.last_mut().unwrap().ring = e.ring;
+        self.kanten.last_mut().unwrap().einbahn = e.einbahn;
         Some(m)
     }
 

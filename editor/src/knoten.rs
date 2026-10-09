@@ -860,7 +860,7 @@ mod tests {
 
     fn gerade(l: f64) -> KartenSpline {
         KartenSpline {
-            id: 1, kachel: (0, 0), sli: "test.sli".into(), gespiegelt: false, prev: 0, next: 0,
+            id: 1, kachel: (0, 0), sli: "test.sli".into(), gespiegelt: false, prev: 0, next: 0, gesperrt: vec![],
             kurve: omsi_geometry::SplineCurve {
                 start: DVec3::new(0.0, 0.0, 10.0), heading_deg: 0.0, length: l, radius: 0.0, grad_start: 2.0, grad_end: 2.0,
                 delta_h: Some(l * 0.02), cant_start: 0.0, cant_end: 0.0, skew_start: 0.0, skew_end: 0.0, tex_offset: 0.0, seed: 0,

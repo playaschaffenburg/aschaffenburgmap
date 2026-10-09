@@ -77,13 +77,13 @@ pub fn pfade(v: &Viewer, p: DVec3, r: f64) -> Vec<Pfad<'_>> {
         let n = l.points.len();
         [l.points[0], l.points[n / 2], l.points[n - 1]].iter().any(|q| (q.truncate() - p.truncate()).length_squared() < r2)
     }).map(|l| {
-        let farbe = match (l.kind, l.invisible) {
+        let farbe = if l.kind == LaneKind::Street && (l.no_cars || l.density <= 0.0) { [230, 60, 60] } else { match (l.kind, l.invisible) {
             (LaneKind::Street, true) => [235, 80, 235],
             (LaneKind::Street, false) => if l.name.to_ascii_lowercase().ends_with(".sli") { [70, 170, 255] } else { [255, 210, 60] },
             (LaneKind::Sidewalk, _) => [90, 230, 110],
             (LaneKind::Rail, _) => [255, 140, 40],
             (LaneKind::Air, _) => [200, 200, 200],
-        };
+        } };
         Pfad { punkte: &l.points, farbe, unsichtbar: l.invisible }
     }).collect()
 }

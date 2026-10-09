@@ -402,6 +402,8 @@ pub fn vorbereiten(v: &Viewer, b: &Bearbeiten, netz: &crate::netz::Netz, netz_kr
     for e in &netz.kanten {
         let el = netz.elemente(e);
         let ids: Vec<i64> = (0..el.len() as i64).map(|i| id + i).collect();
+        // Einbahn: die Fahrzeugpfade der Gegenrichtung fuer die KI sperren
+        let sperren = v.spline_lanes(&e.sli).map(|(p, _)| e.einbahn.gesperrt(&p.iter().map(|x| (x.0, x.4)).collect::<Vec<_>>(), false)).unwrap_or_default();
         id += el.len() as i64;
         let mut cum = 0.0;
         for (i, x) in el.iter().enumerate() {
@@ -414,6 +416,10 @@ pub fn vorbereiten(v: &Viewer, b: &Bearbeiten, netz: &crate::netz::Netz, netz_kr
                 zahl(x.stueck.richtung.rem_euclid(360.0)), zahl(x.stueck.laenge), zahl(x.stueck.radius),
                 zahl(x.stg_a), zahl(x.stg_e), zahl(x.dh), "0".into(), "0".into(), "0".into(), "0".into(), zahl(cum),
             ];
+            let mut felder = felder;
+            for p in &sperren {
+                felder.extend([String::new(), "[rule]".into(), p.to_string(), "no_cars".into(), "0".into(), "0".into()]);
+            }
             cum += x.stueck.laenge;
             je_kachel.entry((tx, ty)).or_default().push(Eintrag::Spline(felder));
             neue_splines += 1;

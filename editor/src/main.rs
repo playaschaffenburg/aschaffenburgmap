@@ -275,6 +275,8 @@ enum UiAktion {
     Querschnitt(String),
     SplineQuerschnitt(String),
     SplineSpiegeln,
+    /// Fahrtrichtungen der gewaehlten vorhandenen Strassen fuer die KI
+    SplineEinbahn(netz::Einbahn),
     SplineLoeschen,
     StrassenModus(strasse::Modus),
     EigeneAendern(strasse::KantenAenderung),
@@ -853,7 +855,7 @@ impl App {
         let mut aktionen: Vec<UiAktion> = Vec::new();
         let (bw, bh) = (w as f32 / window.scale_factor() as f32, h as f32 / window.scale_factor() as f32);
         // Daten fuer die Anzeige vorab (die Oberflaeche liest den Viewer nur)
-        let objekte = if self.bearb.werkzeug == Werkzeug::Objekte {
+        let objekte = if self.bearb.werkzeug == Werkzeug::Objekte || (self.bearb.werkzeug == Werkzeug::Platzieren && self.bearb.unter_maus.is_some()) {
             self.viewer.as_ref().map(|v| self.bearb.objekte(v)).unwrap_or_default()
         } else {
             Vec::new()
@@ -974,6 +976,7 @@ impl App {
             if self.bearb.werkzeug == Werkzeug::Platzieren {
                 egui::Panel::right("katalog").default_size(360.0).show(ctx, |ui| {
                     ui.heading("Objekte platzieren");
+                    ui.label(egui::RichText::new("Pipette: Klick (mit gewaehltem Objekt Strg+Klick) auf ein Objekt im Bild uebernimmt es samt Drehung.").small().weak());
                     let Some(kat) = self.katalog.as_ref() else {
                         ui.label("Objektkatalog wird eingelesen ...");
                         return;
@@ -1219,6 +1222,9 @@ impl App {
                                 aktionen.push(UiAktion::EigeneAendern(strasse::KantenAenderung::Loeschen));
                             }
                         });
+                        if let Some(art) = einbahn_knoepfe(ui, e.as_ref().map(|e| e.einbahn)) {
+                            aktionen.push(UiAktion::EigeneAendern(strasse::KantenAenderung::Einbahn(art)));
+                        }
                         ui.separator();
                         ui.label("Upgrade: neuer Querschnitt");
                         if let Some(rel) = self.qs_raster(ui, e.map(|e| e.sli)) {
@@ -1252,6 +1258,16 @@ impl App {
                                     aktionen.push(UiAktion::SplineLoeschen);
                                 }
                             });
+                            // jetziger Stand: welche Fahrzeugpfade sind gesperrt?
+                            let stand = self.viewer.as_ref().and_then(|v| v.spline_lanes(&s.sli)).map(|(p, _)| {
+                                let pfade: Vec<(u8, u8)> = p.iter().map(|x| (x.0, x.4)).collect();
+                                let mut g: Vec<usize> = s.gesperrt.iter().copied().filter(|i| pfade.get(*i).is_some_and(|x| x.0 == 0)).collect();
+                                g.sort_unstable();
+                                [netz::Einbahn::Beide, netz::Einbahn::Vor, netz::Einbahn::Zurueck].into_iter().find(|a| a.gesperrt(&pfade, s.gespiegelt) == g)
+                            });
+                            if let Some(art) = einbahn_knoepfe(ui, stand.flatten()) {
+                                aktionen.push(UiAktion::SplineEinbahn(art));
+                            }
                             if let Some(w) = self.aendern_warnung.as_ref() {
                                 ui.colored_label(egui::Color32::from_rgb(255, 140, 90), w);
                             }
@@ -1464,6 +1480,19 @@ impl App {
                     }
                     for (id, farbe, dick) in zeigen {
                         let Some(s) = a.spline(id).cloned() else { continue };
+                        // Pfeile in Splinerichtung
+                        let k = &s.kurve;
+                        let n = (k.length / 12.0).ceil().max(1.0) as usize;
+                        for i in 0..n {
+                            let x = k.length * (i as f64 + 0.5) / n as f64;
+                            let (q, h) = (k.point_at(x), k.heading_at(x));
+                            let spitze = q + (crate::netz::dir(h) * 2.0).extend(0.3);
+                            let fuss = |seite: f64| q + (crate::netz::rechts(h) * seite - crate::netz::dir(h) * 0.5).extend(0.3);
+                            let pts: Vec<egui::Pos2> = [fuss(-1.5), spitze, fuss(1.5)].iter().filter_map(|p| bearbeiten::projizieren(&self.kam, *p, bw, bh).map(|(x, y, _)| egui::pos2(x, y))).collect();
+                            if pts.len() == 3 {
+                                maler.add(egui::Shape::line(pts, egui::Stroke::new(dick, farbe)));
+                            }
+                        }
                         let (l, r) = a.breite(v, &s.sli);
                         let (l, r) = if s.gespiegelt { (r, l) } else { (l, r) };
                         for seite in [-(l as f64), r as f64] {
@@ -1699,6 +1728,14 @@ impl App {
                         Err(e) => self.meldung = format!("Aendern fehlgeschlagen: {e:#}"),
                     }
                     self.anschluesse.vergessen();
+                }
+            }
+            UiAktion::SplineEinbahn(art) => {
+                if let (Some(v), Some(a)) = (self.viewer.as_mut(), self.aendern.as_mut()) {
+                    match a.einbahn(v, art) {
+                        Ok(n) => self.meldung = format!("{n} Spline(s): {}", art.text()),
+                        Err(e) => self.meldung = format!("Aendern fehlgeschlagen: {e:#}"),
+                    }
                 }
             }
             UiAktion::SplineLoeschen => {
@@ -2105,6 +2142,24 @@ impl App {
 }
 
 /// Maler fuer Markierungen ueber dem 3D-Bild, unter den Panels
+/// Knoepfe fuer die Fahrtrichtungen der KI (Einbahn) -> gewaehlte Art
+fn einbahn_knoepfe(ui: &mut egui::Ui, stand: Option<netz::Einbahn>) -> Option<netz::Einbahn> {
+    let mut wahl = None;
+    ui.label(egui::RichText::new("Fahrtrichtung der KI (Optik bleibt)").strong());
+    ui.horizontal(|ui| {
+        for (art, t) in [(netz::Einbahn::Beide, "beide"), (netz::Einbahn::Vor, "Einbahn \u{2192} Pfeil"), (netz::Einbahn::Zurueck, "Einbahn \u{2190} gegen")] {
+            if ui.selectable_label(stand == Some(art), t).on_hover_text(art.text()).clicked() {
+                wahl = Some(art);
+            }
+        }
+    });
+    if stand.is_none() {
+        ui.label(egui::RichText::new("Spuren teilweise gesperrt (Regeln der Karte)").small().weak());
+    }
+    ui.label(egui::RichText::new("Einbahn: die Spuren der Gegenrichtung bekommen [rule] no_cars - die KI faehrt dort nicht, der Spieler schon. Der Pfeil im Bild zeigt die Splinerichtung; mit H sieht man gesperrte Spuren rot.").small().weak());
+    wahl
+}
+
 fn ui_maler(ui: &egui::Ui) -> egui::Painter {
     ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Background, egui::Id::new("auswahl")))
 }
@@ -2485,6 +2540,14 @@ impl ApplicationHandler for App {
                     let (bw, bh) = self.bildgroesse();
                     let (o, d) = self.kam.strahl(p.0, p.1, bw, bh);
                     self.boden_unter_maus = treffer(o, d, |x, y| self.boden(x, y), 6000.0);
+                    // Pipette: ohne gewaehltes Objekt oder mit Strg zeigt der Platzieren-Modus das Objekt unter der Maus
+                    if self.bearb.werkzeug == Werkzeug::Platzieren {
+                        self.bearb.unter_maus = if !egui_will && (self.platzier.is_none() || self.strg) {
+                            self.viewer.as_ref().and_then(|v| self.bearb.suchen(v, &self.kam, p, bw, bh))
+                        } else {
+                            None
+                        };
+                    }
                     if let (Werkzeug::Platzieren, Some(rel), Some(g)) = (self.bearb.werkzeug, self.platzier.clone(), self.boden_unter_maus) {
                         if let Some(v) = self.viewer.as_mut() {
                             if !egui_will {
@@ -2629,7 +2692,30 @@ impl ApplicationHandler for App {
                             self.strasse.maus(v, g, fang, &self.anschluesse, self.aendern.as_mut());
                         }
                     }
-                    if button == MouseButton::Left && self.bearb.werkzeug == Werkzeug::Platzieren {
+                    // Pipette: Objekt unter der Maus zum Platzieren uebernehmen
+                    let pipette = if button == MouseButton::Left && self.bearb.werkzeug == Werkzeug::Platzieren && (self.platzier.is_none() || self.strg) {
+                        let (bw, bh) = self.bildgroesse();
+                        match (self.viewer.as_ref(), self.maus) {
+                            (Some(v), Some(m)) => self.bearb.suchen(v, &self.kam, m, bw, bh).and_then(|w| self.bearb.objekte(v).into_iter().find(|o| o.wahl == w)),
+                            _ => None,
+                        }
+                    } else {
+                        None
+                    };
+                    if let Some(o) = pipette {
+                        let rel = self.viewer.as_ref().map(|v| bearbeiten::relativ(&v.root, &o.sco)).unwrap_or_default();
+                        let datei = o.sco.file_stem().map(|x| x.to_string_lossy().to_string()).unwrap_or_default();
+                        // im Katalog zeigen: Suche auf die Datei, Filter aus
+                        self.katalog_suche = datei.to_lowercase();
+                        self.katalog_ordner = None;
+                        self.katalog_gruppe = None;
+                        self.katalog_herkunft = None;
+                        self.katalog_editor = None;
+                        self.bearb.platzier_richtung = o.richtung.rem_euclid(360.0);
+                        self.bearb.unter_maus = None;
+                        self.ausfuehren(UiAktion::Platzier(Some(rel.clone())));
+                        self.meldung = format!("uebernommen: {datei} ({rel}) - Klick setzt es, Strg+Klick nimmt ein anderes");
+                    } else if button == MouseButton::Left && self.bearb.werkzeug == Werkzeug::Platzieren {
                         if let (Some(rel), Some(g), Some(v)) = (self.platzier.clone(), self.boden_unter_maus, self.viewer.as_mut()) {
                             self.meldung = self.bearb.platzieren(v, &rel, g).unwrap_or_else(|| format!("{rel} laesst sich nicht laden"));
                         }

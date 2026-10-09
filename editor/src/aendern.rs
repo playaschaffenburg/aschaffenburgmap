@@ -22,6 +22,8 @@ pub struct KartenSpline {
     pub gespiegelt: bool,
     pub prev: i64,
     pub next: i64,
+    /// Pfade mit [rule] no_cars (fuer die KI gesperrt)
+    pub gesperrt: Vec<usize>,
 }
 
 impl KartenSpline {
@@ -261,6 +263,54 @@ impl Aendern {
         Ok(n)
     }
 
+    /// Fahrtrichtungen der gewaehlten Splines fuer die KI setzen: die Fahrzeugpfade der gesperrten Richtung bekommen
+    /// [rule] no_cars, die der anderen verlieren ihre no_cars-Regeln (Optik und Querschnitt bleiben) -> Anzahl Splines
+    pub fn einbahn(&mut self, v: &mut Viewer, art: crate::netz::Einbahn) -> Result<usize> {
+        let ids = self.auswahl.clone();
+        // je Spline: Fahrzeugpfade und welche davon gesperrt werden
+        let mut plan: HashMap<i64, (Vec<usize>, Vec<usize>)> = HashMap::new();
+        for id in &ids {
+            let Some(s) = self.spline(*id) else { continue };
+            let Some((pfade, _)) = v.spline_lanes(&s.sli) else { continue };
+            let pfade: Vec<(u8, u8)> = pfade.iter().map(|x| (x.0, x.4)).collect();
+            let fahrzeug: Vec<usize> = pfade.iter().enumerate().filter(|(_, x)| x.0 == 0).map(|(i, _)| i).collect();
+            plan.insert(*id, (fahrzeug, art.gesperrt(&pfade, s.gespiegelt)));
+        }
+        let ids: Vec<i64> = plan.keys().copied().collect();
+        self.umschreiben(v, &ids, move |z, i| {
+            let Some(id) = z.get(i + 3).and_then(|x| x.trim().parse::<i64>().ok()) else { return false };
+            let Some((fahrzeug, sperren)) = plan.get(&id) else { return false };
+            // Ende des Eintrags mit seinen Zusaetzen (Regeln ...) bis zum naechsten Eintrag
+            let ende = eintrag_ende(z, i);
+            let mut j = ende;
+            while j < z.len() && !crate::kreuzung::ist_eintrag(&z[j]) {
+                j += 1;
+            }
+            // vorhandene no_cars-Regeln der Fahrzeugpfade weg
+            let mut k = ende;
+            while k < j {
+                if z[k].trim().eq_ignore_ascii_case("[rule]") && k + 2 < j && z[k + 2].trim().eq_ignore_ascii_case("no_cars")
+                    && z[k + 1].trim().parse::<usize>().is_ok_and(|p| fahrzeug.contains(&p)) {
+                    let mut e = k + 5;
+                    if e < z.len() && z[e].trim().is_empty() {
+                        e += 1;
+                    }
+                    let e = e.min(j);
+                    z.drain(k..e);
+                    j -= e - k;
+                } else {
+                    k += 1;
+                }
+            }
+            let mut neu = Vec::new();
+            for p in sperren {
+                neu.extend(["[rule]".to_string(), p.to_string(), "no_cars".into(), "0".into(), "0".into(), String::new()]);
+            }
+            z.splice(ende..ende, neu);
+            true
+        })
+    }
+
     fn spuren_warnung(&mut self, v: &Viewer, ids: &[i64], sli: &str) -> Option<String> {
         let neu: Vec<(f32, u8)> = v.spline_lanes(sli)?.0.into_iter().filter(|x| x.0 == 0).map(|x| (x.1, x.4)).collect();
         for id in ids {
@@ -338,6 +388,7 @@ fn lesen(v: &Viewer, (tx, ty): (i32, i32)) -> Vec<KartenSpline> {
     t.splines.iter().filter(|s| !s.deleted && s.length > 0.0 && !s.file.trim().is_empty()).map(|s| KartenSpline {
         id: s.id, kachel: (tx, ty), sli: s.file.trim().to_string(), kurve: omsi_geometry::SplineCurve::from_map(s, o),
         gespiegelt: s.mirror, prev: s.prev_id, next: s.next_id,
+        gesperrt: s.rules.iter().filter(|r| !r.kill && r.kind.eq_ignore_ascii_case("no_cars") && r.path_index >= 0).map(|r| r.path_index as usize).collect(),
     }).collect()
 }
 
@@ -479,5 +530,66 @@ mod tests {
         assert_eq!(a.spline(id).unwrap().sli, s.sli);
         assert_eq!(a.kopien("Grundorf").len(), 0, "Sitzungskopie nach vollstaendigem Rueckgaengig");
         drop(a);
+    }
+}
+
+#[cfg(test)]
+mod einbahn_tests {
+    use super::*;
+    use crate::netz::Einbahn;
+
+    #[test]
+    fn gesperrte_pfade() {
+        // Gehweg, Spur mit, Spur gegen die Splinerichtung, Gleis in beide
+        let pfade = [(1, 2), (0, 0), (0, 1), (2, 2)];
+        assert_eq!(Einbahn::Vor.gesperrt(&pfade, false), vec![2]);
+        assert_eq!(Einbahn::Zurueck.gesperrt(&pfade, false), vec![1]);
+        assert_eq!(Einbahn::Vor.gesperrt(&pfade, true), vec![1], "gespiegelt laufen die Pfade andersherum");
+        assert!(Einbahn::Beide.gesperrt(&pfade, false).is_empty());
+    }
+
+    /// Grundorf, Spline 4188 (hat schon [rule] 1 trafficdensity 0.5): Einbahn setzen - laut Spurnetz haben genau die
+    /// Spuren gegen die gewaehlte Richtung no_cars; die vorhandene Regel bleibt; Rueckgaengig stellt alles her
+    #[test]
+    #[ignore]
+    fn einbahn_vorhandener_strasse() {
+        let _sperre = crate::bearbeiten::tests::sperre();
+        let mut v = crate::bearbeiten::tests::grundorf();
+        v.tiles_around(DVec3::new(150.0, 150.0, 0.0), 8).unwrap();
+        let mut a = Aendern::neu(&v);
+        a.aktualisieren(&v);
+        let s = a.spline(4188).expect("Spline 4188").clone();
+        let richtung = s.kurve.heading_at(s.kurve.length / 2.0);
+        // (Spuren des Splines: in Splinerichtung?, no_cars)
+        let spuren = |v: &Viewer| -> Vec<(bool, bool)> {
+            v.lanes.lanes.iter().filter(|l| l.key.is_some_and(|k| k.id == 4188) && l.kind == openomsi_game::viewer::LaneKind::Street && l.points.len() > 1)
+                .map(|l| {
+                    let d = (l.points[l.points.len() / 2 + 1] - l.points[l.points.len() / 2]).truncate();
+                    (d.dot(crate::netz::dir(richtung)) > 0.0, l.no_cars)
+                }).collect()
+        };
+        let vorher = spuren(&v);
+        println!("vorher {vorher:?}, gespiegelt {}", s.gespiegelt);
+        assert!(vorher.iter().any(|x| x.0) && vorher.iter().any(|x| !x.0) && vorher.iter().all(|x| !x.1));
+        a.auswahl = vec![4188];
+        for (art, gesperrt_mit) in [(Einbahn::Vor, false), (Einbahn::Zurueck, true)] {
+            a.einbahn(&mut v, art).unwrap();
+            a.aktualisieren(&v);
+            let jetzt = spuren(&v);
+            println!("{art:?}: {jetzt:?}");
+            assert!(jetzt.iter().all(|(mit, nc)| *nc == (*mit == gesperrt_mit)), "{art:?}: {jetzt:?}");
+        }
+        a.einbahn(&mut v, Einbahn::Beide).unwrap();
+        a.aktualisieren(&v);
+        assert!(spuren(&v).iter().all(|x| !x.1));
+        // die Regel der Karte ist noch da
+        let kopie = a.sitzung.join("maps/Grundorf").join(format!("tile_{}_{}.map", s.kachel.0, s.kachel.1));
+        let t = omsi_map::Tile::load(&kopie).unwrap();
+        let sp = t.splines.iter().find(|x| x.id == 4188).unwrap();
+        assert!(sp.rules.iter().any(|r| r.kind.eq_ignore_ascii_case("trafficdensity")), "{:?}", sp.rules.iter().map(|r| &r.kind).collect::<Vec<_>>());
+        for _ in 0..3 {
+            a.rueckgaengig(&mut v).unwrap();
+        }
+        assert_eq!(a.kopien("Grundorf").len(), 0);
     }
 }

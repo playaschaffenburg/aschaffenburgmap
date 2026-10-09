@@ -59,6 +59,9 @@ Ordner, `[groups]`, dazu Suche über Name, Datei, Gruppe und Herkunft. Objekt an
 der Maus –, Klick in die Welt setzt es (beliebig oft), `,` `.` dreht (15°, Umschalt 1°), Esc beendet. Neue Objekte
 lassen sich danach wie alle anderen bearbeiten.
 
+**Pipette:** im Platzieren-Modus übernimmt ein Klick auf ein Objekt im Bild dessen Typ samt Drehung (ist schon ein
+Objekt gewählt: Strg+Klick); der Katalog springt auf den Eintrag.
+
 Vorschaubilder: jedes Objekt wird einmal allein mit openOMSI gerendert und als PNG in
 `%LOCALAPPDATA%\omsi-editor\vorschau` gespeichert; erzeugt werden nur die gerade sichtbaren, höchstens ~8 ms je Bild.
 
@@ -157,6 +160,11 @@ Werkzeug man gerade ist (eine gebaute Straße samt Kreuzungen und aufgeschnitten
 unter der Maus wird umrissen, Klick wählt den Spline (Umschalt+Klick: ganze verknüpfte Kette, Strg+Klick: dazu/weg).
 Rechts: Daten des Splines, **Richtung umkehren** (`mirror`), **Löschen** (Entf) und **Upgrade** auf einen anderen
 Querschnitt (Raster mit Vorschaubildern; Warnung, wenn die Fahrspuren nicht mehr zu den Nachbar-Splines passen).
+**Fahrtrichtung der KI (Einbahn):** „beide“, „Einbahn → Pfeil“, „Einbahn ← gegen“ – Optik und Querschnitt bleiben, die
+Fahrzeugpfade der Gegenrichtung bekommen `[rule] <Pfad> no_cars 0 0` (wie die Standardkarten; openOMSI/OMSI lassen die
+KI dort weder einsetzen noch abbiegen, der Spieler darf). Pfeile am gewählten Spline zeigen die Splinerichtung; mit H
+erscheinen gesperrte Spuren rot. Andere Regeln der Karte (Verkehrsdichte usw.) bleiben. Gilt auch für eigene Straßen
+(beim Speichern geschrieben).
 Technik: die geänderte Kachel wird in einen Sitzungsordner geschrieben, den openOMSI vor der
 Installation liest, und neu geladen – sofort sichtbar, die Originalkarte bleibt unverändert; beim Speichern als
 neue Karte kommen diese Kacheln mit.
