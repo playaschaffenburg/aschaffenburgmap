@@ -281,10 +281,16 @@ pub fn spur_bei(v: &Viewer, p: DVec2) -> Option<(DVec3, f64)> {
         if l.kind != LaneKind::Street || !l.name.to_ascii_lowercase().ends_with(".sli") || l.no_cars {
             continue;
         }
-        for (i, q) in l.points.iter().enumerate() {
+        // naechster Punkt auf den Strecken zwischen den Spurpunkten (gerade Spuren haben nur zwei)
+        for i in 0..l.points.len().saturating_sub(1) {
+            let (a, b) = (l.points[i], l.points[i + 1]);
+            let ab = (b - a).truncate();
+            let t = if ab.length_squared() < 1e-9 { 0.0 } else { ((p - a.truncate()).dot(ab) / ab.length_squared()).clamp(0.0, 1.0) };
+            let q = a + (b - a) * t;
             let d = (q.truncate() - p).length();
-            if d < 8.0 && best.map(|b| d < b.0).unwrap_or(true) {
-                best = Some((d, *q, l.headings.get(i).copied().unwrap_or(0.0) as f64));
+            if d < 8.0 && best.map(|x| d < x.0).unwrap_or(true) {
+                let (ha, hb) = (l.headings.get(i).copied().unwrap_or(0.0) as f64, l.headings.get(i + 1).copied().unwrap_or(0.0) as f64);
+                best = Some((d, q, ha + crate::netz::norm180(hb - ha) * t));
             }
         }
     }

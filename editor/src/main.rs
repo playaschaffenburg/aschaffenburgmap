@@ -125,6 +125,8 @@ enum KartenDialog {
     Loeschen2(String, String),
     /// die geoeffnete Karte nutzt Objekte aus Ordnern anderer Karten: (Anzahl, davon fehlend)
     FremdeObjekte(usize, usize),
+    /// neue Karte: Angaben, Ordner von Hand geaendert (sonst aus dem Anzeigenamen)
+    Neu(karten::NeueKarte, bool),
 }
 
 struct Gui {
@@ -304,6 +306,8 @@ enum UiAktion {
     KarteUmbenennen(String, String, String),
     /// Karte in den Papierkorb
     KarteLoeschen(String),
+    /// neue Karte anlegen und oeffnen
+    KarteNeu(karten::NeueKarte),
     /// Objekte aus Ordnern anderer Karten in die geoeffnete Karte holen (dann neu laden)
     ObjekteHolen,
     /// "Speichern": die geoeffnete Karte ueberschreiben (eigene sofort, fremde nach Rueckfrage)
@@ -645,6 +649,9 @@ impl App {
         ui.horizontal_top(|ui| {
             ui.vertical(|ui| {
                 ui.set_width(liste_breite);
+                if ui.button(egui::RichText::new("+ Neue Karte erstellen ...").strong()).on_hover_text("leere Karte aus der OMSI-Vorlage: eine Kachel mit einem Stueck Strasse und einem Einsetzpunkt").clicked() {
+                    self.karten_dialog = Some(KartenDialog::Neu(karten::NeueKarte::default(), false));
+                }
                 ui.add(egui::TextEdit::singleline(&mut self.filter).hint_text("suchen (Ordner oder Name)"));
                 egui::ScrollArea::vertical().id_salt("kartenliste").max_height(ui.available_height() - 10.0).show(ui, |ui| {
                     for (i, k) in self.karten.iter().enumerate() {
@@ -708,6 +715,39 @@ impl App {
         let Some(d) = self.karten_dialog.as_mut() else { return };
         let mut zu = false;
         match d {
+            KartenDialog::Neu(n, von_hand) => {
+                egui::Window::new("Neue Karte erstellen").collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
+                    egui::Grid::new("neue_karte").num_columns(2).show(ui, |ui| {
+                        ui.label("Anzeigename");
+                        if ui.add(egui::TextEdit::singleline(&mut n.anzeige).hint_text("z. B. Aschaffenburg Innenstadt").desired_width(280.0)).changed() && !*von_hand {
+                            n.ordner = karten::ordner_aus(&n.anzeige);
+                        }
+                        ui.end_row();
+                        ui.label("Ordner (maps\\...)");
+                        if ui.add(egui::TextEdit::singleline(&mut n.ordner).desired_width(280.0)).changed() {
+                            *von_hand = true;
+                        }
+                        ui.end_row();
+                        ui.label("Beschreibung");
+                        ui.add(egui::TextEdit::multiline(&mut n.beschreibung).desired_rows(4).desired_width(280.0));
+                        ui.end_row();
+                    });
+                    ui.label(egui::RichText::new("Die Karte entsteht aus OMSIs Vorlage (template\\NewMap): eine Kachel (300 x 300 m) mit einem 120 m langen Stueck Strasse und einem Einsetzpunkt \"Start\" darauf. Weitere Kacheln: World Editor; Strassen: Strasse bauen.").small().weak());
+                    let ordner_ok = speichern::name_ok(&n.ordner) && !self.root.join("maps").join(n.ordner.trim()).exists();
+                    if !n.ordner.is_empty() && !ordner_ok {
+                        ui.colored_label(egui::Color32::from_rgb(255, 120, 90), "Ordnername ungueltig oder schon vorhanden");
+                    }
+                    ui.horizontal(|ui| {
+                        if ui.add_enabled(ordner_ok && !n.anzeige.trim().is_empty(), egui::Button::new(egui::RichText::new("Erstellen und oeffnen").strong())).clicked() {
+                            aktionen.push(UiAktion::KarteNeu(n.clone()));
+                            zu = true;
+                        }
+                        if ui.button("Abbrechen").clicked() {
+                            zu = true;
+                        }
+                    });
+                });
+            }
             KartenDialog::Umbenennen(karte, anzeige, ordner) => {
                 egui::Window::new("Karte umbenennen").collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
                     egui::Grid::new("umbenennen").num_columns(2).show(ui, |ui| {
@@ -2428,6 +2468,20 @@ impl App {
                 };
                 self.karten = karten::finden(&self.root);
                 self.kartenwahl = Some(ordner);
+            }
+            UiAktion::KarteNeu(n) => {
+                match karten::neue_karte(&self.root, &n) {
+                    Ok(_) => {
+                        self.karten = karten::finden(&self.root);
+                        self.kartenwahl = Some(n.ordner.clone());
+                        self.meldung = format!("Karte \"{}\" angelegt (maps\\{}) - wird geoeffnet", n.anzeige, n.ordner);
+                        if let Some(i) = self.karten.iter().position(|k| k.ordner == n.ordner) {
+                            self.kartenwahl_offen = false;
+                            self.ausfuehren(UiAktion::Karte(i));
+                        }
+                    }
+                    Err(e) => self.meldung = format!("Karte nicht angelegt: {e:#}"),
+                }
             }
             UiAktion::ObjekteHolen => {
                 let Some(k) = self.karte.clone() else { return };

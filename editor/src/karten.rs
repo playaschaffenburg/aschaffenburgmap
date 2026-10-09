@@ -102,6 +102,138 @@ pub fn anzeigename_setzen(root: &Path, ordner: &str, neu: &str) -> Result<()> {
     Ok(())
 }
 
+/// Angaben fuer eine neue Karte
+#[derive(Clone, Debug, Default)]
+pub struct NeueKarte {
+    pub ordner: String,
+    pub anzeige: String,
+    pub beschreibung: String,
+}
+
+/// Querschnitt des Strassenstuecks auf der Grundkachel: der erste, den es gibt
+const START_SLI: [&str; 3] = ["Splines\\Marcel\\str_2spur_8m_altonaer1.sli", "Splines\\Marcel\\str_2spur_10m_Grunewaldstr.sli",
+                              "Splines\\Marcel\\str_2spur_11m_SeeburgerStr1.sli"];
+
+/// Ordnername aus einem Anzeigenamen (Buchstaben, Ziffern, _ -; Umlaute umschrieben)
+pub fn ordner_aus(anzeige: &str) -> String {
+    let mut o = String::new();
+    for c in anzeige.trim().chars() {
+        match c {
+            'ä' => o.push_str("ae"), 'ö' => o.push_str("oe"), 'ü' => o.push_str("ue"), 'Ä' => o.push_str("Ae"), 'Ö' => o.push_str("Oe"),
+            'Ü' => o.push_str("Ue"), 'ß' => o.push_str("ss"),
+            c if c.is_ascii_alphanumeric() || c == '-' || c == '_' => o.push(c),
+            ' ' => o.push('_'),
+            _ => {}
+        }
+    }
+    o
+}
+
+/// Querlage der rechten Fahrspur in Splinerichtung (aus den [path]-Eintraegen der .sli), sonst 1,75 m
+fn rechte_spur(sli: &Path) -> f64 {
+    let t = std::fs::read(sli).map(|b| b.iter().map(|&c| c as char).collect::<String>()).unwrap_or_default();
+    let z: Vec<&str> = t.lines().map(|l| l.trim()).collect();
+    let mut beste: Option<f64> = None;
+    for i in 0..z.len() {
+        if z[i].eq_ignore_ascii_case("[path]") && i + 5 < z.len() {
+            let art: i32 = z[i + 1].parse().unwrap_or(-1);
+            let x: f64 = z[i + 2].replace(',', ".").parse().unwrap_or(f64::NAN);
+            let richtung: i32 = z[i + 5].parse().unwrap_or(-1);
+            if art == 0 && richtung == 0 && x > 0.0 && beste.is_none_or(|b| x < b) {
+                beste = Some(x);
+            }
+        }
+    }
+    beste.unwrap_or(1.75)
+}
+
+/// Neue Karte aus der OMSI-Vorlage (template\\NewMap): Name, Anzeigename, Beschreibung; die Grundkachel 0 0 bekommt
+/// ein 120 m langes Strassenstueck (Nord-Sued durch die Mitte) und darauf einen Einsetzpunkt in der rechten Spur.
+/// Die Karte traegt die Marke des Editors (Speichern ohne Rueckfrage). -> Kartenordner
+pub fn neue_karte(root: &Path, n: &NeueKarte) -> Result<PathBuf> {
+    let ordner = n.ordner.trim();
+    let anzeige = n.anzeige.trim();
+    if !name_ok(ordner) {
+        bail!("Ordnername \"{ordner}\": nur Buchstaben, Ziffern, _ - und Leerzeichen");
+    }
+    if anzeige.is_empty() || anzeige.contains(['\r', '\n']) {
+        bail!("Anzeigename leer oder mehrzeilig");
+    }
+    let vorlage = root.join("template").join("NewMap");
+    if !vorlage.join("global.cfg").is_file() {
+        bail!("OMSI-Vorlage {} fehlt", vorlage.display());
+    }
+    let ziel = root.join("maps").join(ordner);
+    if ziel.exists() {
+        bail!("maps\\{ordner} gibt es schon - anderen Namen waehlen");
+    }
+    let sli = START_SLI.iter().find(|s| root.join(s.replace('\\', "/")).is_file()).context("kein Strassen-Querschnitt fuer die Grundkachel (Splines\\Marcel)")?;
+    kopieren(&vorlage, &ziel).with_context(|| format!("Vorlage nach {} kopieren", ziel.display()))?;
+    // Grundkachel: Strasse von (150, 90) nach Norden, 120 m; Einsetzpunkt in der rechten Spur
+    let x_spur = 150.0 + rechte_spur(&root.join(sli.replace('\\', "/")));
+    let stempel = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_secs()).unwrap_or(0);
+    let kachel = [
+        format!("File created with omsi-editor ({stempel})"), String::new(), "[version]".into(), "14".into(), String::new(),
+        "[terrain]".into(), String::new(), String::new(), "[variable_terrainlightmap]".into(), String::new(), "[variable_terrain]".into(), String::new(),
+        "[spline_h]".into(), "0".into(), sli.to_string(), "1".into(), "0".into(), "0".into(), "150".into(), "0".into(), "90".into(), "0".into(),
+        "120".into(), "0".into(), "0".into(), "0".into(), "0".into(), "0".into(), "0".into(), "0".into(), "0".into(), "0".into(), String::new(),
+        "Object Nr. 0".into(), "[object]".into(), "0".into(), crate::orte::EINSETZPUNKT.into(), "2".into(), format!("{x_spur:.3}"), "100".into(),
+        "0".into(), "0".into(), "0".into(), "0".into(), "0".into(), String::new(),
+    ].join("\r\n");
+    let mut bytes = vec![0xFF, 0xFE];
+    bytes.extend(kachel.encode_utf16().flat_map(|u| u.to_le_bytes()));
+    std::fs::write(ziel.join("tile_0_0.map"), bytes)?;
+    // global.cfg: Namen, naechste ID, Beschreibung, Kamera an der Strasse, Einsetzpunkt
+    let g = ziel.join("global.cfg");
+    global_setzen(&g, &[("[name]", ordner.to_string()), ("[friendlyname]", anzeige.to_string()), ("[NextIDCode]", "3".into())])?;
+    let (text, utf16) = dekodieren(&std::fs::read(&g)?);
+    let eol = if text.contains("\r\n") { "\r\n" } else { "\n" };
+    let z: Vec<&str> = text.split(eol).collect();
+    let mut out: Vec<String> = Vec::new();
+    let mut i = 0;
+    while i < z.len() {
+        let w = z[i].trim().to_ascii_lowercase();
+        if w == "[description]" {
+            out.push(z[i].to_string());
+            let beschreibung = if n.beschreibung.trim().is_empty() { anzeige.to_string() } else { n.beschreibung.trim().replace("\r\n", "\n") };
+            out.extend(beschreibung.split('\n').map(|x| x.to_string()));
+            while i < z.len() && !z[i].trim().eq_ignore_ascii_case("[end]") {
+                i += 1;
+            }
+            continue;
+        }
+        if w == "[mapcam]" && i + 8 < z.len() {
+            out.extend([z[i].to_string(), "0".into(), "0".into(), "150".into(), z[i + 4].to_string(), "100".into()]);
+            out.extend(z[i + 6..i + 9].iter().map(|x| x.to_string()));
+            i += 9;
+            continue;
+        }
+        if w == "[map]" && !out.iter().any(|x| x.trim().eq_ignore_ascii_case("[entrypoints]")) {
+            out.extend(["[entrypoints]".to_string(), "1".into(), "0".into(), "2".into(), "0".into(), format!("{x_spur:.3}"), "0.000".into(), "100.000".into(),
+                        "0.000".into(), "0.000".into(), "0.000".into(), "1.000".into(), "0".into(), "Start".into(), String::new()]);
+        }
+        out.push(z[i].to_string());
+        i += 1;
+    }
+    std::fs::write(&g, kodieren(&out.join(eol), utf16))?;
+    let _ = std::fs::write(ziel.join(crate::speichern::MARKE), format!("Mit dem OMSI-Editor (aschaffenburgmap) neu angelegt: \"{anzeige}\".\r\nDiese Karte darf der Editor beim Speichern ueberschreiben (mit Sicherung).\r\n"));
+    log::info!("neue Karte maps\\{ordner} (\"{anzeige}\") mit Grundkachel, Strasse {sli} und Einsetzpunkt");
+    Ok(ziel)
+}
+
+fn kopieren(von: &Path, nach: &Path) -> Result<()> {
+    std::fs::create_dir_all(nach)?;
+    for e in std::fs::read_dir(von)? {
+        let e = e?;
+        if e.file_type()?.is_dir() {
+            kopieren(&e.path(), &nach.join(e.file_name()))?;
+        } else {
+            std::fs::copy(e.path(), nach.join(e.file_name()))?;
+        }
+    }
+    Ok(())
+}
+
 /// Ordner einer Karte umbenennen: maps\alt -> maps\neu, [name] in global.cfg, die eigenen Ordner unter
 /// Sceneryobjects\Aschaffenburg_KI\ und Splines\Aschaffenburg_KI\ und die Verweise der Kacheln darauf
 pub fn umbenennen(root: &Path, alt: &str, neu: &str) -> Result<()> {
@@ -294,5 +426,52 @@ mod tests {
         assert!(!root.join("maps/Weg").exists() && !root.join("Sceneryobjects/Aschaffenburg_KI/Weg").exists());
         assert!(in_papierkorb(&root, "..").is_err());
         std::fs::remove_dir_all(&root).ok();
+    }
+}
+
+#[cfg(test)]
+mod neue_karte_tests {
+    use super::*;
+    use glam::{DVec2, DVec3};
+
+    /// neue Karte in einem Test-Ordner (Vorlage und Querschnitt kopiert), mit openOMSI geoeffnet: die Grundkachel
+    /// laedt, die Strasse hat Fahrspuren, der Einsetzpunkt steht in der rechten Spur und steht in global.cfg
+    #[test]
+    #[ignore]
+    fn neue_karte_mit_strasse_und_einsetzpunkt() {
+        let _sperre = crate::bearbeiten::tests::sperre();
+        let root = Path::new(crate::bearbeiten::tests::OMSI);
+        let test = std::env::temp_dir().join(format!("omsi-editor-neu-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&test);
+        kopieren(&root.join("template").join("NewMap"), &test.join("template").join("NewMap")).unwrap();
+        let sli = START_SLI[0].replace('\\', "/");
+        std::fs::create_dir_all(test.join(&sli).parent().unwrap()).unwrap();
+        std::fs::copy(root.join(&sli), test.join(&sli)).unwrap();
+        let n = NeueKarte { ordner: ordner_aus("Neue Stadt Süd"), anzeige: "Neue Stadt Süd".into(), beschreibung: "Testkarte\nzweite Zeile".into() };
+        assert_eq!(n.ordner, "Neue_Stadt_Sued");
+        let karte = neue_karte(&test, &n).unwrap();
+        assert!(neue_karte(&test, &n).is_err(), "zweimal derselbe Ordner");
+        let g = omsi_map::GlobalCfg::load(&karte.join("global.cfg")).unwrap();
+        assert_eq!((g.name.as_str(), g.friendly_name.as_str()), ("Neue_Stadt_Sued", "Neue Stadt Süd"));
+        assert!(g.description.contains("zweite Zeile"), "{}", g.description);
+        assert_eq!(g.entry_points.len(), 1);
+        let ep = &g.entry_points[0];
+        assert_eq!((ep.object_id, ep.index, ep.group, ep.name.as_str()), (2, 0, 0, "Start"));
+        assert!(crate::speichern::eigene_karte(&test, &n.ordner));
+        // mit openOMSI oeffnen (Inhalte aus der Installation)
+        let (mut v, _) = openomsi_game::viewer::Viewer::open(&openomsi_game::viewer::instance(), None, root, &karte.join("global.cfg")).unwrap();
+        v.tiles_around(DVec3::new(150.0, 150.0, 0.0), 1).unwrap();
+        assert_eq!(v.map_tiles(), vec![(0, 0)]);
+        assert!(v.spline_end_free(1, true).is_some(), "Strasse ohne Fahrspuren");
+        let (p, h) = crate::orte::spur_bei(&v, DVec2::new(ep.pos[0], ep.pos[1])).expect("Einsetzpunkt nicht auf einer Fahrspur");
+        assert!((p.truncate() - DVec2::new(ep.pos[0], ep.pos[1])).length() < 0.5 && crate::netz::norm180(h).abs() < 1.0, "{p:?} {h}");
+        assert!(v.hidden_objects().iter().any(|o| o.0 == 2), "Einsetzpunkt-Objekt fehlt");
+        if let Some(b) = std::env::var_os("OMSI_BILD") {
+            let kam = crate::kamera::Kamera { ziel: DVec3::new(150.0, 120.0, 0.0), gier: 200.0, neigung: -40.0, abstand: 70.0, fov: 50.0 };
+            let px = v.render_image(1280, 800, &kam.camera()).unwrap();
+            image::save_buffer(b, &px, 1280, 800, image::ColorType::Rgba8).unwrap();
+        }
+        drop(v);
+        std::fs::remove_dir_all(&test).ok();
     }
 }
