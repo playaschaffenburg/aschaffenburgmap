@@ -13,6 +13,7 @@ omsi-render = { path = "../../OpenOmsi/source/crates/omsi-render" }
 omsi-map = { path = "../../OpenOmsi/source/crates/omsi-map" }
 omsi-cfg = { path = "../../OpenOmsi/source/crates/omsi-cfg" }
 omsi-geometry = { path = "../../OpenOmsi/source/crates/omsi-geometry" }
+omsi-texture = { path = "../../OpenOmsi/source/crates/omsi-texture" }
 wgpu = { version = "29", default-features = false, features = ["std", "parking_lot", "metal", "vulkan", "dx12", "gles", "wgsl", "noop"] }
 winit = "0.30"
 glam = "0.30"

@@ -108,6 +108,28 @@ pub struct NeueKarte {
     pub ordner: String,
     pub anzeige: String,
     pub beschreibung: String,
+    /// Ort der Karte: Gelaende aus den Geodaten, Luftbild im Editor, spaeter erweiterbar (sonst flach, ohne Ort)
+    pub bezug: Option<crate::geo::Bezug>,
+    /// Kantenlaenge des Anfangsgebiets in Kacheln (1, 3, 5; 0 = 1)
+    pub groesse: i32,
+}
+
+/// Strassenprofil auf der Grundkachel (lokal x = 150, y 90..210): unter der Fahrbahn wird das Gelaende auf die
+/// Strassenhoehe gebracht (5 cm darunter), daneben laeuft es auf 8 m Breite ins Gelaende aus
+fn strasse_einebnen(h: &mut [f32], hs: f64, he: f64) {
+    for iz in 0..61 {
+        for ix in 0..61 {
+            let (x, y) = (ix as f64 * 5.0, iz as f64 * 5.0);
+            let t = ((y - 90.0) / 120.0).clamp(0.0, 1.0);
+            let profil = hs + (he - hs) * t - 0.05;
+            let quer = (x - 150.0).abs();
+            let laengs = if y < 90.0 { 90.0 - y } else if y > 210.0 { y - 210.0 } else { 0.0 };
+            let d = quer.max(laengs);
+            let w = if d <= 7.0 { 1.0 } else { (1.0 - (d - 7.0) / 8.0).max(0.0) };
+            let i = iz * 61 + ix;
+            h[i] = (h[i] as f64 + (profil - h[i] as f64) * w) as f32;
+        }
+    }
 }
 
 /// Querschnitt des Strassenstuecks auf der Grundkachel: der erste, den es gibt
@@ -168,6 +190,40 @@ pub fn neue_karte(root: &Path, n: &NeueKarte) -> Result<PathBuf> {
         bail!("maps\\{ordner} gibt es schon - anderen Namen waehlen");
     }
     let sli = START_SLI.iter().find(|s| root.join(s.replace('\\', "/")).is_file()).context("kein Strassen-Querschnitt fuer die Grundkachel (Splines\\Marcel)")?;
+    // Anfangsgebiet: Kachel 0 0 (in ihrer Mitte der Ort) und die Kacheln rundherum
+    let r = (n.groesse.max(1) - 1) / 2;
+    let mut kacheln = vec![(0, 0)];
+    for x in -r..=r {
+        for y in -r..=r {
+            if (x, y) != (0, 0) {
+                kacheln.push((x, y));
+            }
+        }
+    }
+    // Gelaende des Orts (vor dem Anlegen holen: fehlt es, bleibt nichts Halbes liegen)
+    let mut gelaende: std::collections::HashMap<(i32, i32), Vec<f32>> = Default::default();
+    if let Some(b) = &n.bezug {
+        let (daten, _) = crate::geo::kacheln(b, &kacheln, true, false).context("Gelaende holen")?;
+        for d in daten {
+            if let Some(h) = d.gelaende {
+                gelaende.insert(d.kachel, h);
+            }
+        }
+        if !gelaende.contains_key(&(0, 0)) {
+            bail!("keine Gelaendedaten fuer \"{}\" - ohne Netz oder ausserhalb der Daten?", b.ort);
+        }
+    }
+    let (hs, he) = match gelaende.get(&(0, 0)) {
+        Some(h) => {
+            let t = omsi_map::Terrain { cells: 60, heights: h.clone() };
+            (t.sample(150.0, 90.0) as f64, t.sample(150.0, 210.0) as f64)
+        }
+        None => (0.0, 0.0),
+    };
+    if let Some(h) = gelaende.get_mut(&(0, 0)) {
+        strasse_einebnen(h, hs, he);
+    }
+    let steigung = (he - hs) / 120.0 * 100.0;
     kopieren(&vorlage, &ziel).with_context(|| format!("Vorlage nach {} kopieren", ziel.display()))?;
     // Grundkachel: Strasse von (150, 90) nach Norden, 120 m; Einsetzpunkt in der rechten Spur
     let x_spur = 150.0 + rechte_spur(&root.join(sli.replace('\\', "/")));
@@ -175,14 +231,39 @@ pub fn neue_karte(root: &Path, n: &NeueKarte) -> Result<PathBuf> {
     let kachel = [
         format!("File created with omsi-editor ({stempel})"), String::new(), "[version]".into(), "14".into(), String::new(),
         "[terrain]".into(), String::new(), String::new(), "[variable_terrainlightmap]".into(), String::new(), "[variable_terrain]".into(), String::new(),
-        "[spline_h]".into(), "0".into(), sli.to_string(), "1".into(), "0".into(), "0".into(), "150".into(), "0".into(), "90".into(), "0".into(),
-        "120".into(), "0".into(), "0".into(), "0".into(), "0".into(), "0".into(), "0".into(), "0".into(), "0".into(), "0".into(), String::new(),
+        "[spline_h]".into(), "0".into(), sli.to_string(), "1".into(), "0".into(), "0".into(), "150".into(), format!("{hs:.3}"), "90".into(), "0".into(),
+        "120".into(), "0".into(), format!("{steigung:.4}"), format!("{steigung:.4}"), format!("{:.3}", he - hs), "0".into(), "0".into(), "0".into(), "0".into(), "0".into(), String::new(),
         "Object Nr. 0".into(), "[object]".into(), "0".into(), crate::orte::EINSETZPUNKT.into(), "2".into(), format!("{x_spur:.3}"), "100".into(),
         "0".into(), "0".into(), "0".into(), "0".into(), "0".into(), String::new(),
     ].join("\r\n");
     let mut bytes = vec![0xFF, 0xFE];
     bytes.extend(kachel.encode_utf16().flat_map(|u| u.to_le_bytes()));
     std::fs::write(ziel.join("tile_0_0.map"), bytes)?;
+    // die anderen Kacheln des Anfangsgebiets: leer, Lichtkarte der Vorlage
+    let mut liste = vec![(0, 0, "tile_0_0.map".to_string())];
+    for &(x, y) in kacheln.iter().skip(1) {
+        let datei = format!("tile_{x}_{y}.map");
+        let text = format!("File created with omsi-editor ({stempel})\r\n\r\n[version]\r\n14\r\n\r\n[terrain]\r\n\r\n\r\n[variable_terrainlightmap]\r\n\r\n[variable_terrain]\r\n\r\n");
+        let mut b = vec![0xFF, 0xFE];
+        b.extend(text.encode_utf16().flat_map(|u| u.to_le_bytes()));
+        std::fs::write(ziel.join(&datei), b)?;
+        let lm = ziel.join("tile_0_0.map.LM.bmp");
+        if lm.is_file() {
+            std::fs::copy(&lm, ziel.join(format!("{datei}.LM.bmp")))?;
+        }
+        if !gelaende.contains_key(&(x, y)) {
+            // ohne Ort: flach wie die Vorlage
+            gelaende.insert((x, y), vec![0.0; 61 * 61]);
+        }
+        liste.push((x, y, datei));
+    }
+    for ((x, y), h) in &gelaende {
+        let t = omsi_map::Terrain { cells: 60, heights: h.clone() };
+        std::fs::write(ziel.join(format!("tile_{x}_{y}.map.terrain")), t.to_bytes())?;
+    }
+    if let Some(b) = &n.bezug {
+        b.schreiben(&ziel)?;
+    }
     // global.cfg: Namen, naechste ID, Beschreibung, Kamera an der Strasse, Einsetzpunkt
     let g = ziel.join("global.cfg");
     global_setzen(&g, &[("[name]", ordner.to_string()), ("[friendlyname]", anzeige.to_string()), ("[NextIDCode]", "3".into())])?;
@@ -209,15 +290,19 @@ pub fn neue_karte(root: &Path, n: &NeueKarte) -> Result<PathBuf> {
             continue;
         }
         if w == "[map]" && !out.iter().any(|x| x.trim().eq_ignore_ascii_case("[entrypoints]")) {
-            out.extend(["[entrypoints]".to_string(), "1".into(), "0".into(), "2".into(), "0".into(), format!("{x_spur:.3}"), "0.000".into(), "100.000".into(),
+            out.extend(["[entrypoints]".to_string(), "1".into(), "0".into(), "2".into(), "0".into(), format!("{x_spur:.3}"), format!("{:.3}", hs + (he - hs) * 10.0 / 120.0), "100.000".into(),
                         "0.000".into(), "0.000".into(), "0.000".into(), "1.000".into(), "0".into(), "Start".into(), String::new()]);
         }
         out.push(z[i].to_string());
         i += 1;
     }
     std::fs::write(&g, kodieren(&out.join(eol), utf16))?;
+    if liste.len() > 1 {
+        crate::speichern::kachelliste_setzen(&ziel, &liste[..1], &liste)?;
+    }
     let _ = std::fs::write(ziel.join(crate::speichern::MARKE), format!("Mit dem OMSI-Editor (aschaffenburgmap) neu angelegt: \"{anzeige}\".\r\nDiese Karte darf der Editor beim Speichern ueberschreiben (mit Sicherung).\r\n"));
-    log::info!("neue Karte maps\\{ordner} (\"{anzeige}\") mit Grundkachel, Strasse {sli} und Einsetzpunkt");
+    log::info!("neue Karte maps\\{ordner} (\"{anzeige}\") mit {} Kachel(n), Strasse {sli} und Einsetzpunkt{}", liste.len(),
+               n.bezug.as_ref().map(|b| format!(", Ort {} (UTM {} {:.0} {:.0}, NN {:.0} m)", b.ort, b.zone, b.ost0, b.nord0, b.nn0)).unwrap_or_default());
     Ok(ziel)
 }
 
@@ -447,7 +532,7 @@ mod neue_karte_tests {
         let sli = START_SLI[0].replace('\\', "/");
         std::fs::create_dir_all(test.join(&sli).parent().unwrap()).unwrap();
         std::fs::copy(root.join(&sli), test.join(&sli)).unwrap();
-        let n = NeueKarte { ordner: ordner_aus("Neue Stadt Süd"), anzeige: "Neue Stadt Süd".into(), beschreibung: "Testkarte\nzweite Zeile".into() };
+        let n = NeueKarte { ordner: ordner_aus("Neue Stadt Süd"), anzeige: "Neue Stadt Süd".into(), beschreibung: "Testkarte\nzweite Zeile".into(), ..Default::default() };
         assert_eq!(n.ordner, "Neue_Stadt_Sued");
         let karte = neue_karte(&test, &n).unwrap();
         assert!(neue_karte(&test, &n).is_err(), "zweimal derselbe Ordner");
@@ -471,6 +556,84 @@ mod neue_karte_tests {
             let px = v.render_image(1280, 800, &kam.camera()).unwrap();
             image::save_buffer(b, &px, 1280, 800, image::ColorType::Rgba8).unwrap();
         }
+        drop(v);
+        std::fs::remove_dir_all(&test).ok();
+    }
+
+    /// (Netz) neue Karte in Aschaffenburg, 3 x 3 Kacheln: Georeferenz, echtes Gelaende, Strasse darauf; Luftbild ueber
+    /// dem Gelaende (OMSI_BILD); eine Kachel anfuegen: ihr Gelaende passt zu den Nachbarn (gleiche Daten, gleiches Gitter)
+    #[test]
+    #[ignore]
+    fn neue_karte_mit_ort() {
+        let _sperre = crate::bearbeiten::tests::sperre();
+        let root = Path::new(crate::bearbeiten::tests::OMSI);
+        let test = std::env::temp_dir().join(format!("omsi-editor-ort-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&test);
+        kopieren(&root.join("template").join("NewMap"), &test.join("template").join("NewMap")).unwrap();
+        let sli = START_SLI[0].replace('\\', "/");
+        std::fs::create_dir_all(test.join(&sli).parent().unwrap()).unwrap();
+        std::fs::copy(root.join(&sli), test.join(&sli)).unwrap();
+        let ort = crate::geo::Ort { name: "Aschaffenburg Schloss".into(), lat: 49.9755, lon: 9.1420 };
+        let b = crate::geo::Bezug::fuer(&ort).unwrap();
+        println!("{b:?}");
+        let n = NeueKarte { ordner: "Aschaffenburg_Test".into(), anzeige: "Aschaffenburg Test".into(), bezug: Some(b.clone()), groesse: 3, ..Default::default() };
+        let karte = neue_karte(&test, &n).unwrap();
+        assert_eq!(crate::geo::Bezug::lesen(&karte), Some(b.clone()));
+        let g = omsi_map::GlobalCfg::load(&karte.join("global.cfg")).unwrap();
+        assert_eq!(g.tiles.len(), 9);
+        assert_eq!((g.tiles[0].x, g.tiles[0].y), (0, 0));
+        assert_eq!(g.entry_points.len(), 1);
+        let t00 = omsi_map::Terrain::load(&karte.join("tile_0_0.map.terrain")).unwrap();
+        let (lo, hi) = t00.heights.iter().fold((f32::MAX, f32::MIN), |(a, b), h| (a.min(*h), b.max(*h)));
+        println!("Kachel 0 0: Gelaende {lo:.1} .. {hi:.1} m");
+        assert!(hi - lo > 1.0, "Gelaende flach");
+        let (mut v, _) = openomsi_game::viewer::Viewer::open(&openomsi_game::viewer::instance(), None, root, &karte.join("global.cfg")).unwrap();
+        v.tiles_around(DVec3::new(150.0, 150.0, 0.0), 1).unwrap();
+        assert_eq!(v.map_tiles().len(), 9);
+        let (s, t) = (v.surface_height(150.0, 150.0).expect("Strasse"), v.terrain_height(150.0, 150.0).unwrap());
+        println!("Strasse {s:.2} m, Gelaende darunter {t:.2} m");
+        assert!((s - t).abs() < 0.5, "Strasse nicht auf dem Gelaende: {s} / {t}");
+        assert!(v.spline_end_free(1, true).is_some(), "Strasse ohne Fahrspuren");
+        // Luftbild
+        let alle: Vec<(i32, i32)> = g.tiles.iter().map(|t| (t.x, t.y)).collect();
+        let (daten, quellen) = crate::geo::kacheln(&b, &alle, false, true).unwrap();
+        println!("{quellen:?}");
+        let mut bilder = 0;
+        for d in daten {
+            if let Some(p) = d.luftbild {
+                let img = image::open(&p).unwrap().to_rgba8();
+                let (w, h) = img.dimensions();
+                v.set_ground_image(d.kachel.0, d.kachel.1, Some(openomsi_game::viewer::Viewer::ground_image_data(omsi_texture::Image { width: w, height: h, rgba: img.into_raw(), has_alpha: false })));
+                bilder += 1;
+            }
+        }
+        assert_eq!(bilder, 9, "Luftbilder");
+        v.set_ground_image_alpha(0.85);
+        if let Some(bild) = std::env::var_os("OMSI_BILD") {
+            for (name, kam) in [("uebersicht", crate::kamera::Kamera { ziel: DVec3::new(150.0, 150.0, 0.0), gier: 0.0, neigung: -70.0, abstand: 900.0, fov: 50.0 }),
+                                ("nah", crate::kamera::Kamera { ziel: DVec3::new(150.0, 150.0, t), gier: 200.0, neigung: -35.0, abstand: 160.0, fov: 50.0 })] {
+                let px = v.render_image(1280, 800, &kam.camera()).unwrap();
+                image::save_buffer(std::path::PathBuf::from(&bild).with_extension(format!("{name}.png")), &px, 1280, 800, image::ColorType::Rgba8).unwrap();
+            }
+        }
+        // erweitern: Kachel 2 0 mit dem echten Gelaende; schon die rohen Daten passen an den Rand der Kachel 1 0
+        let a = crate::aendern::Aendern::neu(&v);
+        let ordner = a.sitzung.join("maps").join("Aschaffenburg_Test");
+        let (d, _) = crate::geo::kacheln(&b, &[(2, 0)], true, false).unwrap();
+        let roh = d.into_iter().next().unwrap().gelaende.expect("Gelaende 2 0");
+        let t10 = omsi_map::Terrain::load(&karte.join("tile_1_0.map.terrain")).unwrap();
+        let fehler = (0..61).map(|iz| (roh[iz * 61] - t10.height_at(60, iz)).abs()).fold(0.0f32, f32::max);
+        println!("Rand 1 0 / 2 0 (rohe Daten): hoechstens {fehler:.3} m");
+        assert!(fehler < 0.05, "Gitter passt nicht: {fehler}");
+        let mut w = crate::welt::Welt::default();
+        println!("{}", w.hinzufuegen(&mut v, root, &ordner, (2, 0), Some(roh.clone())).unwrap());
+        // (die Testkarte liegt nicht unter dem OMSI-Ordner: die Sitzungskopie direkt lesen)
+        let neu = omsi_map::Terrain::load(&ordner.join("tile_2_0.map.terrain")).unwrap();
+        for iz in 0..61 {
+            assert_eq!(neu.height_at(0, iz), t10.height_at(60, iz));
+        }
+        assert!((neu.height_at(30, 30) - roh[30 * 61 + 30]).abs() < 1e-4);
+        drop(a);
         drop(v);
         std::fs::remove_dir_all(&test).ok();
     }

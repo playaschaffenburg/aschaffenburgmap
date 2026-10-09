@@ -59,8 +59,10 @@ impl Welt {
         Ok(())
     }
 
-    /// Kachel `k` anfuegen (muss an eine vorhandene grenzen); Dateien in `ordner` (Sitzungsordner der Karte)
-    pub fn hinzufuegen(&mut self, v: &mut Viewer, root: &Path, ordner: &Path, k: (i32, i32)) -> Result<String> {
+    /// Kachel `k` anfuegen (muss an eine vorhandene grenzen); Dateien in `ordner` (Sitzungsordner der Karte).
+    /// `echt`: Gelaende der Stelle aus den Geodaten (Karte mit Ort) - es wird an die Raender der Nachbarn angeglichen;
+    /// sonst aus den Nachbarn gemittelt.
+    pub fn hinzufuegen(&mut self, v: &mut Viewer, root: &Path, ordner: &Path, k: (i32, i32), echt: Option<Vec<f32>>) -> Result<String> {
         let liste = v.map_tile_refs();
         if liste.iter().any(|t| (t.0, t.1) == k) {
             bail!("Kachel {} {} gibt es schon", k.0, k.1);
@@ -76,7 +78,11 @@ impl Welt {
         let mut bytes = vec![0xFF, 0xFE];
         bytes.extend(text.encode_utf16().flat_map(|u| u.to_le_bytes()));
         std::fs::write(&pfad, bytes).with_context(|| format!("{} schreiben", pfad.display()))?;
-        let h = gelaende(v, k);
+        let mit_daten = echt.is_some();
+        let h = match echt {
+            Some(d) => angleichen(v, k, d),
+            None => gelaende(v, k),
+        };
         let mut t = 60i32.to_le_bytes().to_vec();
         for x in &h {
             t.extend(x.to_le_bytes());
@@ -91,7 +97,8 @@ impl Welt {
         self.setzen(v, neu)?;
         let (lo, hi) = h.iter().fold((f32::INFINITY, f32::NEG_INFINITY), |(a, b), x| (a.min(*x), b.max(*x)));
         log::info!("Kachel {} {} angelegt (Gelaende {lo:.1} bis {hi:.1} m)", k.0, k.1);
-        Ok(format!("Kachel {} {} angelegt - Gelaende schliesst an die Nachbarn an ({lo:.1} bis {hi:.1} m)", k.0, k.1))
+        Ok(format!("Kachel {} {} angelegt - {} ({lo:.1} bis {hi:.1} m)", k.0, k.1,
+                   if mit_daten { "Gelaende aus den Geodaten, an die Nachbarn angeglichen" } else { "Gelaende schliesst an die Nachbarn an" }))
     }
 
     /// Kachel `k` wegnehmen
@@ -144,6 +151,55 @@ pub fn gelaende(v: &Viewer, k: (i32, i32)) -> Vec<f32> {
     let s = gelaende_lesen(v, (k.0, k.1 - 1));
     let n = gelaende_lesen(v, (k.0, k.1 + 1));
     mischen(w.as_deref(), o.as_deref(), s.as_deref(), n.as_deref())
+}
+
+/// Gelaende `d` (aus den Geodaten) an die Raender der vorhandenen Nachbarn angleichen: der Unterschied am Rand
+/// (z. B. dort geformtes Gelaende) laeuft ueber 40 m ins Innere aus, der Rand selbst stimmt genau
+pub fn angleichen(v: &Viewer, k: (i32, i32), d: Vec<f32>) -> Vec<f32> {
+    let w = gelaende_lesen(v, (k.0 - 1, k.1));
+    let o = gelaende_lesen(v, (k.0 + 1, k.1));
+    let s = gelaende_lesen(v, (k.0, k.1 - 1));
+    let n = gelaende_lesen(v, (k.0, k.1 + 1));
+    angleichen_an(d, w.as_deref(), o.as_deref(), s.as_deref(), n.as_deref())
+}
+
+fn angleichen_an(mut d: Vec<f32>, w: Option<&[f32]>, o: Option<&[f32]>, s: Option<&[f32]>, n: Option<&[f32]>) -> Vec<f32> {
+    const AUSLAUF: f32 = 8.0;
+    // Unterschied je Seite entlang ihres Rands
+    let diff = |rand: Option<Vec<f32>>, eigen: &dyn Fn(usize) -> usize, d: &[f32]| rand.map(|r| (0..N).map(|i| r[i] - d[eigen(i)]).collect::<Vec<f32>>());
+    let dw = diff(w.map(|g| (0..N).map(|iz| g[iz * N + (N - 1)]).collect()), &|iz| iz * N, &d);
+    let d_o = diff(o.map(|g| (0..N).map(|iz| g[iz * N]).collect()), &|iz| iz * N + N - 1, &d);
+    let ds = diff(s.map(|g| (0..N).map(|ix| g[(N - 1) * N + ix]).collect()), &|ix| ix, &d);
+    let dn = diff(n.map(|g| (0..N).map(|ix| g[ix]).collect()), &|ix| (N - 1) * N + ix, &d);
+    let alt = d.clone();
+    for iz in 0..N {
+        for ix in 0..N {
+            let seiten = [
+                dw.as_ref().map(|r| (r[iz], ix)),
+                d_o.as_ref().map(|r| (r[iz], N - 1 - ix)),
+                ds.as_ref().map(|r| (r[ix], iz)),
+                dn.as_ref().map(|r| (r[ix], N - 1 - iz)),
+            ];
+            let (mut summe, mut gewicht, mut staerkste) = (0.0f32, 0.0f32, 0.0f32);
+            for (u, abstand) in seiten.into_iter().flatten() {
+                let g = (1.0 - abstand as f32 / AUSLAUF).max(0.0);
+                summe += u * g;
+                gewicht += g;
+                staerkste = staerkste.max(g);
+            }
+            if gewicht > 0.0 {
+                d[iz * N + ix] = alt[iz * N + ix] + summe / gewicht * staerkste;
+            }
+        }
+    }
+    // die Raender genau wie die Nachbarn
+    for i in 0..N {
+        if let Some(g) = w { d[i * N] = g[i * N + N - 1]; }
+        if let Some(g) = o { d[i * N + N - 1] = g[i * N]; }
+        if let Some(g) = s { d[i] = g[(N - 1) * N + i]; }
+        if let Some(g) = n { d[(N - 1) * N + i] = g[i]; }
+    }
+    d
 }
 
 /// aus den Gelaenden der Nachbarn (West, Ost, Sued, Nord; je 61 x 61) das der Kachel dazwischen
@@ -201,6 +257,19 @@ mod tests {
         }
     }
 
+    /// Geodaten-Gelaende an einen Nachbarn mit anderem Rand angleichen: Rand genau, innen nach 40 m unveraendert
+    #[test]
+    fn angleichen_an_nachbarn() {
+        let d = vec![5.0f32; N * N];
+        let west = vec![8.0f32; N * N];
+        let h = angleichen_an(d, Some(&west), None, None, None);
+        for iz in 0..N {
+            assert_eq!(h[iz * N], 8.0);
+            assert!((h[iz * N + 4] - 6.5).abs() < 1e-4, "halber Auslauf {}", h[iz * N + 4]);
+            assert_eq!(h[iz * N + 8], 5.0);
+        }
+    }
+
     /// Gelaende zwischen zwei Nachbarn (West 10 m, Ost 0 m): Raender genau, dazwischen stetig fallend
     #[test]
     fn gelaende_zwischen_nachbarn() {
@@ -233,7 +302,7 @@ mod tests {
         // freier Platz oestlich der Kachel 2 0 (grenzt an sie)
         let k = (3, 0);
         assert!(!alt.iter().any(|t| (t.0, t.1) == k) && alt.iter().any(|t| (t.0, t.1) == (2, 0)));
-        println!("{}", w.hinzufuegen(&mut v, root, &ordner, k).unwrap());
+        println!("{}", w.hinzufuegen(&mut v, root, &ordner, k, None).unwrap());
         assert!(v.map_tiles().contains(&k));
         // Gelaende: Westrand gleich dem Ostrand der Nachbarkachel
         let neu_h = gelaende_lesen(&v, k).expect("Gelaende der neuen Kachel");

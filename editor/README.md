@@ -202,6 +202,22 @@ Mitte, Querschnitt aus `Splines\Marcel`) und darauf einem Einsetzpunkt „Start�
 bekommt Namen, Beschreibung, `[NextIDCode]`, Kamera und `[entrypoints]`. Sie trägt die Marke des Editors (Speichern
 ohne Rückfrage).
 
+**Neue Karte an einem echten Ort:** im Dialog „Ort“ suchen (Name/Adresse über Nominatim/OpenStreetMap, oder direkt
+Koordinaten „49.97, 9.14“), einen Treffer wählen, Anfangsgebiet 1, 3 × 3 oder 5 × 5 Kacheln. Der Ort liegt in der Mitte
+der Kachel 0 0; die Karte liegt im **UTM-Gitter** (Datei `omsi-editor-geo.cfg` im Kartenordner: Ort, UTM-Zone,
+UTM-Koordinaten des Ursprungs, Höhe über NN, die in OMSI 0 ist – OMSI liest sie nicht, sie wandert beim Speichern mit).
+Gelände je Kachel aus dem **DGM1 Bayern** (1 m, je Rasterpunkt das Mittel über 5 × 5 m), außerhalb Bayerns aus den
+weltweiten **Terrain Tiles** (AWS Open Data, ~30 m); die Startstraße bekommt Höhe und Steigung des Geländes, darunter
+wird es auf Fahrbahnhöhe gebracht. Angelegt wird im Hintergrund (Fortschritt in der Kartenauswahl). **Erweitern:** im
+World Editor angefügte Kacheln einer Karte mit Ort bekommen das echte Gelände ihrer Stelle (am Rand genau an die
+Nachbarn angeglichen, auch wenn dort geformt wurde; Auslauf 40 m) und ihr Luftbild.
+
+**Luftbild** (Karten mit Ort, Leiste oben: „Luftbild“ + Deckkraft-Regler): je geladener Kachel ein Ausschnitt aus dem
+**DOP40 Bayern** (40 cm, WMS in EPSG:25832, genau auf die Kachel), im Hintergrund geholt und als Ebene auf das
+Geländenetz gelegt (openOMSI `Viewer::set_ground_image` / `set_ground_image_alpha`) – es folgt dem Gelände, auch beim
+Formen; Straßen und Objekte stehen darüber. Außerhalb Bayerns gibt es (noch) kein Luftbild. Quellenangabe rechts in
+der Statuszeile. Daten: `python -m omsigen.geodaten` (Zwischenspeicher `%LOCALAPPDATA%\omsi-editor\geodaten`).
+
 **Rückgängig/Wiederholen** (Strg+Z / Strg+Y) gilt über alle Werkzeuge: der jeweils letzte Schritt, egal in welchem
 Werkzeug man gerade ist (eine gebaute Straße samt Kreuzungen und aufgeschnittenen Straßen ist ein Schritt).
 

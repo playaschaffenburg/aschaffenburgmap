@@ -14,12 +14,14 @@ mod aendern;
 mod anschluss;
 mod bearbeiten;
 mod gelaende;
+mod geo;
 mod hilfsansicht;
 mod kamera;
 mod karten;
 mod katalog;
 mod knoten;
 mod kreuzung;
+mod luftbild;
 mod netz;
 mod orte;
 mod protokoll;
@@ -260,6 +262,14 @@ struct App {
     /// World Editor, Gelaende formen: Pinsel, Rueckgaengig, Punkt unter der Maus (auf dem Gelaende)
     gelaende: gelaende::Gelaende,
     gelaende_unter: Option<DVec3>,
+    /// Luftbild ueber dem Gelaende (Karten mit Ort)
+    luftbild: luftbild::Luftbild,
+    /// neue Karte: Ortssuche (Text, Treffer, gewaehlter Ort, laufende Suche) und das Anlegen im Hintergrund (Ordner)
+    ort_text: String,
+    ort_treffer: Vec<geo::Ort>,
+    ort_wahl: Option<geo::Ort>,
+    ort_job: Option<std::thread::JoinHandle<Result<Vec<geo::Ort>>>>,
+    neue_karte_job: Option<(String, std::thread::JoinHandle<Result<()>>)>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -320,7 +330,9 @@ enum UiAktion {
     /// Karte in den Papierkorb
     KarteLoeschen(String),
     /// neue Karte anlegen und oeffnen
-    KarteNeu(karten::NeueKarte),
+    KarteNeu(karten::NeueKarte, Option<geo::Ort>),
+    /// Ort fuer eine neue Karte suchen
+    OrtSuchen(String),
     /// Objekte aus Ordnern anderer Karten in die geoeffnete Karte holen (dann neu laden)
     ObjekteHolen,
     /// "Speichern": die geoeffnete Karte ueberschreiben (eigene sofort, fremde nach Rueckfrage)
@@ -457,6 +469,12 @@ impl App {
             orte_umbenennen: None,
             gelaende: gelaende::Gelaende::default(),
             gelaende_unter: None,
+            luftbild: luftbild::Luftbild::default(),
+            ort_text: String::new(),
+            ort_treffer: Vec::new(),
+            ort_wahl: None,
+            ort_job: None,
+            neue_karte_job: None,
         }
     }
 
@@ -478,6 +496,7 @@ impl App {
                 v.stream(ziel, weite, std::time::Duration::from_millis(STREAM_BUDGET_MS));
             }
             self.karte = Some(self.karten[i].ordner.clone());
+            self.luftbild.karte(geo::Bezug::lesen(&self.root.join("maps").join(&self.karten[i].ordner)));
             self.meldung = format!("{} geoeffnet in {:.1} s", self.karten[i].ordner, t0.elapsed().as_secs_f32());
             window.set_title(&format!("{} - OMSI-Editor", self.karten[i].ordner));
             return Ok(());
@@ -507,6 +526,7 @@ impl App {
         self.surface = Some(surface);
         self.viewer = Some(v);
         self.karte = Some(self.karten[i].ordner.clone());
+        self.luftbild.karte(geo::Bezug::lesen(&self.root.join("maps").join(&self.karten[i].ordner)));
         self.meldung = format!("{} geladen in {:.1} s", self.karten[i].ordner, t0.elapsed().as_secs_f32());
         window.set_title(&format!("{} - OMSI-Editor", self.karten[i].ordner));
         Ok(())
@@ -569,6 +589,7 @@ impl App {
         let (ziel, weite) = (self.kam.ziel, self.sichtweite());
         if let Some(v) = self.viewer.as_mut() {
             v.stream(ziel, weite, std::time::Duration::from_millis(STREAM_BUDGET_MS));
+            self.luftbild.aktualisieren(v);
             self.hilfe.aktualisieren(v);
             self.bearb.unsichtbare = self.hilfe.an;
             if self.bearb.werkzeug == Werkzeug::Strasse {
@@ -633,6 +654,7 @@ impl App {
         for a in aktionen {
             self.ausfuehren(a);
         }
+        self.jobs_pruefen();
         // Testlauf ohne Startkarte: nach 2 s die Karte aus --wechsel ueber die Auswahl oeffnen
         if self.beenden_nach.is_some() && self.gestartet.elapsed().as_secs_f32() > 2.0 {
             if let Some(z) = self.wechsel.take() {
@@ -643,6 +665,39 @@ impl App {
             }
         }
         window.request_redraw();
+    }
+
+    /// Hintergrundauftraege der Kartenauswahl: Ortssuche, neue Karte anlegen
+    fn jobs_pruefen(&mut self) {
+        if self.ort_job.as_ref().is_some_and(|j| j.is_finished()) {
+            match self.ort_job.take().unwrap().join() {
+                Ok(Ok(orte)) => {
+                    self.meldung = if orte.is_empty() { "Ort nicht gefunden".into() } else { format!("{} Orte gefunden - einen waehlen", orte.len()) };
+                    if orte.len() == 1 {
+                        self.ort_wahl = orte.first().cloned();
+                    }
+                    self.ort_treffer = orte;
+                }
+                Ok(Err(e)) => self.meldung = format!("Ortssuche fehlgeschlagen: {e:#}"),
+                Err(_) => self.meldung = "Ortssuche fehlgeschlagen".into(),
+            }
+        }
+        if self.neue_karte_job.as_ref().is_some_and(|j| j.1.is_finished()) {
+            let (ordner, job) = self.neue_karte_job.take().unwrap();
+            match job.join() {
+                Ok(Ok(())) => {
+                    self.karten = karten::finden(&self.root);
+                    self.kartenwahl = Some(ordner.clone());
+                    self.meldung = format!("Karte angelegt (maps\\{ordner}) - wird geoeffnet");
+                    if let Some(i) = self.karten.iter().position(|k| k.ordner == ordner) {
+                        self.kartenwahl_offen = false;
+                        self.ausfuehren(UiAktion::Karte(i));
+                    }
+                }
+                Ok(Err(e)) => self.meldung = format!("Karte nicht angelegt: {e:#}"),
+                Err(_) => self.meldung = "Karte nicht angelegt (Absturz beim Anlegen)".into(),
+            }
+        }
     }
 
     /// Vorschaubild einer Karte (picture.jpg) als Textur, einmal geladen
@@ -672,7 +727,12 @@ impl App {
         ui.horizontal_top(|ui| {
             ui.vertical(|ui| {
                 ui.set_width(liste_breite);
-                if ui.button(egui::RichText::new("+ Neue Karte erstellen ...").strong()).on_hover_text("leere Karte aus der OMSI-Vorlage: eine Kachel mit einem Stueck Strasse und einem Einsetzpunkt").clicked() {
+                if let Some((o, _)) = &self.neue_karte_job {
+                    ui.horizontal(|ui| {
+                        ui.spinner();
+                        ui.label(format!("lege {o} an ..."));
+                    });
+                } else if ui.button(egui::RichText::new("+ Neue Karte erstellen ...").strong()).on_hover_text("Karte aus der OMSI-Vorlage, auf Wunsch an einem echten Ort (Gelaende, Luftbild): Kachel mit einem Stueck Strasse und einem Einsetzpunkt").clicked() {
                     self.karten_dialog = Some(KartenDialog::Neu(karten::NeueKarte::default(), false));
                 }
                 ui.add(egui::TextEdit::singleline(&mut self.filter).hint_text("suchen (Ordner oder Name)"));
@@ -752,17 +812,63 @@ impl App {
                         }
                         ui.end_row();
                         ui.label("Beschreibung");
-                        ui.add(egui::TextEdit::multiline(&mut n.beschreibung).desired_rows(4).desired_width(280.0));
+                        ui.add(egui::TextEdit::multiline(&mut n.beschreibung).desired_rows(3).desired_width(280.0));
+                        ui.end_row();
+                        ui.label("Ort");
+                        ui.horizontal(|ui| {
+                            let r = ui.add(egui::TextEdit::singleline(&mut self.ort_text).hint_text("Ort, Adresse oder 49.97, 9.14").desired_width(200.0));
+                            let enter = r.lost_focus() && ui.input(|i| i.key_pressed(egui::Key::Enter));
+                            if (ui.add_enabled(self.ort_job.is_none(), egui::Button::new("Suchen")).clicked() || enter) && !self.ort_text.trim().is_empty() {
+                                aktionen.push(UiAktion::OrtSuchen(self.ort_text.clone()));
+                            }
+                            if self.ort_job.is_some() {
+                                ui.spinner();
+                            }
+                        });
+                        ui.end_row();
+                        ui.label("Anfangsgebiet");
+                        ui.horizontal(|ui| {
+                            for (g, t) in [(1, "1 Kachel"), (3, "3 x 3"), (5, "5 x 5")] {
+                                if ui.selectable_label(n.groesse.max(1) == g, t).clicked() {
+                                    n.groesse = g;
+                                }
+                            }
+                            ui.label(egui::RichText::new(format!("({:.1} x {:.1} km)", n.groesse.max(1) as f64 * 0.3, n.groesse.max(1) as f64 * 0.3)).weak());
+                        });
                         ui.end_row();
                     });
-                    ui.label(egui::RichText::new("Die Karte entsteht aus OMSIs Vorlage (template\\NewMap): eine Kachel (300 x 300 m) mit einem 120 m langen Stueck Strasse und einem Einsetzpunkt \"Start\" darauf. Weitere Kacheln: World Editor; Strassen: Strasse bauen.").small().weak());
+                    if !self.ort_treffer.is_empty() {
+                        egui::ScrollArea::vertical().id_salt("orte").max_height(110.0).show(ui, |ui| {
+                            for o in &self.ort_treffer {
+                                let text = if o.name.chars().count() > 90 { format!("{}...", o.name.chars().take(90).collect::<String>()) } else { o.name.clone() };
+                                if ui.selectable_label(self.ort_wahl.as_ref() == Some(o), text).on_hover_text(format!("{:.5}, {:.5}", o.lat, o.lon)).clicked() {
+                                    self.ort_wahl = Some(o.clone());
+                                }
+                            }
+                        });
+                    }
+                    match self.ort_wahl.clone() {
+                        Some(o) => {
+                            ui.horizontal(|ui| {
+                                ui.label(egui::RichText::new(format!("Ort: {} ({:.5}, {:.5})", o.name.split(',').next().unwrap_or(""), o.lat, o.lon)).strong());
+                                if ui.small_button("ohne Ort").clicked() {
+                                    self.ort_wahl = None;
+                                }
+                            });
+                            ui.label(egui::RichText::new("Der Ort liegt in der Mitte der Kachel 0 0. Gelaende: DGM1 Bayern (1 m), sonst weltweit Terrain Tiles (~30 m). Luftbild (DOP40, nur Bayern) mit Regler oben im Editor. Die Karte liegt im UTM-Gitter: im World Editor angefuegte Kacheln bekommen das echte Gelaende und Luftbild ihrer Stelle.").small().weak());
+                        }
+                        None => {
+                            ui.label(egui::RichText::new("Ohne Ort: flaches Gelaende, kein Luftbild.").small().weak());
+                        }
+                    }
+                    ui.label(egui::RichText::new("Die Karte entsteht aus OMSIs Vorlage (template\\NewMap): Kachel 0 0 mit einem 120 m langen Stueck Strasse und einem Einsetzpunkt \"Start\" darauf. Weitere Kacheln: World Editor; Strassen: Strasse bauen.").small().weak());
                     let ordner_ok = speichern::name_ok(&n.ordner) && !self.root.join("maps").join(n.ordner.trim()).exists();
                     if !n.ordner.is_empty() && !ordner_ok {
                         ui.colored_label(egui::Color32::from_rgb(255, 120, 90), "Ordnername ungueltig oder schon vorhanden");
                     }
                     ui.horizontal(|ui| {
-                        if ui.add_enabled(ordner_ok && !n.anzeige.trim().is_empty(), egui::Button::new(egui::RichText::new("Erstellen und oeffnen").strong())).clicked() {
-                            aktionen.push(UiAktion::KarteNeu(n.clone()));
+                        if ui.add_enabled(ordner_ok && !n.anzeige.trim().is_empty() && self.neue_karte_job.is_none(), egui::Button::new(egui::RichText::new("Erstellen und oeffnen").strong())).clicked() {
+                            aktionen.push(UiAktion::KarteNeu(n.clone(), self.ort_wahl.clone()));
                             zu = true;
                         }
                         if ui.button("Abbrechen").clicked() {
@@ -871,6 +977,7 @@ impl App {
             self.laengstes = self.laengstes.max(dt);
         }
         self.bewegen(dt);
+        self.jobs_pruefen();
         if self.katalog_job.as_ref().map(|j| j.is_finished()).unwrap_or(false) {
             if let Ok(k) = self.katalog_job.take().unwrap().join() {
                 self.meldung = format!("Objektkatalog: {} Objekte in {} Ordnern ({:.1} s)", k.eintraege.len(), k.ordner.len(), self.gestartet.elapsed().as_secs_f32());
@@ -1038,6 +1145,20 @@ impl App {
                         aktionen.push(UiAktion::Pipette);
                     }
                     ui.separator();
+                    if self.luftbild.bezug.is_some() {
+                        let mut an = self.luftbild.deckkraft > 0.0;
+                        if ui.checkbox(&mut an, "Luftbild").on_hover_text("Luftbild ueber dem Gelaende (Karte mit Ort)").changed() {
+                            self.luftbild.deckkraft = if an { 0.6 } else { 0.0 };
+                        }
+                        let mut prozent = self.luftbild.deckkraft * 100.0;
+                        if ui.add(egui::Slider::new(&mut prozent, 0.0..=100.0).integer().suffix(" %").show_value(true)).on_hover_text("Deckkraft des Luftbilds").changed() {
+                            self.luftbild.deckkraft = prozent / 100.0;
+                        }
+                        if self.luftbild.laedt() {
+                            ui.spinner();
+                        }
+                        ui.separator();
+                    }
                     ui.checkbox(&mut self.hilfe.an, "Pfade (H)").on_hover_text("Pfade (blau Strasse, gelb Kreuzung, gruen Gehweg, orange Gleis, lila unsichtbare Strasse) und unsichtbare Objekte zeigen - wie \"Show paths\" im nEditor");
                     ui.separator();
                     // ein Verlauf fuer alle Werkzeuge (neue Schritte kommen beim naechsten Bild dazu)
@@ -1705,6 +1826,11 @@ impl App {
                         ui.separator();
                     }
                     ui.label(&self.meldung);
+                    if self.luftbild.deckkraft > 0.0 && !self.luftbild.quellen.is_empty() {
+                        ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                            ui.label(egui::RichText::new(self.luftbild.quellen.join("; ")).small().weak());
+                        });
+                    }
                 });
             });
             // Markierungen ueber dem 3D-Bild (unter den Panels)
@@ -2420,7 +2546,18 @@ impl App {
                 let (Some(v), Some(karte)) = (self.viewer.as_mut(), self.karte.clone()) else { return };
                 let Some(a) = self.aendern.as_ref() else { return };
                 let ordner = a.sitzung.join("maps").join(&karte);
-                self.meldung = match self.welt.hinzufuegen(v, &self.root, &ordner, k) {
+                // Karte mit Ort: das Gelaende der Stelle aus den Geodaten
+                let echt = match self.luftbild.bezug.as_ref() {
+                    Some(b) => match geo::kacheln(b, &[k], true, false) {
+                        Ok((d, _)) => d.into_iter().next().and_then(|d| d.gelaende),
+                        Err(e) => {
+                            log::warn!("Gelaende fuer Kachel {k:?}: {e:#}");
+                            None
+                        }
+                    },
+                    None => None,
+                };
+                self.meldung = match self.welt.hinzufuegen(v, &self.root, &ordner, k, echt) {
                     Ok(m) => m,
                     Err(e) => format!("Kachel nicht angelegt: {e:#}"),
                 };
@@ -2579,18 +2716,29 @@ impl App {
                 self.karten = karten::finden(&self.root);
                 self.kartenwahl = Some(ordner);
             }
-            UiAktion::KarteNeu(n) => {
-                match karten::neue_karte(&self.root, &n) {
-                    Ok(_) => {
-                        self.karten = karten::finden(&self.root);
-                        self.kartenwahl = Some(n.ordner.clone());
-                        self.meldung = format!("Karte \"{}\" angelegt (maps\\{}) - wird geoeffnet", n.anzeige, n.ordner);
-                        if let Some(i) = self.karten.iter().position(|k| k.ordner == n.ordner) {
-                            self.kartenwahl_offen = false;
-                            self.ausfuehren(UiAktion::Karte(i));
-                        }
+            UiAktion::KarteNeu(n, ort) => {
+                if self.neue_karte_job.is_some() {
+                    return;
+                }
+                let root = self.root.clone();
+                self.meldung = match &ort {
+                    Some(o) => format!("lege \"{}\" an - Gelaende fuer {} wird geholt ...", n.anzeige, o.name),
+                    None => format!("lege \"{}\" an ...", n.anzeige),
+                };
+                protokoll::aktion(&format!("Neue Karte: {} ({})", n.ordner, ort.as_ref().map(|o| o.name.as_str()).unwrap_or("ohne Ort")));
+                self.neue_karte_job = Some((n.ordner.trim().to_string(), std::thread::spawn(move || -> Result<()> {
+                    let mut n = n;
+                    if let Some(o) = ort {
+                        n.bezug = Some(geo::Bezug::fuer(&o)?);
                     }
-                    Err(e) => self.meldung = format!("Karte nicht angelegt: {e:#}"),
+                    karten::neue_karte(&root, &n).map(|_| ())
+                })));
+            }
+            UiAktion::OrtSuchen(text) => {
+                if self.ort_job.is_none() && !text.trim().is_empty() {
+                    self.meldung = format!("suche \"{}\" ...", text.trim());
+                    self.ort_treffer.clear();
+                    self.ort_job = Some(std::thread::spawn(move || geo::suchen(&text)));
                 }
             }
             UiAktion::ObjekteHolen => {
