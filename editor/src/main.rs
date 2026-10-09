@@ -13,6 +13,7 @@
 mod aendern;
 mod anschluss;
 mod bearbeiten;
+mod gelaende;
 mod hilfsansicht;
 mod kamera;
 mod karten;
@@ -174,7 +175,7 @@ struct App {
     /// Stapel der Werkzeuge (Objekte, Strassen, Aendern) beim letzten Blick
     verlauf: Vec<Quelle>,
     verlauf_redo: Vec<Quelle>,
-    stapel: (usize, usize, usize, usize, usize),
+    stapel: (usize, usize, usize, usize, usize, usize),
     /// Bericht der vorigen Sitzung, einmal in der Statuszeile melden
     bericht_melden: Option<Option<PathBuf>>,
     /// Testlauf: Strasse, an der spaeter eine Kreuzung gebaut wird
@@ -256,6 +257,9 @@ struct App {
     orte_name: String,
     orte_setzen: bool,
     orte_umbenennen: Option<(i64, String)>,
+    /// World Editor, Gelaende formen: Pinsel, Rueckgaengig, Punkt unter der Maus (auf dem Gelaende)
+    gelaende: gelaende::Gelaende,
+    gelaende_unter: Option<DVec3>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -263,6 +267,14 @@ enum WeltModus {
     Kacheln,
     Einsetzpunkte,
     Haltestellen,
+    Gelaende,
+}
+
+impl WeltModus {
+    /// Einsetzpunkte oder Haltestellen
+    fn orte(self) -> bool {
+        matches!(self, WeltModus::Einsetzpunkte | WeltModus::Haltestellen)
+    }
 }
 
 /// was die Pipette unter der Maus hat
@@ -291,6 +303,7 @@ enum Quelle {
     Welt,
     /// Einsetzpunkte/Haltestellen (mit ihren Objekten in den Kacheln)
     Orte,
+    Gelaende,
 }
 
 /// Was die Oberflaeche ausloesen will (nach dem Zeichnen ausgefuehrt)
@@ -385,7 +398,7 @@ impl App {
             kreuzung_maus: None,
             verlauf: vec![],
             verlauf_redo: vec![],
-            stapel: (0, 0, 0, 0, 0),
+            stapel: (0, 0, 0, 0, 0, 0),
             pruefung: None,
             gestartet: Instant::now(),
             bilder: 0,
@@ -442,6 +455,8 @@ impl App {
             orte_name: String::new(),
             orte_setzen: false,
             orte_umbenennen: None,
+            gelaende: gelaende::Gelaende::default(),
+            gelaende_unter: None,
         }
     }
 
@@ -541,6 +556,14 @@ impl App {
         }
         if let Some(z) = self.boden(self.kam.ziel.x, self.kam.ziel.y) {
             self.kam.ziel.z += (z - self.kam.ziel.z) * (1.0 - (-dt as f64 * 8.0).exp());
+        }
+        // Gelaende formen: der Pinsel wirkt, solange die Taste gedrueckt ist (auch ohne Mausbewegung)
+        if self.gelaende.malt() {
+            self.gelaende_unter = self.gelaende_treffer();
+            if let (Some(g), Some(v)) = (self.gelaende_unter, self.viewer.as_mut()) {
+                let strasse = &self.strasse;
+                self.gelaende.malen(v, g.truncate(), dt as f64, &|q| strasse.kante_unter(q).is_some());
+            }
         }
         // Kacheln im Hintergrund: Lesen und Zerlegen im Worker, hier nur ein paar ms Hochladen
         let (ziel, weite) = (self.kam.ziel, self.sichtweite());
@@ -873,7 +896,7 @@ impl App {
                 Ok(Ok((ziel, ueberschrieben))) => {
                     self.bearb.aenderungen = 0;
                     self.welt.aenderungen = 0;
-                self.orte.aenderungen = 0;
+                    self.gelaende.aenderungen = 0;
                     self.orte.aenderungen = 0;
                     self.strasse.aenderungen = 0;
                     if let Some(a) = self.aendern.as_mut() {
@@ -980,7 +1003,7 @@ impl App {
             Vec::new()
         };
         let spur_ansicht = if self.bearb.werkzeug == Werkzeug::Kreuzung && self.spur_modus { self.spur_ansicht() } else { None };
-        if let (Werkzeug::Welt, true, Some(v), Some(k)) = (self.bearb.werkzeug, self.welt_modus != WeltModus::Kacheln, self.viewer.as_ref(), self.karte.as_ref()) {
+        if let (Werkzeug::Welt, true, Some(v), Some(k)) = (self.bearb.werkzeug, self.welt_modus.orte(), self.viewer.as_ref(), self.karte.as_ref()) {
             let liste = self.welt.anfangsliste(v);
             self.orte.laden(&self.root.join("maps").join(k), &liste);
         }
@@ -1287,14 +1310,65 @@ impl App {
             if self.bearb.werkzeug == Werkzeug::Welt {
                 egui::Panel::right("welt").default_size(360.0).show(ctx, |ui| {
                     ui.heading("World Editor");
-                    for (m, t) in [(WeltModus::Kacheln, "Kacheln bearbeiten"), (WeltModus::Einsetzpunkte, "Einsetzpunkte"), (WeltModus::Haltestellen, "Haltestellen")] {
+                    for (m, t) in [(WeltModus::Kacheln, "Kacheln bearbeiten"), (WeltModus::Gelaende, "Gelaende formen"), (WeltModus::Einsetzpunkte, "Einsetzpunkte"), (WeltModus::Haltestellen, "Haltestellen")] {
                         if ui.selectable_label(self.welt_modus == m, t).clicked() && self.welt_modus != m {
                             aktionen.push(UiAktion::WeltModus(m));
                         }
                     }
-                    ui.add_enabled(false, egui::Button::new("Gelaende formen (folgt)"));
                     ui.separator();
-                    if self.welt_modus != WeltModus::Kacheln {
+                    if self.welt_modus == WeltModus::Gelaende {
+                        let unter = self.gelaende_unter;
+                        let ziel = self.gelaende.strich_ziel();
+                        let p = &mut self.gelaende.pinsel;
+                        ui.label(egui::RichText::new("Gelaende formen").strong());
+                        ui.horizontal_wrapped(|ui| {
+                            for m in gelaende::Modus::ALLE {
+                                if ui.selectable_label(p.modus == m, m.name()).clicked() {
+                                    p.modus = m;
+                                }
+                            }
+                        });
+                        ui.label(p.modus.hilfe());
+                        ui.add_space(4.0);
+                        ui.add(egui::Slider::new(&mut p.radius, gelaende::RADIUS.0..=gelaende::RADIUS.1).logarithmic(true).integer().suffix(" m").text("Radius"));
+                        let mut prozent = p.staerke * 100.0;
+                        if ui.add(egui::Slider::new(&mut prozent, 5.0..=100.0).integer().suffix(" %").text("Staerke")).changed() {
+                            p.staerke = prozent / 100.0;
+                        }
+                        if p.modus == gelaende::Modus::Ebnen {
+                            ui.add_space(4.0);
+                            ui.horizontal(|ui| {
+                                ui.checkbox(&mut p.fest, "feste Zielhoehe");
+                                ui.add_enabled(p.fest, egui::DragValue::new(&mut p.ziel).speed(0.1).suffix(" m"));
+                            });
+                            ui.horizontal_wrapped(|ui| {
+                                ui.label("Hoehe einrasten:");
+                                for (r, t) in [(0.0, "aus"), (0.5, "0,5 m"), (1.0, "1 m"), (2.5, "2,5 m"), (5.0, "5 m")] {
+                                    if ui.selectable_label(p.raster == r, t).clicked() {
+                                        p.raster = r;
+                                    }
+                                }
+                            });
+                            ui.label(egui::RichText::new(if p.fest { "Strg+Klick ins Gelaende greift eine neue Zielhoehe ab." } else { "Ziel ist die Hoehe, wo du ansetzt (Strg+Klick: als feste Hoehe abgreifen)." }).small().weak());
+                        }
+                        ui.add_space(4.0);
+                        ui.checkbox(&mut p.schuetzen, "Strassen schuetzen").on_hover_text("Unter Strassen, Gehwegen und Kreuzungen, die auf dem Boden liegen, bleibt das Gelaende, wie es ist. In OMSI wird es dort nicht ausgeschnitten - angehobener Boden laege sonst auf der Fahrbahn. Unter Bruecken wird trotzdem geformt.");
+                        ui.separator();
+                        match (unter, ziel) {
+                            (_, Some(z)) => ui.label(format!("Zielhoehe {z:.2} m")),
+                            (Some(g), None) => ui.label(format!("Gelaende unter der Maus: {:.2} m", g.z)),
+                            _ => ui.label(""),
+                        };
+                        ui.label("Linke Maustaste halten: formen");
+                        ui.label("Strg+Mausrad: Radius, Umschalt+Mausrad: Staerke");
+                        if p.modus == gelaende::Modus::Heben || p.modus == gelaende::Modus::Senken {
+                            ui.label("Strg+Maustaste: umgekehrt (heben/senken)");
+                        }
+                        ui.separator();
+                        ui.label(egui::RichText::new("Objekte und Baeume stellen sich nach jedem Strich auf den neuen Boden. Strg+Z nimmt jeden Strich zurueck; die Karte bleibt bis zum Speichern unveraendert.").small().weak());
+                        return;
+                    }
+                    if self.welt_modus.orte() {
                         let punkte = self.welt_modus == WeltModus::Einsetzpunkte;
                         ui.label(egui::RichText::new(if punkte { "Einsetzpunkte" } else { "Haltestellen" }).strong());
                         ui.label(if punkte { "Wo man bei \"Freie Fahrt\" startet (unsichtbares Objekt entrypoint_bus.sco + Eintrag in global.cfg)." }
@@ -1692,7 +1766,35 @@ impl App {
             if let Some(o) = gewaehlt.as_ref() {
                 bearbeiten::markieren(&maler, &self.kam, o, bw, bh, egui::Color32::from_rgb(255, 60, 220), 3.0);
             }
-            if let (Werkzeug::Welt, true, Some(v)) = (self.bearb.werkzeug, self.welt_modus != WeltModus::Kacheln, self.viewer.as_ref()) {
+            if let (Werkzeug::Welt, WeltModus::Gelaende, Some(v), Some(g)) = (self.bearb.werkzeug, self.welt_modus, self.viewer.as_ref(), self.gelaende_unter) {
+                let pinsel = &self.gelaende.pinsel;
+                let ring = |r: f64| -> Vec<egui::Pos2> {
+                    (0..=72).filter_map(|i| {
+                        let a = i as f64 / 72.0 * std::f64::consts::TAU;
+                        let (x, y) = (g.x + r * a.cos(), g.y + r * a.sin());
+                        let z = v.terrain_height(x, y).unwrap_or(g.z) + 0.3;
+                        bearbeiten::projizieren(&self.kam, DVec3::new(x, y, z), bw, bh).map(|(a, b, _)| egui::pos2(a, b))
+                    }).collect()
+                };
+                let c = match pinsel.modus {
+                    gelaende::Modus::Heben => egui::Color32::from_rgb(120, 230, 120),
+                    gelaende::Modus::Senken => egui::Color32::from_rgb(255, 140, 90),
+                    gelaende::Modus::Glaetten => egui::Color32::from_rgb(110, 190, 255),
+                    gelaende::Modus::Ebnen => egui::Color32::from_rgb(255, 220, 80),
+                };
+                maler.add(egui::Shape::line(ring(pinsel.radius), egui::Stroke::new(2.5, c)));
+                maler.add(egui::Shape::line(ring(pinsel.radius * if pinsel.modus == gelaende::Modus::Ebnen { 0.7 } else { 0.5 }), egui::Stroke::new(1.0, c.gamma_multiply(0.6))));
+                if let Some(m) = bearbeiten::projizieren(&self.kam, g + DVec3::Z * 0.3, bw, bh).map(|(a, b, _)| egui::pos2(a, b)) {
+                    maler.circle_filled(m, 3.0, c);
+                    let text = match (pinsel.modus, self.gelaende.strich_ziel()) {
+                        (gelaende::Modus::Ebnen, Some(z)) => format!("{:.2} m -> {z:.2} m", g.z),
+                        (gelaende::Modus::Ebnen, None) => format!("{:.2} m -> {:.2} m", g.z, pinsel.zielhoehe(g.z)),
+                        _ => format!("{:.2} m", g.z),
+                    };
+                    maler.text(m + egui::vec2(10.0, 8.0), egui::Align2::LEFT_TOP, text, egui::FontId::proportional(13.0), c);
+                }
+            }
+            if let (Werkzeug::Welt, true, Some(v)) = (self.bearb.werkzeug, self.welt_modus.orte(), self.viewer.as_ref()) {
                 let pt = |p: DVec3| bearbeiten::projizieren(&self.kam, p + DVec3::Z * 0.5, bw, bh).map(|(x, y, _)| egui::pos2(x, y));
                 let jetzt: std::collections::HashMap<i64, (DVec3, f64)> = v.hidden_objects().into_iter().map(|x| (x.0, (x.1, x.2))).collect();
                 let pfeil = |m: egui::Pos2, p: DVec3, rot: f64, c: egui::Color32| {
@@ -2196,6 +2298,7 @@ impl App {
                 self.verwerfen_frage = None;
                 self.bearb.aenderungen = 0;
                 self.welt.aenderungen = 0;
+                self.gelaende.aenderungen = 0;
                 self.orte.aenderungen = 0;
                 self.strasse.aenderungen = 0;
                 if let Some(a) = self.aendern.as_mut() {
@@ -2269,10 +2372,14 @@ impl App {
                 }
             }
             UiAktion::WeltModus(m) => {
+                if let Some(v) = self.viewer.as_mut() {
+                    self.gelaende.abbrechen(v);
+                }
                 self.welt_modus = m;
                 self.orte_setzen = false;
                 self.orte_umbenennen = None;
-                if m != WeltModus::Kacheln {
+                self.gelaende_unter = None;
+                if m.orte() {
                     if let (Some(v), Some(k)) = (self.viewer.as_ref(), self.karte.clone()) {
                         let liste = self.welt.anfangsliste(v);
                         self.orte.laden(&self.root.join("maps").join(k), &liste);
@@ -2401,6 +2508,9 @@ impl App {
             }
             UiAktion::Werkzeug(w) => {
                 self.knoten.abbrechen();
+                if let Some(v) = self.viewer.as_mut() {
+                    self.gelaende.abbrechen(v);
+                }
                 self.knoten.griffe.clear();
                 self.knoten.unter_maus = None;
                 if w != Werkzeug::Strasse {
@@ -2575,7 +2685,7 @@ impl App {
     /// Strassen - zu seinem Schritt)
     fn verlauf_pruefen(&mut self) {
         let jetzt = self.stapel_jetzt();
-        let (b0, s0, a0, w0, o0) = self.stapel;
+        let (b0, s0, a0, w0, o0, g0) = self.stapel;
         let mut neu = false;
         if jetzt.1 > s0 {
             for _ in s0..jetzt.1 {
@@ -2600,6 +2710,12 @@ impl App {
             }
             neu = true;
         }
+        if jetzt.5 > g0 {
+            for _ in g0..jetzt.5 {
+                self.verlauf.push(Quelle::Gelaende);
+            }
+            neu = true;
+        }
         if jetzt.3 > w0 {
             for _ in w0..jetzt.3 {
                 self.verlauf.push(Quelle::Welt);
@@ -2612,20 +2728,35 @@ impl App {
         self.stapel = jetzt;
     }
 
-    fn stapel_jetzt(&self) -> (usize, usize, usize, usize, usize) {
-        (self.bearb.undo_len(), self.strasse.undo_len(), self.aendern.as_ref().map(|a| a.undo_len()).unwrap_or(0), self.welt.undo_len(), self.orte.undo_len())
+    fn stapel_jetzt(&self) -> (usize, usize, usize, usize, usize, usize) {
+        (self.bearb.undo_len(), self.strasse.undo_len(), self.aendern.as_ref().map(|a| a.undo_len()).unwrap_or(0), self.welt.undo_len(), self.orte.undo_len(),
+         self.gelaende.undo_len())
+    }
+
+    /// Sitzungsordner der geoeffneten Karte (Kopien geaenderter Kacheldateien)
+    fn sitzungsordner(&self) -> Option<std::path::PathBuf> {
+        Some(self.aendern.as_ref()?.sitzung.join("maps").join(self.karte.as_ref()?))
+    }
+
+    /// Punkt auf dem Gelaende (ohne Strassen) unter der Maus
+    fn gelaende_treffer(&self) -> Option<DVec3> {
+        let (v, p) = (self.viewer.as_ref()?, self.maus?);
+        let (bw, bh) = self.bildgroesse();
+        let (o, d) = self.kam.strahl(p.0, p.1, bw, bh);
+        treffer(o, d, |x, y| v.terrain_height(x, y), 6000.0)
     }
 
     /// Aenderungen seit dem Oeffnen (alle Werkzeuge)
     fn geaendert(&self) -> usize {
         let aendern = self.aendern.as_ref().map(|a| a.aenderungen).unwrap_or(0);
-        self.welt.aenderungen + self.orte.aenderungen + self.strasse.aenderungen + self.bearb.aenderungen + aendern
+        self.welt.aenderungen + self.orte.aenderungen + self.gelaende.aenderungen + self.strasse.aenderungen + self.bearb.aenderungen + aendern
     }
 
     /// letzten Schritt (welches Werkzeug auch immer) zuruecknehmen bzw. wiederholen
     fn verlauf_schritt(&mut self, zurueck: bool) {
         self.verlauf_pruefen();
         let Some(q) = (if zurueck { self.verlauf.pop() } else { self.verlauf_redo.pop() }) else { return };
+        let ordner = self.sitzungsordner();
         let Some(v) = self.viewer.as_mut() else { return };
         let ok = match q {
             Quelle::Objekte => {
@@ -2651,6 +2782,14 @@ impl App {
                     false
                 }
             },
+            Quelle::Gelaende => match ordner.map(|o| if zurueck { self.gelaende.rueckgaengig(v, &o) } else { self.gelaende.wiederholen(v, &o) }) {
+                Some(Ok(b)) => b,
+                Some(Err(e)) => {
+                    self.meldung = format!("{} fehlgeschlagen: {e:#}", if zurueck { "Rueckgaengig" } else { "Wiederholen" });
+                    false
+                }
+                None => false,
+            },
             Quelle::Welt => match if zurueck { self.welt.rueckgaengig(v) } else { self.welt.wiederholen(v) } {
                 Ok(b) => b,
                 Err(e) => {
@@ -2663,7 +2802,7 @@ impl App {
             if zurueck { self.verlauf_redo.push(q) } else { self.verlauf.push(q) }
             if q != Quelle::Objekte {
                 self.meldung = format!("{} ({})", if zurueck { "rueckgaengig" } else { "wiederholt" },
-                                       match q { Quelle::Strasse => "Strasse bauen", Quelle::Aendern => "Aendern", Quelle::Objekte => "Objekte", Quelle::Welt => "Kacheln", Quelle::Orte => "Einsetzpunkte/Haltestellen" });
+                                       match q { Quelle::Strasse => "Strasse bauen", Quelle::Aendern => "Aendern", Quelle::Objekte => "Objekte", Quelle::Welt => "Kacheln", Quelle::Orte => "Einsetzpunkte/Haltestellen", Quelle::Gelaende => "Gelaende" });
             }
         }
         self.anschluesse.vergessen();
@@ -2762,6 +2901,8 @@ impl App {
         self.spur_ziel = None;
         self.spur_zufahrt = None;
         self.welt = welt::Welt::default();
+        self.gelaende.zuruecksetzen();
+        self.gelaende_unter = None;
         self.orte = orte::Orte::default();
         self.orte_setzen = false;
         self.orte_umbenennen = None;
@@ -3308,6 +3449,9 @@ impl ApplicationHandler for App {
                     }
                     if self.bearb.werkzeug == Werkzeug::Welt {
                         self.welt_unter = if egui_will { None } else { self.boden_unter_maus.map(|g| ((g.x / 300.0).floor() as i32, (g.y / 300.0).floor() as i32)) };
+                        if self.welt_modus == WeltModus::Gelaende && !self.gelaende.malt() {
+                            self.gelaende_unter = if egui_will { None } else { self.gelaende_treffer() };
+                        }
                     }
                     // Pipette im Platzieren: ohne gewaehltes Objekt oder mit Strg zeigt es das Objekt unter der Maus
                     if self.bearb.werkzeug == Werkzeug::Platzieren {
@@ -3387,7 +3531,20 @@ impl ApplicationHandler for App {
                     if button == MouseButton::Right {
                         self.rechts_start = self.maus;
                     }
-                    if button == MouseButton::Left && self.bearb.werkzeug == Werkzeug::Welt && self.welt_modus != WeltModus::Kacheln && self.orte_setzen {
+                    if button == MouseButton::Left && self.bearb.werkzeug == Werkzeug::Welt && self.welt_modus == WeltModus::Gelaende {
+                        if let Some(g) = self.gelaende_treffer() {
+                            let p = &mut self.gelaende.pinsel;
+                            if self.strg && p.modus == gelaende::Modus::Ebnen {
+                                p.fest = true;
+                                p.ziel = (g.z * 100.0).round() / 100.0;
+                                self.meldung = format!("Zielhoehe abgegriffen: {:.2} m (eingerastet {:.2} m)", p.ziel, p.zielhoehe(p.ziel));
+                            } else {
+                                self.gelaende.ansetzen(g.z, self.strg);
+                                self.gelaende_unter = Some(g);
+                            }
+                        }
+                    }
+                    if button == MouseButton::Left && self.bearb.werkzeug == Werkzeug::Welt && self.welt_modus.orte() && self.orte_setzen {
                         if let (Some(g), Some(v), Some(a)) = (self.boden_unter_maus, self.viewer.as_mut(), self.aendern.as_mut()) {
                             let (pos, rot) = orte::spur_bei(v, g.truncate()).unwrap_or((g, 0.0));
                             let punkte = self.welt_modus == WeltModus::Einsetzpunkte;
@@ -3555,6 +3712,16 @@ impl ApplicationHandler for App {
                             self.bearb.loslassen(v);
                         }
                     }
+                    if button == MouseButton::Left && self.gelaende.malt() {
+                        let ordner = self.sitzungsordner();
+                        if let (Some(v), Some(o)) = (self.viewer.as_mut(), ordner) {
+                            match self.gelaende.loslassen(v, &o) {
+                                Ok(Some(m)) => self.meldung = m,
+                                Ok(None) => {}
+                                Err(e) => self.meldung = format!("Gelaende nicht geschrieben: {e:#}"),
+                            }
+                        }
+                    }
                     if button == MouseButton::Left && self.knoten.zieht() {
                         if let (Some(v), Some(a)) = (self.viewer.as_mut(), self.aendern.as_mut()) {
                             if let Some(m) = self.knoten.loslassen(v, a, &mut self.strasse) {
@@ -3572,6 +3739,20 @@ impl ApplicationHandler for App {
                             self.ausfuehren(UiAktion::ZugBeenden);
                         }
                     }
+                }
+            }
+            WindowEvent::MouseWheel { delta, .. } if !egui_will && (self.strg || self.umschalt) && self.bearb.werkzeug == Werkzeug::Welt && self.welt_modus == WeltModus::Gelaende => {
+                let y = match delta {
+                    MouseScrollDelta::LineDelta(x, y) => if y != 0.0 { y } else { x },
+                    MouseScrollDelta::PixelDelta(p) => (if p.y != 0.0 { p.y } else { p.x }) as f32 / 60.0,
+                };
+                let p = &mut self.gelaende.pinsel;
+                if self.strg {
+                    p.radius = (p.radius * 1.15f64.powf(y as f64)).clamp(gelaende::RADIUS.0, gelaende::RADIUS.1).round();
+                    self.meldung = format!("Pinsel: Radius {:.0} m", p.radius);
+                } else {
+                    p.staerke = ((p.staerke + 0.05 * y as f64) * 20.0).round().clamp(1.0, 20.0) / 20.0;
+                    self.meldung = format!("Pinsel: Staerke {:.0} %", p.staerke * 100.0);
                 }
             }
             WindowEvent::MouseWheel { delta, .. } if !egui_will && self.strg && self.bearb.wahl.is_some() => {

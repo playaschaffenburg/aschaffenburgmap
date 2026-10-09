@@ -174,10 +174,22 @@ Speichern wird die Liste neu geschrieben und die Kachelnummern der Einsetzpunkte
 `TTData/Busstops.cfg` umgerechnet (Einträge auf gelöschten Kacheln fallen weg). Jeder Schritt ist im gemeinsamen
 Rückgängig. Technik: openOMSI `Viewer::set_map_tiles` (Kachelliste zur Laufzeit).
 
+**World Editor → Gelände formen** (wie Transport Fever 2): runder Pinsel, wirkt solange die linke Maustaste gedrückt
+ist. Modi **Anheben**, **Absenken** (Strg kehrt jeweils um), **Glätten** (gleicht Stufen, Kanten und Huckel aus; das
+Mittelungsfenster wächst mit dem Pinsel) und **Ebnen** (auf die Höhe beim Ansetzen oder eine feste Zielhöhe – Strg+Klick
+greift sie ab –, wahlweise **eingerastet** auf 0,5/1/2,5/5 m; fester Kern mit weichem Rand). Radius 5–200 m
+(Strg+Mausrad), Stärke (Umschalt+Mausrad). „Straßen schützen“ (Standard): wo eine Straße, ein Gehweg oder eine
+Kreuzung auf dem Boden liegt (bis 1,5 m darüber), bleibt das Gelände – OMSI schneidet es unter Straßen nicht aus;
+unter Brücken wird geformt. Im Bild: Pinselkreis auf dem Gelände in der Farbe des Modus, Höhe unter der Maus (beim
+Ebnen „jetzt -> Ziel“). Der Pinsel arbeitet auf dem Weltraster (5 m), Kachelränder bleiben dicht. Während des Strichs
+zeigt openOMSI das Gelände sofort (`Viewer::preview_terrain`: nur die Höhen des Geländenetzes); beim Loslassen kommen
+die `.map.terrain` als Kopien in den Sitzungsordner und die Kacheln werden neu gelesen (Objekte und Bäume stehen
+wieder auf dem Boden). Jeder Strich ist ein Schritt im gemeinsamen Rückgängig; Speichern übernimmt die Dateien.
+
 **World Editor → Einsetzpunkte / Haltestellen:** Listen mit „hin“ (Kamera), „umbenennen“, „löschen“; Name eingeben
 und „+ setzen“, dann Klick ins Bild: der Punkt kommt auf die nächste Fahrspur (bis 8 m), in deren Richtung.
 Einsetzpunkte sind `Generic\entrypoint_bus.sco` + Eintrag in global.cfg `[entrypoints]`, Haltestellen
-`Genericus_stop.sco` (Name = erster Text) + Eintrag in `TTData/Busstops.cfg`; Haltestellen, die in Busstops.cfg
+`Generic\bus_stop.sco` (Name = erster Text) + Eintrag in `TTData/Busstops.cfg`; Haltestellen, die in Busstops.cfg
 fehlen, lassen sich aufnehmen. Die Objekte stehen sofort in den Sitzungskopien der Kacheln (verschieben/drehen mit dem
 Objekte-Werkzeug bei Pfad-Ansicht H); beim Speichern werden alle Einsetzpunkte aus den fertigen Kacheln neu berechnet
 (Index in der Kachel – alle Objekt-Einträge gezählt wie die „Object Nr.“-Kommentare –, Lage, Drehung, Kachelnummer)

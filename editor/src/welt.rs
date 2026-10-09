@@ -8,7 +8,7 @@
 
 use anyhow::{bail, Context, Result};
 use openomsi_game::viewer::Viewer;
-use std::path::{Path, PathBuf};
+use std::path::Path;
 
 pub type Liste = Vec<(i32, i32, String)>;
 
@@ -131,14 +131,9 @@ pub fn inhalt(v: &Viewer, k: (i32, i32)) -> (usize, usize) {
     v.tile_file(k.0, k.1).and_then(|p| omsi_map::Tile::load(&p).ok()).map(|t| (t.objects.len(), t.splines.len())).unwrap_or((0, 0))
 }
 
-/// Gelaende einer Kachel aus ihrer .terrain-Datei (61 x 61), falls lesbar
+/// Gelaende einer Kachel (61 x 61), wie es jetzt gilt (auch mit "Gelaende formen" geaendert), falls vorhanden
 fn gelaende_lesen(v: &Viewer, k: (i32, i32)) -> Option<Vec<f32>> {
-    let p: PathBuf = v.tile_file(k.0, k.1)?;
-    let b = std::fs::read(format!("{}.terrain", p.display())).ok()?;
-    if b.len() < 4 + N * N * 4 {
-        return None;
-    }
-    Some((0..N * N).map(|i| f32::from_le_bytes(b[4 + i * 4..8 + i * 4].try_into().unwrap())).collect())
+    v.tile_terrain(k.0, k.1).filter(|t| t.samples() == N).map(|t| t.heights)
 }
 
 /// Gelaende fuer eine neue Kachel: an jedem Rand mit Nachbar genau dessen Randhoehen, innen nach Abstand zu den
