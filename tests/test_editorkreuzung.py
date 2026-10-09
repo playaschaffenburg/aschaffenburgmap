@@ -138,3 +138,19 @@ def test_verbindungen_melden_und_vorgeben(tmp_path):
     erg2 = editorkreuzung.bauen(a, SplineDB())
     arten = sorted(v['mv'] for v in erg2['verbindungen'])
     assert len(erg2['verbindungen']) == 6 and 'wenden' in arten and arten.count('links') == 1, arten
+
+
+def test_phasen_und_markierung(tmp_path):
+    """vorgegebene Ampelphasen; Markierungsflaechen im Kreuzungsobjekt (eigene Materialien, Alpha fuer .tga)"""
+    a = auftrag(tmp_path)
+    a['ampel'] = True
+    a['phasen'] = [0, 1, 2]
+    a['markierung'] = [dict(tex='AB_weiss.bmp', alpha=False, ecken=[[-3, -11], [0, -11], [0, -10.5], [-3, -10.5]], m=1.0),
+                       dict(tex='AB_sperrflaeche.tga', alpha=True, ecken=[[1, -2], [3, -2], [3, 2], [1, 2]], m=2.0)]
+    erg = editorkreuzung.bauen(a, SplineDB())
+    assert erg['phasen'] == [0, 1, 2]
+    sco = open(tmp_path / 'K' / 'K_E0001.sco', encoding='cp1252').read()
+    assert sco.count('[traffic_light]') == 3
+    assert '[matl]\nAB_sperrflaeche.tga\n0\n[matl_alpha]\n2' in sco and 'AB_weiss.bmp' not in sco
+    x = open(tmp_path / 'K' / 'model' / 'K_E0001.x', encoding='ascii').read()
+    assert '"AB_weiss.bmp"' in x and '"AB_sperrflaeche.tga"' in x

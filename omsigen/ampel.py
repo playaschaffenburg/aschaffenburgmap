@@ -71,9 +71,9 @@ def programm(n_phasen, haupt_zuerst=True):
     return round(t), out
 
 
-def plane(arms, rollen):
-    """-> dict(phase je Arm, umlauf, signalgruppen=[dict(name, phasen)])"""
-    ph = gruppen(arms, rollen)
+def plane(arms, rollen, phasen=None):
+    """-> dict(phase je Arm, umlauf, signalgruppen=[dict(name, phasen)]); `phasen`: Phase je Arm vorgegeben"""
+    ph = list(phasen) if phasen else gruppen(arms, rollen)
     n = max(ph) + 1
     umlauf, progs = programm(n, haupt_zuerst=bool(rollen) and 'haupt' in rollen and 'neben' in rollen)
     namen = []

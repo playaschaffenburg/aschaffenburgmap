@@ -141,6 +141,34 @@ def planen(entwurf, gel, ways):
             return v[0] if np.ndim(s) == 0 else v
         return z
 
+    # Kreuzung: Ebene durch die Armenden (erst ohne Angleichung planen, dann die Enden auf die Ebene ziehen)
+    plan = _planen(achse, K, G, Q, gel, ways, zr, rampe_z, {})
+    arme = kreuzungsarme(plan)
+    ebene = ebene_durch([a['pos'] + [a['z']] for a in arme])
+    korrektur = {a['strasse']: (a['s_ende'], ebene_z(ebene, a['pos']) - a['z']) for a in arme}
+    plan = _planen(achse, K, G, Q, gel, ways, zr, rampe_z, korrektur)
+    arme = kreuzungsarme(plan)
+    for a in arme:
+        assert abs(a['z'] - ebene_z(ebene, a['pos'])) < 0.02, a
+    return plan, dict(name='Kreuzung_Ludwigsallee', arme=arme, ebene=ebene, verbindungen=VERBINDUNGEN, ampel=True, phasen=PHASEN)
+
+
+def _angleichen(z_von, s_ende, dz, laenge=25.0):
+    """Hoehe z(s) so veraendern, dass sie bei s_ende um dz anders liegt, weich auslaufend ueber `laenge`"""
+    if abs(dz) < 1e-9:
+        return z_von
+    def z(s):
+        s_ = np.atleast_1d(np.asarray(s, float))
+        u = np.clip(1 - np.abs(s_ - s_ende) / laenge, 0, 1)
+        v = np.asarray(z_von(s_), float) + dz * u * u * (3 - 2 * u)
+        return v[0] if np.ndim(s) == 0 else v
+    return z
+
+
+def _planen(achse, K, G, Q, gel, ways, zr, rampe_z, korrektur):
+    from . import sonderbau_ring as sr
+    L = achse.laenge
+    S = np.arange(0, L, 1.0)
     out = []
     out.append(dict(name='Ring', art='ring', querschnitt=Q['ring'], elemente=elemente(achse, 0.0, 0.0, L, zr)))
     # Rampen: Spurmitte = Mitte zwischen Trennstreifen und Aussenkante (Median ueber die Wandstrecke)
@@ -148,10 +176,13 @@ def planen(entwurf, gel, ways):
         innen = K[f'ring_{seite}'].t(S) + vz * sr.TRENNSTREIFEN
         aussen = K[f'rampe_aussen_{seite}'].t(S)
         mitte = float(np.nanmedian((innen + aussen) / 2))
-        z = rampe_z(seite)
         for i, (a, b) in enumerate(((0.0, KNOTEN_S[0]), (KNOTEN_S[1], L))):
-            out.append(dict(name=f'Rampe_{"West" if seite == "w" else "Ost"}_{"Nord" if i == 0 else "Sued"}', art='rampe',
-                            versatz=mitte, querschnitt=Q[f'rampe_{seite}'], elemente=elemente(achse, mitte, a, b, z)))
+            name = f'Rampe_{"West" if seite == "w" else "Ost"}_{"Nord" if i == 0 else "Sued"}'
+            z = rampe_z(seite)
+            if name in korrektur:
+                z = _angleichen(z, *korrektur[name])
+            out.append(dict(name=name, art='rampe', versatz=mitte, querschnitt=Q[f'rampe_{seite}'],
+                            ende_s=b if i == 0 else a, elemente=elemente(achse, mitte, a, b, z)))
     # Ludwigsallee: Gerade durch die OSM-Punkte der Arme
     s_k = (KNOTEN_S[0] + KNOTEN_S[1]) / 2
     for arm, ids, (t_a, t_b) in (('w', ['10058252', '339300221', '575971195'], (LUDWIG_T[1], KNOTEN_T[1])),
@@ -171,9 +202,77 @@ def planen(entwurf, gel, ways):
         h = np.where((xy[:, 0] > BRUECKE_X[0] - 1) & (xy[:, 0] < BRUECKE_X[1] + 1), np.nan, h)
         g, _ = ohne_ausreisser(u, h, lambda a, b: gradiente_anpassen(a, b, toleranz=0.08, max_stuecke=3), lambda gg, x: gg.z(x), 0.4)
         zu = lambda uu, g=g: g.z(uu)[0] if np.ndim(uu) == 0 else g.z(uu)
-        out.append(dict(name='Schiesshausbruecke' if arm == 'w' else 'Ludwigsallee_Ost', art='ludwigsallee',
-                        querschnitt=Q[f'ludwig_{arm}'], elemente=gerade_elemente(pa, pb, zu)))
+        name = 'Schiesshausbruecke' if arm == 'w' else 'Ludwigsallee_Ost'
+        if name in korrektur:
+            zu = _angleichen(zu, *korrektur[name])
+        out.append(dict(name=name, art='ludwigsallee', querschnitt=Q[f'ludwig_{arm}'], ende_s=Lg if arm == 'w' else 0.0,
+                        elemente=gerade_elemente(pa, pb, zu)))
     return out
+
+
+# Abbiegespuren nach OSM (turn:lanes), Arme in der Reihenfolge von kreuzungsarme(), Spuren je Arm von rechts:
+# 0 Schiesshausbruecke (rein: 0 geradeaus/rechts, 1 links; raus: 0 Busspur), 1 Rampe West Nord (rein: 0),
+# 2 Rampe Ost Nord (raus: 0, Wuerzburg), 3 Ludwigsallee Ost (rein: 0 rechts, 1 links; raus: 0),
+# 4 Rampe Ost Sued (rein: 0), 5 Rampe West Sued (raus: 0, Frankfurt)
+VERBINDUNGEN = [
+    [0, 1, 5, 0],     # von Westen links -> Frankfurt
+    [0, 0, 3, 0],     # von Westen geradeaus
+    [0, 0, 2, 0],     # von Westen ueber die Mitte links -> Wuerzburg
+    [3, 1, 5, 0],     # von Osten ueber die Mitte links -> Frankfurt
+    [3, 1, 0, 0],     # von Osten geradeaus (Busspur Schiesshausbruecke)
+    [3, 0, 2, 0],     # von Osten rechts -> Wuerzburg
+    [1, 0, 3, 0],     # Rampe West (vom Ring aus Norden) links nach Osten
+    [1, 0, 2, 0],     # ... und ueber die Mitte zurueck nach Wuerzburg
+    [4, 0, 3, 0],     # Rampe Ost (vom Ring aus Sueden) rechts nach Osten
+]
+# Ampelphasen je Arm: 1 Ludwigsallee (beide Richtungen), 2 Rampe West (vom Ring aus Norden), 3 Rampe Ost (aus
+# Sueden) - die beiden Rampen fahren beide in den Ostarm und bekommen deshalb getrennt Gruen; Arme ohne Zufahrt: 0
+PHASEN = [0, 1, 0, 0, 2, 0]
+ARM_REIHENFOLGE = [('Schiesshausbruecke', 'haupt'), ('Rampe_West_Nord', 'neben'), ('Rampe_Ost_Nord', 'neben'),
+                   ('Ludwigsallee_Ost', 'haupt'), ('Rampe_Ost_Sued', 'neben'), ('Rampe_West_Sued', 'neben')]
+
+
+def _ende(e):
+    """Endpunkt (x, y, Richtung OMSI) eines Elements nach der OMSI-Bogenregel"""
+    h = math.radians(e['richtung'])
+    if e['radius'] == 0:
+        return e['x'] + e['laenge'] * math.sin(h), e['y'] + e['laenge'] * math.cos(h), e['richtung']
+    R = e['radius']
+    cx, cy = e['x'] + R * math.cos(h), e['y'] - R * math.sin(h)
+    h2 = h + e['laenge'] / R
+    return cx - R * math.cos(h2), cy + R * math.sin(h2), math.degrees(h2) % 360
+
+
+def kreuzungsarme(strassen):
+    """Arme der Kreuzung: Strassenende am Kreuzungsbereich -> dict(strasse, pos, z, h (von der Kreuzung weg),
+    away (Splinerichtung zeigt von der Kreuzung weg), rolle, s_ende)"""
+    nach_name = {st['name']: st for st in strassen}
+    out = []
+    for name, rolle in ARM_REIHENFOLGE:
+        st = nach_name[name]
+        el = st['elemente']
+        # Strassen, die an der Kreuzung enden: Rampen Nord (Nord -> Sued) und der Westarm (West -> Ost)
+        endet = name in ('Rampe_West_Nord', 'Rampe_Ost_Nord', 'Schiesshausbruecke')
+        if endet:
+            x, y, h = _ende(el[-1])
+            out.append(dict(strasse=name, pos=[x, y], z=el[-1]['z'] + el[-1]['dh'], h=(h + 180) % 360, away=False, rolle=rolle, s_ende=st['ende_s']))
+        else:
+            e = el[0]
+            out.append(dict(strasse=name, pos=[e['x'], e['y']], z=e['z'], h=e['richtung'] % 360, away=True, rolle=rolle, s_ende=st['ende_s']))
+    return out
+
+
+def ebene_durch(P):
+    """Ausgleichsebene z = z0 + gx (x - xc) + gy (y - yc) durch Punkte (x, y, z)"""
+    P = np.asarray(P, float)
+    xc, yc = P[:, 0].mean(), P[:, 1].mean()
+    A = np.c_[np.ones(len(P)), P[:, 0] - xc, P[:, 1] - yc]
+    z0, gx, gy = np.linalg.lstsq(A, P[:, 2], rcond=None)[0]
+    return dict(z0=float(z0), gx=float(gx), gy=float(gy), xc=float(xc), yc=float(yc))
+
+
+def ebene_z(e, p):
+    return e['z0'] + e['gx'] * (p[0] - e['xc']) + e['gy'] * (p[1] - e['yc'])
 
 
 def text(strassen):

@@ -9,8 +9,14 @@ Auftrag (Weltkoordinaten in Metern: x Ost, y Nord; Richtungen im Uhrzeigersinn a
      "name": Dateiname ohne Endung, "titel": friendlyname,
      "arme": [{"pos": [x, y], "h": Richtung von der Kreuzung weg, "sli": Spline des Arms,
                "away": true wenn die Splinerichtung von der Kreuzung weg zeigt, "rolle": "haupt"/"neben"/"gleich"}],
-     "ampel": true fuer eine Ampelkreuzung (Phasenplan wie omsigen ampel.py),
+     "ampel": true fuer eine Ampelkreuzung (Phasenplan wie omsigen ampel.py), "phasen": [Phase je Arm] gibt ihn vor,
      ein Arm mit "gesperrt": true ist fuer die KI gesperrt (die Pfade in ihn hinein bekommen no_cars),
+     "markierung": [{"tex": Textur (im Zielordner/texture), "alpha": bool, "ecken": [[x, y] x 4], "m": Meter je
+                Textur}] - Flaechen 2 cm ueber der Fahrbahn im Kreuzungsobjekt selbst (Haltlinien, Furten, Sperrflaechen;
+                als eigenes Objekt verdeckte sie die Platte),
+     "markierung": [{"tex": Textur (im Zielordner/texture), "alpha": bool, "ecken": [[x, y] x 4], "m": Meter je
+                Textur}] - Flaechen 2 cm ueber der Fahrbahn im Kreuzungsobjekt selbst (Haltlinien, Furten, Sperrflaechen;
+                als eigenes Objekt verdeckte sie die Platte),
      "verbindungen": [[Arm rein, Spur rein, Arm raus, Spur raus], ...] baut genau diese Abbiegespuren (Spurpfeile/
                 Verbinder des Editors; Spuren je Arm von rechts gezaehlt, 0 = rechte), sonst wie omsigen,
      "kreisel": {"mitte": [x, y], "r": Radius der Ringspur, "breite": Breite der Ringfahrbahn} fuer einen
@@ -135,7 +141,7 @@ def bauen(auftrag, sdb=None):
     O = J['origin']
     rollen = [a.get('rolle') or vorfahrt.GLEICH for a in arme]
     n_haupt = rollen.count(vorfahrt.HAUPT)
-    plan = ampel.plane(arms, rollen) if auftrag.get('ampel') else None
+    plan = ampel.plane(arms, rollen, auftrag.get('phasen')) if auftrag.get('ampel') else None
     moves, rules, idx = [], [], 0
     no_cars, verbindungen = [], []
     for c in ketten:
@@ -155,9 +161,31 @@ def bauen(auftrag, sdb=None):
                 no_cars += [idx + j for j in range(len(els))]
         idx += len(els)
     V, F = kreuzung.mesh(J)
+    mats = list(kreuzung.MATS)
+    alpha = []
+    for mk in auftrag.get('markierung') or []:
+        if mk['tex'] not in [t for _, t in mats]:
+            mats.append((f'Markierung{len(mats)}', mk['tex']))
+            if mk.get('alpha'):
+                alpha.append(mk['tex'])
+        mi = [t for _, t in mats].index(mk['tex'])
+        ecken = [(x - O[0], y - O[1]) for x, y in mk['ecken']]
+        m_tex = float(mk.get('m', 1.0))
+        for tri in ((ecken[0], ecken[1], ecken[2]), (ecken[0], ecken[2], ecken[3])):
+            a, b, c = tri
+            area = (b[0] - a[0]) * (c[1] - a[1]) - (c[0] - a[0]) * (b[1] - a[1])
+            if abs(area) < 1e-8:
+                continue
+            tri = (a, c, b) if area > 0 else (a, b, c)            # wie kreuzung._tris: Vorderseite oben
+            i0 = len(V)
+            for p in tri:
+                V.append((p[0], kreuzung.ASPH_H + 0.02, p[1], 0, 1, 0, (p[0] + O[0]) / m_tex, (p[1] + O[1]) / m_tex))
+            F.append((i0, i0 + 1, i0 + 2, mi))
     name = auftrag['name']
     sco = kreuzung.sco_text(auftrag.get('titel') or name, name + '.x', moves, J['walks'], ampel.sco_block(plan) if plan else ())
-    _schreiben(auftrag, name, sco, kreuzung.x_file(V, F))
+    for t in alpha:
+        sco += '\r\n'.join(['[matl]', t, '0', '[matl_alpha]', '2', '']) + '\r\n'
+    _schreiben(auftrag, name, sco, kreuzung.x_file(V, F, mats))
     return dict(rel=auftrag['rel_ordner'].rstrip('\\') + '\\' + name + '.sco', ursprung=[O[0], O[1]], rules=rules,
                 pfade=idx + sum(len(w) for w in J['walks']), spuren=len(ketten), fehlgeschlagen=fehl,
                 bewegungen=dict(zaehler), dreiecke=len(F),

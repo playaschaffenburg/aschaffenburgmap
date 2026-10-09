@@ -926,8 +926,16 @@ pub fn erzeugen(root: &Path, ordner: &Path, rel_ordner: &str, name: &str, arme: 
 #[allow(clippy::too_many_arguments)]
 pub fn erzeugen_mit(root: &Path, ordner: &Path, rel_ordner: &str, name: &str, arme: &[Arm], ampel: bool,
                     kreisel: Option<(DVec2, crate::netz::Kreisel)>, verbindungen: Option<&[[usize; 4]]>) -> Result<Objekt> {
+    erzeugen_voll(root, ordner, rel_ordner, name, arme, ampel, kreisel, verbindungen, None)
+}
+
+/// wie erzeugen_mit; `extra`: weitere Felder des Auftrags (omsigen editorkreuzung), etwa "phasen" (Ampelphase je Arm)
+/// oder "markierung" (Flaechen auf der Platte)
+#[allow(clippy::too_many_arguments)]
+pub fn erzeugen_voll(root: &Path, ordner: &Path, rel_ordner: &str, name: &str, arme: &[Arm], ampel: bool,
+                     kreisel: Option<(DVec2, crate::netz::Kreisel)>, verbindungen: Option<&[[usize; 4]]>, extra: Option<&serde_json::Value>) -> Result<Objekt> {
     use std::io::Write;
-    let auftrag = serde_json::json!({
+    let mut auftrag = serde_json::json!({
         "omsi": root, "ordner": ordner, "rel_ordner": rel_ordner, "name": name,
         "titel": format!("Editor-{} {name}", if kreisel.is_some() { "Kreisverkehr" } else { "Kreuzung" }),
         "ampel": ampel,
@@ -937,6 +945,11 @@ pub fn erzeugen_mit(root: &Path, ordner: &Path, rel_ordner: &str, name: &str, ar
             "pos": [a.pos.x, a.pos.y], "h": a.richtung, "sli": a.sli, "away": a.weg, "rolle": a.rolle.text(), "gesperrt": a.gesperrt,
         })).collect::<Vec<_>>(),
     });
+    if let (Some(serde_json::Value::Object(x)), Some(a)) = (extra, auftrag.as_object_mut()) {
+        for (k, v) in x {
+            a.insert(k.clone(), v.clone());
+        }
+    }
     let python = std::env::var("OMSIGEN_PYTHON").unwrap_or_else(|_| "python".into());
     let mut kind = std::process::Command::new(&python)
         .args(["-m", "omsigen.editorkreuzung"])

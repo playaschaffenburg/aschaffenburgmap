@@ -388,44 +388,9 @@ pub fn vorbereiten(v: &Viewer, b: &Bearbeiten, netz: &crate::netz::Netz, netz_kr
     }
     // Kreuzungsobjekte des eigenen Netzes ([absheight]: Hoehe absolut) mit den Vorfahrtregeln ihrer Pfade
     for g in netz_kreuzungen {
-        let pos = g.pos;
-        let (tx, ty) = kachel(pos.x, pos.y);
-        let mut felder = vec![
-            "[object]".to_string(), "0".into(), g.rel.clone(), id.to_string(),
-            zahl(pos.x - tx as f64 * groesse), zahl(pos.y - ty as f64 * groesse), zahl(pos.z), "0".into(), "0".into(), "0".into(), "0".into(),
-        ];
-        for pfad in &g.no_cars {
-            felder.extend(["".to_string(), "[rule]".into(), pfad.to_string(), "no_cars".into(), "0".into(), "0".into()]);
-        }
-        for (pfad, wert) in &g.rules {
-            felder.extend(["".to_string(), "[rule]".into(), pfad.to_string(), "priority".into(), wert.to_string(), "0".into()]);
-        }
-        je_kachel.entry((tx, ty)).or_default().push(Eintrag::Objekt(felder));
-        let kreuzung_id = id;
-        id += 1;
-        neue_objekte += 1;
-        // Ampeln: Signal (Text = Signalgruppe, [varparent] = Kreuzung), Mast, Signal am Ausleger ([attachObj] am Mast) -
-        // in der Kachel der Kreuzung, in dieser Reihenfolge (wie omsigen writer.py und die Standardkarten)
-        let mut ids: Vec<i64> = Vec::new();
-        for sg in &g.signale {
-            let mut f = if sg.art == "oben" {
-                let eltern = sg.eltern.and_then(|i| ids.get(i).copied()).unwrap_or(kreuzung_id);
-                vec!["[attachObj]".to_string(), "0".into(), sg.datei.clone(), id.to_string(), eltern.to_string(), "0".into(),
-                     sg.anhang.to_string(), zahl(sg.rot), "0".into(), "0".into()]
-            } else {
-                let p = sg.pos.unwrap_or(pos.truncate());
-                vec!["[object]".to_string(), "0".into(), sg.datei.clone(), id.to_string(), zahl(p.x - tx as f64 * groesse),
-                     zahl(p.y - ty as f64 * groesse), zahl(sg.hoehe), zahl(sg.rot), "0".into(), "0".into()]
-            };
-            match sg.gruppe {
-                Some(gr) => f.extend(["1".to_string(), gr.to_string(), "".into(), "[varparent]".into(), kreuzung_id.to_string()]),
-                None => f.push("0".into()),
-            }
-            je_kachel.entry((tx, ty)).or_default().push(Eintrag::Objekt(f));
-            ids.push(id);
-            id += 1;
-            neue_objekte += 1;
-        }
+        let (k, eintraege) = kreuzung_eintraege(g, &mut id);
+        neue_objekte += eintraege.len();
+        je_kachel.entry(k).or_default().extend(eintraege.into_iter().map(Eintrag::Objekt));
     }
     // Strassen: jede Kante als Kette von [spline_h] (Hoehenunterschied nach den Steigungen, wie Omsi.exe liest)
     let mut neue_splines = 0;
@@ -482,6 +447,49 @@ pub fn vorbereiten(v: &Viewer, b: &Bearbeiten, netz: &crate::netz::Netz, netz_kr
     // nur, wenn es Kreuzungen gibt
     let kreuzungen = kreuzungen.filter(|(d, _)| std::fs::read_dir(d).map(|r| r.flatten().any(|e| e.path().extension().is_some_and(|x| x == "sco"))).unwrap_or(false));
     Ok(Paket { dateien, naechste_id: (id > start).then_some(id), neue_objekte, neue_splines, staging, kreuzungen, kacheln: None, orte: None })
+}
+
+/// Eintraege fuer ein Kreuzungsobjekt ([absheight], Vorfahrt- und no_cars-Regeln) und seine Ampeln (Signal mit Text =
+/// Signalgruppe und [varparent] = Kreuzung, Mast, Signal am Ausleger als [attachObj]) - in der Kachel der Kreuzung, in
+/// dieser Reihenfolge (wie omsigen writer.py und die Standardkarten). IDs ab `id` (wird weitergezaehlt)
+pub fn kreuzung_eintraege(g: &crate::kreuzung::Gesetzt, id: &mut i64) -> ((i32, i32), Vec<Vec<String>>) {
+    let groesse = omsi_map::tile_size();
+    let pos = g.pos;
+    let (tx, ty) = ((pos.x / groesse).floor() as i32, (pos.y / groesse).floor() as i32);
+    let mut out = Vec::new();
+    let mut felder = vec![
+        "[object]".to_string(), "0".into(), g.rel.clone(), id.to_string(),
+        zahl(pos.x - tx as f64 * groesse), zahl(pos.y - ty as f64 * groesse), zahl(pos.z), "0".into(), "0".into(), "0".into(), "0".into(),
+    ];
+    for pfad in &g.no_cars {
+        felder.extend(["".to_string(), "[rule]".into(), pfad.to_string(), "no_cars".into(), "0".into(), "0".into()]);
+    }
+    for (pfad, wert) in &g.rules {
+        felder.extend(["".to_string(), "[rule]".into(), pfad.to_string(), "priority".into(), wert.to_string(), "0".into()]);
+    }
+    out.push(felder);
+    let kreuzung_id = *id;
+    *id += 1;
+    let mut ids: Vec<i64> = Vec::new();
+    for sg in &g.signale {
+        let mut f = if sg.art == "oben" {
+            let eltern = sg.eltern.and_then(|i| ids.get(i).copied()).unwrap_or(kreuzung_id);
+            vec!["[attachObj]".to_string(), "0".into(), sg.datei.clone(), id.to_string(), eltern.to_string(), "0".into(),
+                 sg.anhang.to_string(), zahl(sg.rot), "0".into(), "0".into()]
+        } else {
+            let p = sg.pos.unwrap_or(pos.truncate());
+            vec!["[object]".to_string(), "0".into(), sg.datei.clone(), id.to_string(), zahl(p.x - tx as f64 * groesse),
+                 zahl(p.y - ty as f64 * groesse), zahl(sg.hoehe), zahl(sg.rot), "0".into(), "0".into()]
+        };
+        match sg.gruppe {
+            Some(gr) => f.extend(["1".to_string(), gr.to_string(), "".into(), "[varparent]".into(), kreuzung_id.to_string()]),
+            None => f.push("0".into()),
+        }
+        out.push(f);
+        ids.push(*id);
+        *id += 1;
+    }
+    ((tx, ty), out)
 }
 
 /// Bruecken, Mauern (Begleit-Splines), Pfeiler und das Gelaende der Rampen in die Kacheln des Pakets schreiben

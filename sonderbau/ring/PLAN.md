@@ -47,4 +47,10 @@ im Straßenbau (`omsigen/sonderbau_entwurf.py`, `python -m omsigen.ring_entwurf 
    OMSI-Bogenregel (Test). Offen für Etappe 3: Kreuzung und die Ein-/Ausfädelungen an beiden Enden.
 3. **Kreuzung:** ein Kreuzungsobjekt mit allen Spuren laut OSM (Abbiegespuren, Busspur), Ampel mit Phasen, rote
    Radstreifen, Sperrflächen.
+   **Stand:** ein Objekt `Kreuzung_Ludwigsallee` (omsigen editorkreuzung) mit 6 Armen (Schießhausbrücke,
+   Ludwigsallee Ost, 4 Rampenenden), 9 Abbiegespuren nach OSM `turn:lanes` (`ring_strassen.VERBINDUNGEN`), Ampel mit
+   3 Phasen (Ludwigsallee / Rampe West / Rampe Ost, 85 s), Haltlinien, rote Radfurten, Sperrfläche der Insel Ost im
+   Objekt selbst. Die Platte liegt in der Ausgleichsebene durch die Armenden (Ost +1,44 %, Nord −0,77 %) – als
+   Neigung/Rollen des Objekts, die Straßenenden sind auf die Ebene angeglichen (±1 cm). Bahnbrücke genau unter der
+   Schießhausbrücke. Ein-/Ausfädeln: laut OSM erst außerhalb des Sonderbaus (s ≈ 0 und ≈ 299) → beim Einbau.
 4. **Einbau:** als Einzelstück in die Karte (ein Rückgängig-Schritt, Speichern wie gewohnt).

@@ -36,7 +36,7 @@ STUECK = 40.0                                          # m je Wand-Objekt
 TEX = {'beton': 'betonwand1.bmp', 'klinker': 'AB_klinker.bmp', 'gabionen': 'AB_gabionen.bmp',
        'lsw_gruen': 'AB_lsw_gruen.bmp', 'glas': 'AB_glas.tga', 'gelaender': 'AB_gelaender.bmp',
        'decke': 'AB_beton_dunkel.bmp', 'pflanzen': 'AB_bodendecker.bmp', 'asphalt': 'str_asphdrk.bmp',
-       'boden': 'AB_boden.bmp'}
+       'boden': 'AB_boden.bmp', 'weiss': 'AB_weiss.bmp', 'rot': 'AB_radfurt.bmp', 'sperr': 'AB_sperrflaeche.tga'}
 
 
 # ------------------------------------------------------------------ Geometrie-Helfer
@@ -402,41 +402,129 @@ def decke(roh, ludwig_z, o):
     return m
 
 
-def bahnbruecke(ways, dgm, E0, N0, nn0, o):
-    """Bruecke der Ludwigsallee (Schiesshausbruecke) ueber die Bahn: Platte, Bruestungen mit Gelaender, Widerlager.
-    Lage aus dem DGM: der Einschnitt der Bahn unter der Strasse (x ~1046..1068)."""
+def strassen_raender(q):
+    """Querschnitt (Baukasten-JSON) -> (linker Rand, rechter Rand) quer zur Achse (Achse = Mitte der Fahrspuren,
+    rechts positiv) wie querschnitt.rs links()"""
+    x, a, b = 0.0, None, None
+    for t in q['teile']:
+        if t['art'] in ('fahrspur', 'busspur'):
+            a = x if a is None else a
+            b = x + t['breite']
+        x += t['breite']
+    mitte = (a + b) / 2 if a is not None else x / 2
+    return -mitte, x - mitte
+
+
+def bahnbruecke(st, gel, o):
+    """Bruecke der Schiesshausbruecke ueber die Bahn, genau unter der Strasse (Etappe 2): Platte so breit wie der
+    Querschnitt, Bruestungen mit Gelaender an den Raendern, Widerlager dort, wo der Bahneinschnitt (DGM) beginnt und
+    endet. -> (Mesh, Hoehe der Fahrbahn in der Mitte)"""
     m = Mesh()
-    x0, x1 = 1045.0, 1068.5          # Widerlager (Westen, Osten)
-    y0, y1 = -276.0, -256.5          # Bruestungen (Sued, Nord)
-    hz = dgm.hoehen(np.array([E0 + 1040.0, E0 + 1072.0]), np.array([N0 - 266.0, N0 - 266.0])) - nn0
-    oben = float(np.mean(hz)) - 0.05
-    xs = np.arange(x0, x1, 1.0)
-    sohle = float(np.nanmin(dgm.hoehen(E0 + xs, np.full(len(xs), N0 - 266.0)))) - nn0
-    P = lambda x, y, z: (x - o[0], y - o[1], z - o[2])
+    el = st['elemente']
+    p0 = np.array([el[0]['x'], el[0]['y']])
+    h = math.radians(el[0]['richtung'])
+    u = np.array([math.sin(h), math.cos(h)])                # entlang der Strasse (West -> Ost)
+    n = np.array([-u[1], u[0]])                              # links
+    L = sum(e['laenge'] for e in el)
+    kum = np.array([e['kum'] for e in el] + [L])
+    zs = np.array([e['z'] for e in el] + [el[-1]['z'] + el[-1]['dh']])
+    z_bei = lambda a: float(np.interp(a, kum, zs))
+    links, rechts = strassen_raender(st['querschnitt'])
+    # Einschnitt: wo das Gelaende in der Strassenmitte mehr als 2 m unter der Fahrbahn liegt
+    A = np.arange(0, L, 0.5)
+    P = p0[None, :] + A[:, None] * u[None, :]
+    tief = gel.h(P[:, 0], P[:, 1]) < np.array([z_bei(a) for a in A]) - 2.0
+    if not tief.any():
+        return m, z_bei(L / 2)
+    a0, a1 = A[tief].min() - 1.5, A[tief].max() + 1.5
+    sohle = float(np.nanmin(gel.h(P[tief, 0], P[tief, 1])))
+    # lokaler Rahmen: a entlang, b quer (links positiv), Hoehe absolut
+    W = lambda a, b, z: (p0[0] + u[0] * a + n[0] * b - o[0], p0[1] + u[1] * a + n[1] * b - o[1], z - o[2])
+    N = lambda du, dn, dz: (u[0] * du + n[0] * dn, u[1] * du + n[1] * dn, dz)
+    bl, br = -links + 0.35, -rechts - 0.35                   # Aussenkanten quer (links positiv)
+    za, zb = z_bei(a0) - 0.05, z_bei(a1) - 0.05
     dicke = 1.2
-    # Platte: Unterseite und Seiten
-    m.quad('decke', [P(x0, y1, oben - dicke), P(x1, y1, oben - dicke), P(x1, y0, oben - dicke), P(x0, y0, oben - dicke)],
-           [(0, 0), ((x1 - x0) / 4, 0), ((x1 - x0) / 4, (y1 - y0) / 4), (0, (y1 - y0) / 4)], (0, 0, -1))
-    for y, n in ((y0, (0, -1, 0)), (y1, (0, 1, 0))):
-        m.quad('beton', [P(x0, y, oben - dicke), P(x1, y, oben - dicke), P(x1, y, oben + 1.1), P(x0, y, oben + 1.1)],
-               [(0, 0), ((x1 - x0) / 4, 0), ((x1 - x0) / 4, 0.6), (0, 0.6)], n)
-        # Bruestung (0,3 m dick) mit Gelaender
-        yi = y + (0.3 if y == y0 else -0.3)
-        m.quad('beton', [P(x0, yi, oben), P(x1, yi, oben), P(x1, yi, oben + 1.1), P(x0, yi, oben + 1.1)],
-               [(0, 0), ((x1 - x0) / 4, 0), ((x1 - x0) / 4, 0.3), (0, 0.3)], (0, -n[1], 0))
-        m.quad('beton', [P(x0, min(y, yi), oben + 1.1), P(x1, min(y, yi), oben + 1.1), P(x1, max(y, yi), oben + 1.1), P(x0, max(y, yi), oben + 1.1)],
-               [(0, 0), ((x1 - x0) / 4, 0), ((x1 - x0) / 4, 0.1), (0, 0.1)], (0, 0, 1))
-        ym = (y + yi) / 2
+    m.quad('decke', [W(a0, bl, za - dicke), W(a1, bl, zb - dicke), W(a1, br, zb - dicke), W(a0, br, za - dicke)],
+           [(0, 0), ((a1 - a0) / 4, 0), ((a1 - a0) / 4, (bl - br) / 4), (0, (bl - br) / 4)], N(0, 0, -1))
+    for b, sgn in ((bl, 1), (br, -1)):
+        bi = b - sgn * 0.3
+        m.quad('beton', [W(a0, b, za - dicke), W(a1, b, zb - dicke), W(a1, b, zb + 1.1), W(a0, b, za + 1.1)],
+               [(0, 0), ((a1 - a0) / 4, 0), ((a1 - a0) / 4, 0.6), (0, 0.6)], N(0, sgn, 0))
+        m.quad('beton', [W(a0, bi, za), W(a1, bi, zb), W(a1, bi, zb + 1.1), W(a0, bi, za + 1.1)],
+               [(0, 0), ((a1 - a0) / 4, 0), ((a1 - a0) / 4, 0.3), (0, 0.3)], N(0, -sgn, 0))
+        m.quad('beton', [W(a0, b, za + 1.1), W(a1, b, zb + 1.1), W(a1, bi, zb + 1.1), W(a0, bi, za + 1.1)],
+               [(0, 0), ((a1 - a0) / 4, 0), ((a1 - a0) / 4, 0.1), (0, 0.1)], N(0, 0, 1))
+        bm = (b + bi) / 2
         for z0 in (1.6, 2.1):
-            m.quad('gelaender', [P(x0, ym, oben + z0), P(x1, ym, oben + z0), P(x1, ym, oben + z0 + 0.06), P(x0, ym, oben + z0 + 0.06)],
-                   [(0, 0), (1, 0), (1, 1), (0, 1)], n, beidseitig=True)
-        for x in np.arange(x0 + 1.0, x1, 2.0):
-            kasten(m, 'gelaender', x - o[0] - 0.04, x - o[0] + 0.04, ym - o[1] - 0.04, ym - o[1] + 0.04, oben + 1.1 - o[2], oben + 2.16 - o[2])
+            m.quad('gelaender', [W(a0, bm, za + z0), W(a1, bm, zb + z0), W(a1, bm, zb + z0 + 0.06), W(a0, bm, za + z0 + 0.06)],
+                   [(0, 0), (1, 0), (1, 1), (0, 1)], N(0, sgn, 0), beidseitig=True)
+        for a in np.arange(a0 + 1.0, a1, 2.0):
+            q = W(a, bm, 0)
+            zz = z_bei(a) - 0.05
+            kasten(m, 'gelaender', q[0] - 0.04, q[0] + 0.04, q[1] - 0.04, q[1] + 0.04, zz + 1.1 - o[2], zz + 2.16 - o[2])
     # Widerlager: Waende von der Sohle bis unter die Platte, zur Bahn hin Klinker
-    for x, n in ((x0, (1, 0, 0)), (x1, (-1, 0, 0))):
-        m.quad('klinker', [P(x, y0, sohle - 0.5), P(x, y1, sohle - 0.5), P(x, y1, oben - dicke), P(x, y0, oben - dicke)],
-               [(0, sohle), ((y1 - y0) / 2, sohle), ((y1 - y0) / 2, oben - dicke), (0, oben - dicke)], n, beidseitig=True)
-    return m, oben
+    for a, sgn, z in ((a0, 1, za), (a1, -1, zb)):
+        m.quad('klinker', [W(a, br, sohle - 0.5), W(a, bl, sohle - 0.5), W(a, bl, z - dicke), W(a, br, z - dicke)],
+               [(0, sohle), ((bl - br) / 2, sohle), ((bl - br) / 2, z - dicke), (0, z - dicke)], N(sgn, 0, 0), beidseitig=True)
+    return m, z_bei((a0 + a1) / 2)
+
+
+def _spuren_quer(q, arten):
+    """(von, bis) quer zur Achse (rechts der Splinerichtung positiv) der Teile mit Art in `arten`, mit Richtung"""
+    links, _ = strassen_raender(q)
+    x, out = 0.0, []
+    for t in q['teile']:
+        if t['art'] in arten:
+            out.append((links + x, links + x + t['breite'], t['richtung']))
+        x += t['breite']
+    return out
+
+
+def markierung(strassen, kreuzung):
+    """Markierungen auf der Kreuzungsplatte (editorkreuzung baut sie ins Kreuzungsobjekt): Haltlinien an den
+    Zufahrten, rote Radfurten entlang der Ludwigsallee, Sperrflaeche der Verkehrsinsel Ost (Luftbild)
+    -> Liste dict(tex, alpha, ecken (Welt), m)"""
+    out = []
+    nach_name = {st['name']: st for st in strassen}
+
+    def flaeche(key, ecken, tex=1.0):
+        out.append(dict(tex=TEX[key], alpha=TEX[key].endswith('.tga'), ecken=[[float(c[0]), float(c[1])] for c in ecken], m=tex))
+
+    def rahmen(arm):
+        """Endpunkt, Richtung von der Kreuzung weg, 'rechts der Splinerichtung' als Vektor"""
+        h = math.radians(arm['h'])
+        weg = np.array([math.sin(h), math.cos(h)])
+        rechts_weg = np.array([weg[1], -weg[0]])
+        return np.array(arm['pos']), weg, (rechts_weg if arm['away'] else -rechts_weg)
+
+    # Haltlinien: ueber die ankommenden Spuren, 1 m in der Kreuzung, 0,5 m breit
+    for arm in kreuzung['arme']:
+        q = nach_name[arm['strasse']]['querschnitt']
+        spuren = [(a, b) for a, b, r in _spuren_quer(q, ('fahrspur', 'busspur')) if (r == 'vor') != arm['away']]
+        if not spuren:
+            continue
+        p, weg, sr_ = rahmen(arm)
+        b0, b1 = min(a for a, _ in spuren), max(b for _, b in spuren)
+        c = p - weg * 1.0
+        flaeche('weiss', [c + sr_ * b0, c + sr_ * b1, c + sr_ * b1 - weg * 0.5, c + sr_ * b0 - weg * 0.5])
+    # Radfurten entlang der Ludwigsallee (beide Arme laufen West -> Ost: rechts der Splinerichtung = Sueden)
+    w = next(a for a in kreuzung['arme'] if a['strasse'] == 'Schiesshausbruecke')
+    oa = next(a for a in kreuzung['arme'] if a['strasse'] == 'Ludwigsallee_Ost')
+    pw, _, sw = rahmen(w)
+    po, _, so = rahmen(oa)
+    rad_w = _spuren_quer(nach_name['Schiesshausbruecke']['querschnitt'], ('radfahrstreifen',))
+    rad_o = _spuren_quer(nach_name['Ludwigsallee_Ost']['querschnitt'], ('radfahrstreifen',))
+    sued_o = max(rad_o, key=lambda r: r[0])
+    nord_o = min(rad_o, key=lambda r: r[0])
+    sued_w = rad_w[0] if rad_w else sued_o
+    flaeche('rot', [pw + sw * sued_w[0], po + so * sued_o[0], po + so * sued_o[1], pw + sw * sued_w[1]], tex=4.0)
+    # Nordseite: im Westarm faehrt der Radverkehr auf der Busspur - die Furt laeuft an deren linken Rand
+    links_w, _ = strassen_raender(nach_name['Schiesshausbruecke']['querschnitt'])
+    breite = nord_o[1] - nord_o[0]
+    flaeche('rot', [pw + sw * links_w, po + so * nord_o[0], po + so * nord_o[1], pw + sw * (links_w + breite)], tex=4.0)
+    # Sperrflaeche der Verkehrsinsel Ost (Luftbild: x 1089..1105, y -265..-268), schraffiert
+    flaeche('sperr', [np.array([1089.0, -268.0]), np.array([1103.0, -268.0]), np.array([1103.0, -265.0]), np.array([1089.0, -265.0])], tex=2.0)
+    return out
 
 
 def profil(e):
@@ -638,6 +726,18 @@ def texturen(omsi, ziel):
     p = (rng.normal(0, 18, (128, 128, 3)) + (70, 105, 55)).clip(0, 255).astype(np.uint8)
     Image.fromarray(p).save(os.path.join(ziel, TEX['pflanzen']))
     shutil.copy(os.path.join(marcel, 'str_asphdrk.bmp'), os.path.join(ziel, TEX['asphalt']))
+    Image.new('RGB', (8, 8), (235, 235, 230)).save(os.path.join(ziel, TEX['weiss']))
+    # Radfurt: dieselbe rote Asphalttextur wie die Radstreifen der Baukasten-Querschnitte (sonst einfarbig)
+    rot = os.path.join(omsi, 'Splines', 'Aschaffenburg', 'texture', 'AB_asphalt_rot.bmp')
+    if os.path.isfile(rot):
+        shutil.copy(rot, os.path.join(ziel, TEX['rot']))
+    else:
+        Image.new('RGB', (8, 8), (176, 62, 52)).save(os.path.join(ziel, TEX['rot']))
+    # Sperrflaeche: weisse Schraegstreifen (45 Grad), sonst durchsichtig; 2 m je Textur
+    sp = np.zeros((128, 128, 4), np.uint8)
+    yy, xx = np.mgrid[0:128, 0:128]
+    sp[((xx + yy) % 64) < 22] = (235, 235, 230, 255)
+    Image.fromarray(sp, 'RGBA').save(os.path.join(ziel, TEX['sperr']))
     # Deckel wie das Gelaende (openOMSI: Bodentextur mal Detailtextur, Detail 60 x je Kachel = alle 5 m):
     # Detailtextur eingefaerbt mit der mittleren Farbe der Bodentextur (wie bauwerke.rs deckel_textur)
     basis = np.asarray(Image.open(os.path.join(omsi, 'Texture', 'gras.bmp')).convert('RGB'), float)
@@ -647,23 +747,27 @@ def texturen(omsi, ziel):
 
 
 # ------------------------------------------------------------------ Ausgabe
-def sco_text(name, modell, mats):
+def sco_text(name, modell, mats, rendertype=None):
+    """rendertype 'onsurface': Markierung auf einer Kreuzungsplatte (wird nach der Platte gezeichnet, wie in OMSI)"""
     L = ['Erzeugt mit omsigen (sonderbau_ring). OSM (ODbL), DGM1/DOP40 Bayern (CC BY 4.0).', '', '[friendlyname]', name, '',
-         '[groups]', '1', 'Aschaffenburg', '', '[fixed]', '', '[absheight]', '', '[mesh]', modell, '']
+         '[groups]', '1', 'Aschaffenburg', '', '[fixed]', '', '[absheight]', '']
+    if rendertype:
+        L += ['[rendertype]', rendertype, '']
+    L += ['[mesh]', modell, '']
     for key in mats:
         if TEX[key].endswith('.tga'):
             L += ['[matl]', TEX[key], '0', '[matl_alpha]', '2', '']
     return '\r\n'.join(L) + '\r\n'
 
 
-def schreiben(ordner, rel_ordner, name, mesh, o, liste):
+def schreiben(ordner, rel_ordner, name, mesh, o, liste, rendertype=None):
     if mesh.leer():
         return
     mats = [(k, TEX[k]) for k in mesh.mats]
     with open(os.path.join(ordner, 'model', name + '.x'), 'w', newline='') as f:
         f.write(x_file(mesh.V, mesh.F, mats))
     with open(os.path.join(ordner, name + '.sco'), 'w', encoding='cp1252', newline='') as f:
-        f.write(sco_text(f'Ring/Ludwigsallee {name}', name + '.x', mesh.mats))
+        f.write(sco_text(f'Ring/Ludwigsallee {name}', name + '.x', mesh.mats, rendertype))
     liste.append(dict(name=name, rel=rel_ordner + '\\' + name + '.sco', x=float(o[0]), y=float(o[1]), z=float(o[2]), dreiecke=len(mesh.F)))
 
 
@@ -693,9 +797,6 @@ def bauen(omsi, karte, osm_pfad, entwurf_pfad, nn0, ost0, nord0, cache):
     unter = [e for e in roh if e['unter_decke']]
     o = np.array([unter[0]['p'][0], unter[0]['p'][1], 0.0]) if unter else np.zeros(3)
     schreiben(ordner, rel, 'Unterfuehrung', decke(roh, ludwig_z, o), o, liste)
-    o = np.array([1056.0, -266.0, 0.0])
-    bb, _ = bahnbruecke(ways, dgm, ost0, nord0, nn0, o)
-    schreiben(ordner, rel, 'Bahnbruecke', bb, o, liste)
     messung = [dict(s=e['s'], x=float(e['p'][0]), y=float(e['p'][1]), ring=[float(e['ra']), float(e['rb']), float(e['zr'])],
                     west=None if e['w'] is None else [e['w'][k] for k in ('a', 'b', 'z', 'g')],
                     ost=None if e['o'] is None else [e['o'][k] for k in ('a', 'b', 'z', 'g')], decke=bool(e['unter_decke'])) for e in roh]
@@ -703,9 +804,16 @@ def bauen(omsi, karte, osm_pfad, entwurf_pfad, nn0, ost0, nord0, cache):
     from .ring_strassen import planen, text
     from .sonderbau_entwurf import Gelaende
     gel = Gelaende.laden(dgm, ost0, nord0, nn0, 1000, 1170, -460, -100)
-    strassen = planen(entwurf, gel, ways)
+    strassen, kreuzung = planen(entwurf, gel, ways)
     print(text(strassen))
-    out = dict(karte=karte, nn0=nn0, objekte=liste, strassen=strassen, gelaende=gelaende(roh), messung=messung, quellen=['OpenStreetMap (ODbL)', 'DGM1/DOP40 Bayerische Vermessungsverwaltung (CC BY 4.0)'])
+    e = kreuzung['ebene']
+    print(f"Kreuzung: {len(kreuzung['arme'])} Arme, Ebene {e['z0']:.2f} m, Neigung Ost {e['gx'] * 100:+.2f} %, Nord {e['gy'] * 100:+.2f} %")
+    st_w = next(st for st in strassen if st['name'] == 'Schiesshausbruecke')
+    o = np.array([st_w['elemente'][0]['x'], st_w['elemente'][0]['y'], 0.0])
+    bb, _ = bahnbruecke(st_w, gel, o)
+    schreiben(ordner, rel, 'Bahnbruecke', bb, o, liste)
+    kreuzung['markierung'] = markierung(strassen, kreuzung)
+    out = dict(karte=karte, nn0=nn0, objekte=liste, strassen=strassen, kreuzungen=[kreuzung], gelaende=gelaende(roh), messung=messung, quellen=['OpenStreetMap (ODbL)', 'DGM1/DOP40 Bayerische Vermessungsverwaltung (CC BY 4.0)'])
     with open(os.path.join(ordner, 'sonderbau_ring.json'), 'w', encoding='utf-8') as f:
         json.dump(out, f, indent=1)
     return out

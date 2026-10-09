@@ -107,6 +107,99 @@ pub fn strassen_anlegen(ae: &mut crate::aendern::Aendern, v: &mut openomsi_game:
     Ok(n)
 }
 
+/// Kreuzung des Sonderbaus: Arme (Strassenenden), Abbiegespuren, geneigte Ebene der Platte
+#[derive(Clone, Debug)]
+pub struct KreuzungPlan {
+    pub name: String,
+    /// (Strasse, Lage, Richtung von der Kreuzung weg, Splinerichtung weg von der Kreuzung, Rolle)
+    pub arme: Vec<(String, glam::DVec3, f64, bool, crate::kreuzung::Rolle)>,
+    pub verbindungen: Vec<[usize; 4]>,
+    /// z0, Neigung Ost, Neigung Nord, Bezugspunkt
+    pub ebene: (f64, f64, f64, DVec2),
+    pub ampel: bool,
+    /// weitere Felder fuer omsigen editorkreuzung: "phasen" (Ampelphase je Arm), "markierung" (Flaechen auf der Platte)
+    pub extra: serde_json::Value,
+}
+
+impl KreuzungPlan {
+    pub fn z(&self, p: DVec2) -> f64 {
+        let (z0, gx, gy, c) = self.ebene;
+        z0 + gx * (p.x - c.x) + gy * (p.y - c.y)
+    }
+
+    /// Neigung und Rollen fuer das [object] (Grad, wie die Karte sie schreibt: positive Neigung senkt die Nase/Norden,
+    /// positives Rollen hebt die rechte Seite/Osten - openOMSI map_rotation/object_rotation)
+    pub fn neigung_rollen(&self) -> (f64, f64) {
+        let (_, gx, gy, _) = self.ebene;
+        (-gy.atan().to_degrees(), gx.atan().to_degrees())
+    }
+}
+
+pub fn kreuzungen_lesen(datei: &Path) -> Result<Vec<KreuzungPlan>> {
+    let j: serde_json::Value = serde_json::from_slice(&std::fs::read(datei)?)?;
+    let mut out = Vec::new();
+    for k in j["kreuzungen"].as_array().map(|a| a.as_slice()).unwrap_or(&[]) {
+        let f = |v: &serde_json::Value| v.as_f64().unwrap_or(0.0);
+        let arme = k["arme"].as_array().context("Arme fehlen")?.iter().map(|a| {
+            let rolle = match a["rolle"].as_str() {
+                Some("haupt") => crate::kreuzung::Rolle::Haupt,
+                Some("neben") => crate::kreuzung::Rolle::Neben,
+                _ => crate::kreuzung::Rolle::Gleich,
+            };
+            (a["strasse"].as_str().unwrap_or("").to_string(), glam::DVec3::new(f(&a["pos"][0]), f(&a["pos"][1]), f(&a["z"])),
+             f(&a["h"]), a["away"].as_bool().unwrap_or(false), rolle)
+        }).collect();
+        let verbindungen = k["verbindungen"].as_array().map(|l| l.iter().filter_map(|v| {
+            let a = v.as_array()?;
+            Some([0, 1, 2, 3].map(|i| a.get(i).and_then(|x| x.as_u64()).unwrap_or(0) as usize))
+        }).collect()).unwrap_or_default();
+        let e = &k["ebene"];
+        out.push(KreuzungPlan {
+            name: k["name"].as_str().unwrap_or("Kreuzung").to_string(), arme, verbindungen,
+            ebene: (f(&e["z0"]), f(&e["gx"]), f(&e["gy"]), DVec2::new(f(&e["xc"]), f(&e["yc"]))),
+            ampel: k["ampel"].as_bool().unwrap_or(false),
+            extra: serde_json::json!({"phasen": k["phasen"], "markierung": k["markierung"]}),
+        });
+    }
+    Ok(out)
+}
+
+/// Kreuzungsobjekt bauen (omsigen editorkreuzung: Platte, genau die geplanten Abbiegespuren, Ampel mit Phasen) und mit
+/// Neigung, Vorfahrt-Regeln und Ampeln in die Karte (Sitzung) setzen. Die Ampeln stehen auf der Platte (ihre Hoehe
+/// gilt ueber dem Gelaende, das unter der Kreuzung abgesenkt sein kann). -> (Objekt, Anzahl Signale)
+pub fn kreuzung_anlegen(ae: &mut crate::aendern::Aendern, v: &mut openomsi_game::viewer::Viewer, root: &Path, ordner: &Path, rel_ordner: &str,
+                        plan: &KreuzungPlan, strassen: &[Strasse]) -> Result<(crate::kreuzung::Objekt, usize)> {
+    let mut arme = Vec::new();
+    for (name, pos, h, weg, rolle) in &plan.arme {
+        let st = strassen.iter().find(|s| &s.name == name).with_context(|| format!("Arm {name}: Strasse fehlt"))?;
+        let sli = format!("Splines\\{}\\{}.sli", crate::speichern::EIGEN, st.querschnitt.datei());
+        arme.push(crate::kreuzung::Arm { pos: *pos, richtung: *h, sli, weg: *weg, rolle: *rolle, gesperrt: false });
+    }
+    let o = crate::kreuzung::erzeugen_voll(root, ordner, rel_ordner, &plan.name, &arme, plan.ampel, None, Some(&plan.verbindungen), Some(&plan.extra))?;
+    let mut signale = o.signale.clone();
+    for sg in signale.iter_mut().filter(|s| s.art != "oben") {
+        if let Some(p) = sg.pos {
+            let boden = v.terrain_height(p.x, p.y).unwrap_or(plan.z(p));
+            sg.hoehe += plan.z(p) - boden;
+        }
+    }
+    let g = crate::kreuzung::Gesetzt { rel: o.rel.clone(), pos: o.ursprung.extend(plan.z(o.ursprung)), rules: o.rules.clone(),
+                                       no_cars: o.no_cars.clone(), signale: signale.clone() };
+    let mut id = ae.neue_ids(v, 1 + signale.len() as i64);
+    let (k, mut eintraege) = crate::speichern::kreuzung_eintraege(&g, &mut id);
+    let (neigung, rollen) = plan.neigung_rollen();
+    eintraege[0][8] = crate::kreuzung::zahl(neigung);
+    eintraege[0][9] = crate::kreuzung::zahl(rollen);
+    ae.kacheln_aendern(v, &[k], |_, zeilen| {
+        for f in &eintraege {
+            zeilen.push(String::new());
+            zeilen.extend(f.iter().cloned());
+        }
+        Ok(eintraege.len())
+    })?;
+    Ok((o, signale.len()))
+}
+
 /// abzusenkende Gelaendepunkte: (Kachel, Spalte, Zeile ab Sueden, Hoehe)
 pub fn gelaende_lesen(datei: &Path) -> Result<Vec<((i32, i32), usize, usize, f32)>> {
     let j: serde_json::Value = serde_json::from_slice(&std::fs::read(datei)?)?;
@@ -192,6 +285,30 @@ mod tests {
             assert!(v.preview_terrain(k.0, k.1, t), "Kachel {k:?} nicht geladen");
         }
         println!("{} Gelaendepunkte in {} Kacheln abgesenkt", senken.len(), kacheln.len());
+        // Etappe 3: Kreuzung (Ampeln auf der Platte, ueber dem abgesenkten Gelaende)
+        let ordner = root.join("Sceneryobjects/Aschaffenburg/Aburg_Newgen/Sonderbau_Ring");
+        for plan in kreuzungen_lesen(&json).unwrap() {
+            let (o, n) = kreuzung_anlegen(&mut ae, &mut v, root, &ordner, r"Sceneryobjects\Aschaffenburg\Aburg_Newgen\Sonderbau_Ring", &plan, &strassen).unwrap();
+            println!("{}: {} Abbiegespuren ({} fehlgeschlagen), {} Signale/Masten, Phasen {:?}, Umlauf {:?} s, Neigung/Rollen {:?}",
+                     plan.name, o.spuren, o.fehlgeschlagen, n, o.phasen, o.umlauf, plan.neigung_rollen());
+            assert_eq!(o.fehlgeschlagen, 0);
+            assert_eq!(o.spuren, plan.verbindungen.len());
+            // die geneigte Platte trifft die Strassenenden: Oberflaeche 2 m innerhalb jedes Arms = Ebene + 0,10 m
+            v.tiles_around(mitte, 1).unwrap();
+            for (name, pos, h, _, _) in &plan.arme {
+                let r = h.to_radians();
+                let p = pos.truncate() - DVec2::new(r.sin(), r.cos()) * 2.0;
+                let ist = v.surface_height(p.x, p.y);
+                println!("  {name:20} Ebene {:.2}  Platte {:?}", plan.z(p) + 0.10, ist.map(|x| (x * 100.0).round() / 100.0));
+            }
+            for p in [DVec2::new(1096.0, -266.5), DVec2::new(1085.0, -260.0), DVec2::new(1085.0, -273.0), DVec2::new(1085.0, -266.0), DVec2::new(1075.0, -266.0)] {
+                println!("  Platte bei {p:?}: {:?} ueber der Ebene", v.surface_height(p.x, p.y).map(|z| ((z - plan.z(p)) * 1000.0).round() / 1000.0));
+            }
+        }
+        v.tiles_around(mitte, 1).unwrap();
+        for (k, t) in &kacheln {
+            assert!(v.preview_terrain(k.0, k.1, t), "Kachel {k:?} nicht geladen");
+        }
         let z =v.terrain_height(1084.0, -265.0).unwrap_or(10.0);
         println!("Gelaende an der Kreuzung: {z:.2} m");
         if let Some(bild) = std::env::var_os("OMSI_BILD") {
@@ -206,6 +323,9 @@ mod tests {
                 (DVec3::new(1072.0, -230.0, 11.5), 180.0, -5.0, 18.0, "rampe_west"),
                 (DVec3::new(1084.0, -265.0, 6.0), 200.0, -40.0, 120.0, "oben"),
                 (DVec3::new(1068.0, -390.0, 6.0), 200.0, -35.0, 70.0, "sued_ende"),
+                (DVec3::new(1084.0, -266.0, 11.0), 0.0, -65.0, 75.0, "kreuzung_oben"),
+                (DVec3::new(1080.0, -266.0, 12.0), 95.0, -6.0, 45.0, "kreuzung_west"),
+                (DVec3::new(1075.0, -262.0, 12.0), 180.0, -8.0, 35.0, "kreuzung_rampe"),
                 (DVec3::new(1070.0, -385.0, 6.5), 10.0, -4.0, 30.0, "sued_einfahrt"),
                 (DVec3::new(1056.0, -266.0, 6.0), 0.0, -12.0, 35.0, "bahnbruecke"),
             ];
