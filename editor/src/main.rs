@@ -236,8 +236,18 @@ struct App {
     spur_modus: bool,
     spur_ziel: Option<spuren::Ziel>,
     spur_zufahrt: Option<usize>,
-    /// Pipette im Platzieren-Modus: der naechste Klick auf ein Objekt im Bild uebernimmt es
+    /// Pipette (Taste I, Knopf oben): der naechste Klick nimmt, was unter der Maus liegt - Objekt/Baum (Platzieren),
+    /// Strasse (Strasse bauen mit ihrem Querschnitt), Kreisverkehr
     pipette: bool,
+    pip_ziel: Option<PipZiel>,
+}
+
+/// was die Pipette unter der Maus hat
+#[derive(Clone)]
+enum PipZiel {
+    Objekt(bearbeiten::Objekt),
+    Strasse { sli: String, punkte: Vec<(DVec3, f64)>, halb: f64 },
+    Kreisel(DVec3, netz::Kreisel),
 }
 
 /// was im Werkzeug "Kreuzungen" unter der Maus liegt
@@ -290,8 +300,10 @@ enum UiAktion {
     SpurenZurueck(u32),
     /// Objekt zum Platzieren uebernehmen (Pipette): .sco, Drehung
     Uebernehmen(std::path::PathBuf, f64),
-    /// Pipette an/aus (wechselt ins Platzieren)
+    /// Pipette an/aus
     Pipette,
+    /// Strasse bauen mit diesem Querschnitt (Pipette)
+    StrasseUebernehmen(String),
     SplineLoeschen,
     StrassenModus(strasse::Modus),
     EigeneAendern(strasse::KantenAenderung),
@@ -381,6 +393,7 @@ impl App {
             spur_ziel: None,
             spur_zufahrt: None,
             pipette: false,
+            pip_ziel: None,
         }
     }
 
@@ -491,7 +504,7 @@ impl App {
                 self.anschluesse.aktualisieren(v);
             }
             // die Splines der Karte braucht auch das Strassenwerkzeug (Abzweige mitten aus vorhandenen Strassen)
-            if matches!(self.bearb.werkzeug, Werkzeug::Aendern | Werkzeug::Strasse | Werkzeug::Kreuzung | Werkzeug::Knoten) {
+            if self.pipette || matches!(self.bearb.werkzeug, Werkzeug::Aendern | Werkzeug::Strasse | Werkzeug::Kreuzung | Werkzeug::Knoten) {
                 if let Some(a) = self.aendern.as_mut() {
                     a.aktualisieren(v);
                 }
@@ -900,6 +913,10 @@ impl App {
                         }
                     }
                     ui.add_enabled(false, egui::Button::new("Gelaende"));
+                    ui.separator();
+                    if ui.selectable_label(self.pipette, "\u{1F58C} Pipette (I)").on_hover_text("Klick auf ein Objekt, einen Baum, eine Strasse oder einen Kreisverkehr: wechselt ins passende Werkzeug und uebernimmt es").clicked() {
+                        aktionen.push(UiAktion::Pipette);
+                    }
                     ui.separator();
                     ui.checkbox(&mut self.hilfe.an, "Pfade (H)").on_hover_text("Pfade (blau Strasse, gelb Kreuzung, gruen Gehweg, orange Gleis, lila unsichtbare Strasse) und unsichtbare Objekte zeigen - wie \"Show paths\" im nEditor");
                     ui.separator();
@@ -1446,6 +1463,39 @@ impl App {
             if let Some(o) = gewaehlt.as_ref() {
                 bearbeiten::markieren(&maler, &self.kam, o, bw, bh, egui::Color32::from_rgb(255, 60, 220), 3.0);
             }
+            if let (true, Some(z)) = (self.pipette, self.pip_ziel.as_ref()) {
+                let c = egui::Color32::from_rgb(255, 220, 60);
+                let pt = |p: DVec3| bearbeiten::projizieren(&self.kam, p, bw, bh).map(|(x, y, _)| egui::pos2(x, y));
+                let text = match z {
+                    PipZiel::Objekt(o) => {
+                        bearbeiten::markieren(&maler, &self.kam, o, bw, bh, c, 2.5);
+                        o.sco.file_stem().map(|x| x.to_string_lossy().to_string()).unwrap_or_default()
+                    }
+                    PipZiel::Strasse { sli, punkte, halb } => {
+                        for seite in [-*halb, *halb] {
+                            let linie: Vec<egui::Pos2> = punkte.iter().filter_map(|(q, h)| pt(*q + (crate::netz::rechts(*h) * seite).extend(0.3))).collect();
+                            if linie.len() > 1 {
+                                maler.add(egui::Shape::line(linie, egui::Stroke::new(2.5, c)));
+                            }
+                        }
+                        format!("Strasse: {}", sli.rsplit('\\').next().unwrap_or(sli))
+                    }
+                    PipZiel::Kreisel(m, k) => {
+                        let linie: Vec<egui::Pos2> = (0..=96).filter_map(|i| pt(*m + (netz::dir(i as f64 * 3.75) * k.aussen()).extend(0.3))).collect();
+                        if linie.len() > 1 {
+                            maler.add(egui::Shape::line(linie, egui::Stroke::new(2.5, c)));
+                        }
+                        "Kreisverkehr".to_string()
+                    }
+                };
+                if let Some(m) = self.maus {
+                    maler.text(egui::pos2(m.0 + 16.0, m.1 + 16.0), egui::Align2::LEFT_TOP, format!("Pipette: {text}"), egui::FontId::proportional(14.0), c);
+                }
+            } else if self.pipette {
+                if let Some(m) = self.maus {
+                    maler.text(egui::pos2(m.0 + 16.0, m.1 + 16.0), egui::Align2::LEFT_TOP, "Pipette", egui::FontId::proportional(14.0), egui::Color32::from_rgb(255, 220, 60));
+                }
+            }
             if let Some(an) = spur_ansicht.as_ref() {
                 let pt = |p: DVec3| bearbeiten::projizieren(&self.kam, p + DVec3::Z * 0.35, bw, bh).map(|(x, y, _)| egui::pos2(x, y));
                 for vb in &an.verbindungen {
@@ -1900,15 +1950,31 @@ impl App {
                 }
             }
             UiAktion::Pipette => {
-                if self.bearb.werkzeug != Werkzeug::Platzieren {
-                    self.ausfuehren(UiAktion::Werkzeug(Werkzeug::Platzieren));
-                    self.pipette = true;
+                self.pipette = !self.pipette;
+                self.pip_ziel = None;
+                self.meldung = if self.pipette {
+                    "Pipette: Klick auf ein Objekt, einen Baum, eine Strasse oder einen Kreisverkehr uebernimmt es (Esc bricht ab)".into()
                 } else {
-                    self.pipette = !self.pipette;
+                    "Pipette aus".into()
+                };
+            }
+            UiAktion::StrasseUebernehmen(sli) => {
+                if self.bearb.werkzeug != Werkzeug::Strasse {
+                    self.ausfuehren(UiAktion::Werkzeug(Werkzeug::Strasse));
                 }
-                if self.pipette {
-                    self.meldung = "Pipette: Klick auf ein Objekt im Bild uebernimmt es zum Platzieren (Esc bricht ab)".into();
+                if self.strasse.modus == strasse::Modus::Kreisel {
+                    self.strasse.modus = strasse::Modus::Kurve;
                 }
+                let name = sli.rsplit('\\').next().unwrap_or(&sli).to_string();
+                // im Querschnitt-Raster zeigen: Suche auf die Datei, Filter aus
+                self.qs_suche = name.trim_end_matches(".sli").to_lowercase();
+                self.qs_herkunft = None;
+                self.qs_ordner = None;
+                self.qs_spuren = None;
+                self.qs_gehweg = None;
+                self.strasse.sli = Some(sli.clone());
+                self.pipette = false;
+                self.meldung = format!("Querschnitt uebernommen: {name} - Klick setzt den Start");
             }
             UiAktion::Uebernehmen(sco, richtung) => {
                 let rel = self.viewer.as_ref().map(|v| bearbeiten::relativ(&v.root, &sco)).unwrap_or_default();
@@ -1968,8 +2034,9 @@ impl App {
                     self.bearb.waehlen(None);
                     self.bearb.unter_maus = None;
                 }
+                self.pipette = false;
+                self.pip_ziel = None;
                 if w != Werkzeug::Platzieren {
-                    self.pipette = false;
                     self.platzier = None;
                     if let Some(v) = self.viewer.as_mut() {
                         self.bearb.geist_weg(v);
@@ -2183,6 +2250,56 @@ impl App {
                 a.spline(id).is_some()
             }
             _ => false,
+        }
+    }
+
+    /// Pipette: was liegt unter dem Bildpunkt? Objekte (auch Baeume) zuerst, wenn sie nahe am Zeiger sind, dann
+    /// Kreisverkehre, eigene Strassen, Strassen der Karte
+    fn pipette_suchen(&mut self, maus: (f32, f32)) -> Option<PipZiel> {
+        let (bw, bh) = self.bildgroesse();
+        let v = self.viewer.as_ref()?;
+        if let Some(w) = self.bearb.suchen(v, &self.kam, maus, bw, bh) {
+            if let Some(o) = self.bearb.objekte(v).into_iter().find(|o| o.wahl == w) {
+                let nah = [0.3, 2.0, 6.0].iter().any(|dz| bearbeiten::projizieren(&self.kam, o.pos + DVec3::Z * *dz, bw, bh)
+                    .is_some_and(|(x, y, _)| (x - maus.0).hypot(y - maus.1) < 18.0));
+                if nah {
+                    return Some(PipZiel::Objekt(o));
+                }
+            }
+        }
+        let g = self.boden_unter_maus?;
+        if let Some((m, k)) = self.strasse.kreisel().into_iter().find(|(m, k)| (m.truncate() - g.truncate()).length() < k.aussen()) {
+            return Some(PipZiel::Kreisel(m, k));
+        }
+        if let Some(id) = self.strasse.kante_unter(g.truncate()) {
+            let sli = self.strasse.netz.kante(id)?.sli.clone();
+            let (punkte, halb) = self.strasse.kante_umriss(id)?;
+            return Some(PipZiel::Strasse { sli, punkte, halb });
+        }
+        let a = self.aendern.as_mut()?;
+        a.aktualisieren(v);
+        let id = a.suchen(v, g.truncate())?;
+        let s = a.spline(id)?.clone();
+        let (l, r) = a.breite(v, &s.sli);
+        Some(PipZiel::Strasse { sli: s.sli.clone(), punkte: s.punkte(), halb: l.max(r) as f64 })
+    }
+
+    /// Pipette: Klick - uebernehmen, was unter der Maus liegt
+    fn pipette_klicken(&mut self) {
+        let ziel = self.maus.and_then(|m| self.pipette_suchen(m));
+        self.pip_ziel = None;
+        match ziel {
+            Some(PipZiel::Objekt(o)) => self.ausfuehren(UiAktion::Uebernehmen(o.sco.clone(), o.richtung)),
+            Some(PipZiel::Strasse { sli, .. }) => self.ausfuehren(UiAktion::StrasseUebernehmen(sli)),
+            Some(PipZiel::Kreisel(_, k)) => {
+                if self.bearb.werkzeug != Werkzeug::Strasse {
+                    self.ausfuehren(UiAktion::Werkzeug(Werkzeug::Strasse));
+                }
+                self.ausfuehren(UiAktion::StrassenModus(strasse::Modus::Kreisel));
+                self.pipette = false;
+                self.meldung = format!("Kreisverkehr (Durchmesser {:.0} m) - Klick setzt die Mitte des neuen", 2.0 * k.r);
+            }
+            None => self.meldung = "Pipette: hier liegt nichts - Objekt, Baum, Strasse oder Kreisverkehr anklicken (Esc bricht ab)".into(),
         }
     }
 
@@ -2739,9 +2856,12 @@ impl ApplicationHandler for App {
                     let (bw, bh) = self.bildgroesse();
                     let (o, d) = self.kam.strahl(p.0, p.1, bw, bh);
                     self.boden_unter_maus = treffer(o, d, |x, y| self.boden(x, y), 6000.0);
-                    // Pipette: ohne gewaehltes Objekt oder mit Strg zeigt der Platzieren-Modus das Objekt unter der Maus
+                    if self.pipette && !egui_will {
+                        self.pip_ziel = self.pipette_suchen(p);
+                    }
+                    // Pipette im Platzieren: ohne gewaehltes Objekt oder mit Strg zeigt es das Objekt unter der Maus
                     if self.bearb.werkzeug == Werkzeug::Platzieren {
-                        self.bearb.unter_maus = if !egui_will && (self.platzier.is_none() || self.strg || self.pipette) {
+                        self.bearb.unter_maus = if !egui_will && !self.pipette && (self.platzier.is_none() || self.strg) {
                             self.viewer.as_ref().and_then(|v| self.bearb.suchen(v, &self.kam, p, bw, bh))
                         } else {
                             None
@@ -2804,6 +2924,10 @@ impl ApplicationHandler for App {
                 }
             }
             WindowEvent::MouseInput { state, button, .. } => {
+                if state == ElementState::Pressed && !egui_will && button == MouseButton::Left && self.pipette {
+                    self.pipette_klicken();
+                    return;
+                }
                 if state == ElementState::Pressed && !egui_will {
                     if matches!(button, MouseButton::Right | MouseButton::Middle) {
                         if let Some(p) = self.maus {
@@ -2921,7 +3045,7 @@ impl ApplicationHandler for App {
                         }
                     }
                     // Pipette: Objekt unter der Maus zum Platzieren uebernehmen
-                    let pipette = if button == MouseButton::Left && self.bearb.werkzeug == Werkzeug::Platzieren && (self.platzier.is_none() || self.strg || self.pipette) {
+                    let pipette = if button == MouseButton::Left && self.bearb.werkzeug == Werkzeug::Platzieren && (self.platzier.is_none() || self.strg) {
                         let (bw, bh) = self.bildgroesse();
                         match (self.viewer.as_ref(), self.maus) {
                             (Some(v), Some(m)) => self.bearb.suchen(v, &self.kam, m, bw, bh).and_then(|w| self.bearb.objekte(v).into_iter().find(|o| o.wahl == w)),
