@@ -231,7 +231,7 @@ impl Marke {
     }
 
     /// (Textur, Breite in m, v je Meter)
-    fn textur(self) -> Option<(&'static str, f64, f64)> {
+    pub fn textur(self) -> Option<(&'static str, f64, f64)> {
         match self {
             Marke::Strich => Some(("AB_marke_strich.tga", 0.12, 1.0 / 9.0)),
             Marke::Voll => Some(("AB_marke_voll.tga", 0.12, 0.2)),
@@ -255,7 +255,7 @@ impl Teil {
         Teil { art, breite: art.standard_breite(), richtung: Richtung::Vor, belag: art.standard_belag() }
     }
 
-    fn hoehe(&self) -> f64 {
+    pub fn hoehe(&self) -> f64 {
         if self.art.unten() { FAHRBAHN } else { HOCHBORD }
     }
 }
@@ -548,7 +548,7 @@ pub fn eigene(root: &Path) -> Vec<(String, Querschnitt)> {
 
 /// Texturen in Splines\Aschaffenburg\texture: Belaege aus Splines\Marcel\texture kopieren (mit .cfg/.surf),
 /// Markierungen und roten Asphalt erzeugen (nur wenn sie fehlen)
-fn texturen_bereitstellen(root: &Path, texturen: &[&str]) -> Result<()> {
+pub fn texturen_bereitstellen(root: &Path, texturen: &[&str]) -> Result<()> {
     let ziel = ordner(root).join("texture");
     let marcel = root.join("Splines").join("Marcel").join("texture");
     for t in texturen {

@@ -334,6 +334,11 @@ impl Aendern {
     /// neues Objekt direkt in die Sitzungskopie seiner Kachel schreiben (auf dem Gelaende), ein Rueckgaengig-Schritt
     /// -> (ID, Kachel)
     pub fn objekt_anlegen(&mut self, v: &mut Viewer, rel: &str, pos: DVec2, rot: f64, texte: &[String]) -> Result<(i64, (i32, i32))> {
+        self.objekt_anlegen_hoehe(v, rel, pos, 0.0, rot, texte)
+    }
+
+    /// wie `objekt_anlegen`, mit Hoehe (ueber dem Gelaende bzw. absolut bei [absheight]-Objekten)
+    pub fn objekt_anlegen_hoehe(&mut self, v: &mut Viewer, rel: &str, pos: DVec2, hoehe: f64, rot: f64, texte: &[String]) -> Result<(i64, (i32, i32))> {
         let ts = omsi_map::tile_size();
         let k = ((pos.x / ts).floor() as i32, (pos.y / ts).floor() as i32);
         if v.tile_file(k.0, k.1).is_none() {
@@ -343,7 +348,7 @@ impl Aendern {
         self.naechste_objekt_id = id + 1;
         let z = crate::kreuzung::zahl;
         let mut eintrag = vec!["[object]".to_string(), "0".into(), rel.to_string(), id.to_string(), z(pos.x - k.0 as f64 * ts),
-                               z(pos.y - k.1 as f64 * ts), "0".into(), z(rot.rem_euclid(360.0)), "0".into(), "0".into(), texte.len().to_string()];
+                               z(pos.y - k.1 as f64 * ts), z(hoehe), z(rot.rem_euclid(360.0)), "0".into(), "0".into(), texte.len().to_string()];
         eintrag.extend(texte.iter().cloned());
         self.kacheln_aendern(v, &[k], |_, zeilen| {
             while zeilen.last().is_some_and(|l| l.trim().is_empty()) {

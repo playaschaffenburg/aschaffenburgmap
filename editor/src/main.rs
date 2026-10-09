@@ -30,6 +30,7 @@ mod querschnitt;
 mod speichern;
 mod spuren;
 mod strasse;
+mod uebergang;
 mod vorschau;
 mod welt;
 
@@ -281,6 +282,20 @@ struct App {
     messen: bool,
     mess_a: Option<DVec3>,
     mess_b: Option<DVec3>,
+    /// Strasse bauen, Uebergang setzen: an, feste Laenge (sonst Vorschlag), freies Ende unter der Maus mit Plan
+    /// (Breiten A/B links und rechts, Laenge)
+    uebergang_modus: bool,
+    uebergang_laenge: Option<f64>,
+    uebergang_unter: Option<(anschluss::Anschluss, Option<UebergangPlan>)>,
+}
+
+/// Vorschau eines Uebergangs: (links A, rechts A, links B, rechts B, Laenge, Text)
+#[derive(Clone)]
+struct UebergangPlan {
+    a: (f64, f64),
+    b: (f64, f64),
+    laenge: f64,
+    text: String,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -500,6 +515,9 @@ impl App {
             messen: false,
             mess_a: None,
             mess_b: None,
+            uebergang_modus: false,
+            uebergang_laenge: None,
+            uebergang_unter: None,
         }
     }
 
@@ -1489,8 +1507,30 @@ impl App {
                                 }
                             }
                         });
+                        ui.horizontal(|ui| {
+                            if ui.selectable_label(self.uebergang_modus, "Uebergang setzen").on_hover_text("Klick auf ein freies Strassenende: dort entsteht ein Uebergang vom Querschnitt dieser Strasse auf den gewaehlten (Spuren fallen weg / kommen dazu, Breiten laufen weich ineinander)").clicked() {
+                                self.uebergang_modus = !self.uebergang_modus;
+                                self.uebergang_unter = None;
+                            }
+                            if self.uebergang_modus {
+                                let mut auto = self.uebergang_laenge.is_none();
+                                if ui.checkbox(&mut auto, "Laenge automatisch").changed() {
+                                    self.uebergang_laenge = if auto { None } else { Some(30.0) };
+                                    self.uebergang_unter = None;
+                                }
+                                if let Some(l) = self.uebergang_laenge.as_mut() {
+                                    if ui.add(egui::DragValue::new(l).range(5.0..=150.0).speed(0.5).suffix(" m")).changed() {
+                                        self.uebergang_unter = None;
+                                    }
+                                }
+                            }
+                        });
+                        if self.uebergang_modus {
+                            ui.label(egui::RichText::new("Uebergang: Klick auf ein freies Strassenende (blau) - vom Querschnitt dort auf den unten gewaehlten. Danach am freien Ende des Uebergangs mit dem neuen Querschnitt weiterbauen. Eigene, noch nicht gespeicherte Strassen: erst speichern (Strg+S).").small());
+                        }
                         if let Some(rel) = self.qs_raster(ui, self.strasse.sli.clone()) {
                             aktionen.push(UiAktion::Querschnitt(rel));
+                            self.uebergang_unter = None;
                         }
                     }
                     ui.separator();
@@ -2014,6 +2054,41 @@ impl App {
             }
             if let Some(o) = gewaehlt.as_ref() {
                 bearbeiten::markieren(&maler, &self.kam, o, bw, bh, egui::Color32::from_rgb(255, 60, 220), 3.0);
+            }
+            // Uebergang: Umriss vom Strassenende aus
+            if let (Werkzeug::Strasse, true, Some((a, plan))) = (self.bearb.werkzeug, self.uebergang_modus, self.uebergang_unter.as_ref()) {
+                let pt = |p: DVec3| bearbeiten::projizieren(&self.kam, p + DVec3::Z * 0.4, bw, bh).map(|(x, y, _)| egui::pos2(x, y));
+                let c = egui::Color32::from_rgb(90, 220, 255);
+                if let Some(m) = pt(a.pos) {
+                    maler.circle_stroke(m, 9.0, egui::Stroke::new(2.5, c));
+                }
+                if let Some(pl) = plan {
+                    let vorn = netz::dir(a.richtung);
+                    let quer = netz::rechts(a.richtung);
+                    let p = |y: f64, x: f64| a.pos + (vorn * y + quer * x).extend(0.0);
+                    if pl.laenge > 0.0 {
+                        let n = 12;
+                        let mut links = Vec::new();
+                        let mut rechts = Vec::new();
+                        for k in 0..=n {
+                            let t = k as f64 / n as f64;
+                            let s = t * t * (3.0 - 2.0 * t);
+                            let y = pl.laenge * t;
+                            links.extend(pt(p(y, pl.a.0 + (pl.b.0 - pl.a.0) * s)));
+                            rechts.extend(pt(p(y, pl.a.1 + (pl.b.1 - pl.a.1) * s)));
+                        }
+                        maler.add(egui::Shape::line(links, egui::Stroke::new(2.0, c)));
+                        maler.add(egui::Shape::line(rechts, egui::Stroke::new(2.0, c)));
+                        for (y, (l, r)) in [(0.0, pl.a), (pl.laenge, pl.b)] {
+                            if let (Some(x), Some(z)) = (pt(p(y, l)), pt(p(y, r))) {
+                                maler.line_segment([x, z], egui::Stroke::new(2.0, c));
+                            }
+                        }
+                    }
+                    if let Some(m) = pt(a.pos) {
+                        maler.text(m + egui::vec2(12.0, 10.0), egui::Align2::LEFT_TOP, &pl.text, egui::FontId::proportional(13.0), if pl.laenge > 0.0 { c } else { egui::Color32::from_rgb(255, 120, 90) });
+                    }
+                }
             }
             // Messung: Linie mit Laenge (waagerecht) und Hoehenunterschied; waehrend des Messens bis zur Maus
             if self.messen || self.baukasten.is_some() {
@@ -3088,6 +3163,25 @@ impl App {
          self.gelaende.undo_len())
     }
 
+    /// Vorschau eines Uebergangs am Strassenende `a` auf den gewaehlten Querschnitt
+    fn uebergang_plan(&self, a: &anschluss::Anschluss) -> Option<UebergangPlan> {
+        let ziel = self.strasse.sli.clone()?;
+        let st = uebergang::Stelle { pos: a.pos, richtung: a.richtung, sli: a.sli.clone(), gleichsinnig: a.am_ende != a.gespiegelt };
+        let kurz = |s: &str| std::path::Path::new(s).file_stem().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+        match uebergang::planen(&self.root, &st, &ziel, self.uebergang_laenge) {
+            Ok((sa, sb, l)) => {
+                let spuren = |s: &uebergang::Seite| {
+                    let v = s.pfade.iter().filter(|p| p.art == 0 && p.richtung != 1).count();
+                    let z = s.pfade.iter().filter(|p| p.art == 0 && p.richtung == 1).count();
+                    format!("{z}+{v}")
+                };
+                Some(UebergangPlan { a: (sa.links, sa.links + sa.breite()), b: (sb.links, sb.links + sb.breite()), laenge: l,
+                                     text: format!("{} ({}, {:.1} m) -> {} ({}, {:.1} m), {l:.0} m", kurz(&a.sli), spuren(&sa), sa.breite(), kurz(&ziel), spuren(&sb), sb.breite()) })
+            }
+            Err(e) => Some(UebergangPlan { a: (0.0, 0.0), b: (0.0, 0.0), laenge: 0.0, text: format!("nicht moeglich: {e:#}") }),
+        }
+    }
+
     /// letzte Messung (waagerechte Strecke in m)
     fn messung(&self) -> Option<f64> {
         Some((self.mess_b? - self.mess_a?).truncate().length())
@@ -3868,7 +3962,25 @@ impl ApplicationHandler for App {
                             a.unter_maus = if self.eigene_maus.is_some() { None } else { a.suchen(v, g.truncate()) };
                         }
                     }
-                    if self.bearb.werkzeug == Werkzeug::Strasse {
+                    if self.bearb.werkzeug == Werkzeug::Strasse && self.uebergang_modus {
+                        let fang = (14.0 * self.kam.m_pro_px(bh)).max(3.0);
+                        let neu = self.boden_unter_maus.filter(|_| !egui_will).and_then(|g| {
+                            self.anschluesse.liste.iter().filter(|a| a.frei && a.objekt.is_none())
+                                .map(|a| ((a.pos.truncate() - g.truncate()).length(), a)).filter(|(d, _)| *d <= fang)
+                                .min_by(|x, y| x.0.total_cmp(&y.0)).map(|(_, a)| a.clone())
+                        });
+                        let gleich = match (&neu, &self.uebergang_unter) {
+                            (Some(n), Some((alt, _))) => n.spline_id == alt.spline_id && n.am_ende == alt.am_ende,
+                            (None, None) => true,
+                            _ => false,
+                        };
+                        if !gleich {
+                            self.uebergang_unter = neu.map(|a| {
+                                let plan = self.uebergang_plan(&a);
+                                (a, plan)
+                            });
+                        }
+                    } else if self.bearb.werkzeug == Werkzeug::Strasse {
                         let fang = 12.0 * self.kam.m_pro_px(bh);
                         if let (Some(g), Some(v)) = (self.boden_unter_maus, self.viewer.as_mut()) {
                             self.strasse.maus(v, g, fang.max(2.0), &self.anschluesse, self.aendern.as_mut());
@@ -4042,7 +4154,27 @@ impl ApplicationHandler for App {
                             self.aendern_warnung = None;
                         }
                     }
-                    if button == MouseButton::Left && self.bearb.werkzeug == Werkzeug::Strasse {
+                    if button == MouseButton::Left && self.bearb.werkzeug == Werkzeug::Strasse && self.uebergang_modus {
+                        match (self.uebergang_unter.clone(), self.strasse.sli.clone()) {
+                            (Some((a, _)), Some(ziel)) => {
+                                let st = uebergang::Stelle { pos: a.pos, richtung: a.richtung, sli: a.sli.clone(), gleichsinnig: a.am_ende != a.gespiegelt };
+                                if let (Some(v), Some(ae)) = (self.viewer.as_mut(), self.aendern.as_mut()) {
+                                    protokoll::aktion(&format!("Uebergang: Spline {} -> {ziel}", a.spline_id));
+                                    self.meldung = match uebergang::setzen(v, ae, &self.root, &st, &ziel, self.uebergang_laenge) {
+                                        Ok(m) => {
+                                            self.uebergang_modus = false;
+                                            m
+                                        }
+                                        Err(e) => format!("Uebergang nicht gesetzt: {e:#}"),
+                                    };
+                                }
+                                self.uebergang_unter = None;
+                                self.anschluesse.vergessen();
+                            }
+                            (None, _) => self.meldung = "Uebergang: auf ein freies Strassenende (blau) klicken".into(),
+                            (_, None) => self.meldung = "Uebergang: erst den neuen Querschnitt waehlen".into(),
+                        }
+                    } else if button == MouseButton::Left && self.bearb.werkzeug == Werkzeug::Strasse {
                         let (_, bh) = self.bildgroesse();
                         let fang = (12.0 * self.kam.m_pro_px(bh)).max(2.0);
                         if let (Some(g), Some(v)) = (self.boden_unter_maus, self.viewer.as_mut()) {

@@ -90,6 +90,20 @@ Gespeichert nach `Splines\Aschaffenburg\AB_<Name>.sli` mit Bauanleitung `AB_<Nam
 Texturen in `Splines\Aschaffenburg\texture` (Beläge aus `Splines\Marcel\texture` kopiert, Markierungen und roter
 Asphalt erzeugt). Herkunft im Katalog: „Eigene (Baukasten)“. „Speichern und damit bauen“ wechselt gleich zu Straße bauen.
 
+**Übergänge zwischen Querschnitten** („Straße bauen“ → „Übergang setzen“): Klick auf ein freies Straßenende (blau) setzt
+dort einen Übergang vom Querschnitt dieser Straße auf den gewählten – ein Objekt (`.sco` + `.x` + Pfade) wie die
+Kreuzungen, denn eine OMSI-Spline hat über ihre ganze Länge dasselbe Profil. Teile beider Seiten werden einander
+zugeordnet (gleiche Art bevorzugt, gleiche Höhe Pflicht, Fahrspuren nur gleicher Richtung; was keine Entsprechung hat,
+läuft auf Breite 0 aus – außen eher als innen), Breiten und Lage gehen S-förmig ineinander über; Modell mit gekachelten
+Belägen, Bordsteinkanten und Markierungen wie im Baukasten. Pfade: Spuren je Richtung von der Gegenfahrbahn aus gepaart,
+zusätzliche fädeln in die nächste ein bzw. zweigen ab (S-Kurve aus zwei Bögen), Gehwege laufen durch; die Pfadenden
+liegen genau auf den Spuren der Splines. Beide Seiten können Baukasten-Querschnitte sein (aus der Bauanleitung) oder
+beliebige `.sli` (Flächen aus `[heightprofile]`, Spuren aus `[path]`). Länge automatisch (8 m je Meter Versatz, mindestens
+15 m) oder fest. Vorschau: Umriss und „A (Spuren, Breite) → B …“ am Mauszeiger. Danach am freien Ende des Übergangs mit
+dem neuen Querschnitt weiterbauen. Das Objekt liegt bis zum Speichern im Sitzungsordner und kommt dann nach
+`Sceneryobjects\Aschaffenburg\<Karte>\` (Strg+Z nimmt ihn zurück). Noch nicht: Steigung (der Übergang liegt waagerecht),
+eigene ungespeicherte Straßen (erst Strg+S).
+
 **Messen (M, Knopf oben):** Klick setzt den Anfang, zweiter Klick das Ende; angezeigt werden die waagerechte Länge und
 der Höhenunterschied (mit Steigung). Im Baukasten lässt sich die letzte Messung als Breite des gewählten Teils
 übernehmen oder der ganze Querschnitt auf sie strecken – so passt der Querschnitt zum Luftbild.
