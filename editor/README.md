@@ -131,6 +131,14 @@ beim Start der vorhandene übernommen (abschaltbar), am Ziel erscheint eine Warn
 Gespeichert wird jede Straße als Kette von `[spline_h]`-Einträgen (glatter Höhenverlauf, Enden exakt auf den Knoten
 in gleicher Richtung – so verbindet OMSI die Spuren).
 
+**Kreuzung erstellen** (Werkzeug „Kreuzungen“ → „Kreuzung erstellen“): Klick auf freie Straßenenden (blau, Enden
+vorhandener Straßen der Karte und eigener Straßen) wählt sie aus bzw. ab (nummeriert, orange); „Kreuzung bauen“ macht
+aus allen gewählten **ein** Kreuzungsobjekt – ein Knoten nur mit Armen an genau diesen Enden, die Straßen bleiben, wie
+sie sind; omsigen baut Platte, Bordsteinecken, Abbiegespuren und Vorfahrt und schließt die Lücke. Gedacht für eng
+aufeinanderfolgende Kreuzungen (alle Enden beider zusammen wählen) und verunglückte Stellen; eine vorhandene Kreuzung
+im Weg vorher mit Ändern löschen. Danach wie jede eigene Kreuzung: Vorfahrt/Ampel, Spurpfeile, beim Speichern in die
+Karte; Strg+Z nimmt sie zurück. Mindestens 3 Enden; liegen sie verschieden hoch, wird gewarnt (die Kreuzung ist eben).
+
 **Kreuzungen – eine Logik für alle Fälle** (Werkzeug „Straße bauen“): jede Kreuzung ist ein Knoten des Netzes mit
 Armen; ein Arm ist eine eigene Straße oder ein Ende einer vorhandenen Straße, die dort aufgeschnitten wurde
 („Kartenarm“). Ab drei Armen entsteht ein Kreuzungsobjekt wie in den Standardkarten (Platte mit Bordsteinecken und

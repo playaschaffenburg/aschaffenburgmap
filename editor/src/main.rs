@@ -245,6 +245,9 @@ struct App {
     hilfe: hilfsansicht::Hilfsansicht,
     /// Werkzeug "Kreuzungen", Ansicht Spuren (Spurpfeile/Verbinder): an, gewaehlte Kreuzung, gewaehlte Zufahrtsspur
     spur_modus: bool,
+    /// Werkzeug Kreuzungen, "Kreuzung erstellen": an, gewaehlte freie Enden (Schluessel, Arm)
+    kreuzung_bauen: bool,
+    kreuzung_enden: Vec<((i64, bool), netz::Kartenarm)>,
     spur_ziel: Option<spuren::Ziel>,
     spur_zufahrt: Option<usize>,
     /// Pipette (Taste I, Knopf oben): der naechste Klick nimmt, was unter der Maus liegt - Objekt/Baum (Platzieren),
@@ -373,6 +376,8 @@ enum UiAktion {
     Messen,
     /// Bruecken/Rampen neu planen (Einstellung geaendert)
     BauwerkeNeu,
+    /// Kreuzungs-Ersteller: aus den gewaehlten Enden bauen
+    KreuzungBauen,
     /// Objekte aus Ordnern anderer Karten in die geoeffnete Karte holen (dann neu laden)
     ObjekteHolen,
     /// "Speichern": die geoeffnete Karte ueberschreiben (eigene sofort, fremde nach Rueckfrage)
@@ -494,6 +499,8 @@ impl App {
             knoten: knoten::Knotenwerkzeug::default(),
             hilfe: hilfsansicht::Hilfsansicht::default(),
             spur_modus: false,
+            kreuzung_bauen: false,
+            kreuzung_enden: Vec::new(),
             spur_ziel: None,
             spur_zufahrt: None,
             pipette: false,
@@ -655,7 +662,7 @@ impl App {
             }
             self.hilfe.aktualisieren(v);
             self.bearb.unsichtbare = self.hilfe.an;
-            if self.bearb.werkzeug == Werkzeug::Strasse {
+            if self.bearb.werkzeug == Werkzeug::Strasse || (self.bearb.werkzeug == Werkzeug::Kreuzung && self.kreuzung_bauen) {
                 self.anschluesse.aktualisieren(v);
             }
             // die Splines der Karte braucht auch das Strassenwerkzeug (Abzweige mitten aus vorhandenen Strassen)
@@ -1817,14 +1824,38 @@ impl App {
             if self.bearb.werkzeug == Werkzeug::Kreuzung {
                 egui::Panel::right("kreuzungen").default_size(360.0).show(ctx, |ui| {
                     ui.horizontal(|ui| {
-                        if ui.selectable_label(!self.spur_modus, "Vorfahrt und Ampel").clicked() {
+                        if ui.selectable_label(!self.spur_modus && !self.kreuzung_bauen, "Vorfahrt und Ampel").clicked() {
                             self.spur_modus = false;
+                            self.kreuzung_bauen = false;
                         }
                         if ui.selectable_label(self.spur_modus, "Spuren (Pfeile/Verbinder)").clicked() {
                             self.spur_modus = true;
+                            self.kreuzung_bauen = false;
+                        }
+                        if ui.selectable_label(self.kreuzung_bauen, "Kreuzung erstellen").on_hover_text("aus freien Strassenenden eine Kreuzung bauen - auch fuer eng aufeinanderfolgende Kreuzungen").clicked() {
+                            self.kreuzung_bauen = true;
+                            self.spur_modus = false;
+                            self.kreuzung_enden.clear();
                         }
                     });
                     ui.separator();
+                    if self.kreuzung_bauen {
+                        ui.heading("Kreuzung erstellen");
+                        ui.label("Klick auf freie Strassenenden (blau) waehlt sie aus bzw. wieder ab - Enden vorhandener Strassen der Karte und eigener Strassen. Aus allen gewaehlten wird EIN Kreuzungsobjekt: Platte, Abbiegespuren, Vorfahrt; die Luecken zwischen den Strassen schliesst es.");
+                        ui.label(egui::RichText::new("Fuer zwei dicht aufeinanderfolgende Kreuzungen: alle Enden beider zusammen waehlen. Eine vorhandene Kreuzung, die im Weg ist, vorher mit Aendern (U) loeschen - dann sind ihre Strassenenden frei.").small().weak());
+                        ui.add_space(4.0);
+                        ui.label(format!("{} Enden gewaehlt", self.kreuzung_enden.len()));
+                        ui.horizontal(|ui| {
+                            if ui.add_enabled(self.kreuzung_enden.len() >= 3, egui::Button::new(egui::RichText::new("Kreuzung bauen").strong())).clicked() {
+                                aktionen.push(UiAktion::KreuzungBauen);
+                            }
+                            if ui.add_enabled(!self.kreuzung_enden.is_empty(), egui::Button::new("Auswahl leeren")).clicked() {
+                                self.kreuzung_enden.clear();
+                            }
+                        });
+                        ui.label(egui::RichText::new("Danach im Modus \"Vorfahrt und Ampel\" die Kreuzung anklicken: Vorfahrt, Ampel; unter \"Spuren\" die Abbiegespuren. Strg+Z nimmt sie zurueck.").small().weak());
+                        return;
+                    }
                     if self.spur_modus {
                         ui.heading("Spurpfeile und Verbinder");
                         let Some(an) = spur_ansicht.as_ref() else {
@@ -2338,7 +2369,35 @@ impl App {
                     }
                 }
             }
-            if self.bearb.werkzeug == Werkzeug::Kreuzung && !self.spur_modus {
+            if let (Werkzeug::Kreuzung, true, Some(v)) = (self.bearb.werkzeug, self.kreuzung_bauen, self.viewer.as_ref()) {
+                let pt = |p: DVec3| bearbeiten::projizieren(&self.kam, p + DVec3::Z * 0.4, bw, bh).map(|(x, y, _)| egui::pos2(x, y));
+                let blau = egui::Color32::from_rgb(90, 170, 255);
+                let orange = egui::Color32::from_rgb(255, 160, 40);
+                for (key, a) in self.kreuzung_kandidaten(v) {
+                    let Some(m) = pt(a.pos) else { continue };
+                    let nr = self.kreuzung_enden.iter().position(|x| x.0 == key);
+                    let c = if nr.is_some() { orange } else { blau };
+                    maler.circle_stroke(m, 8.0, egui::Stroke::new(2.5, c));
+                    if let Some(q) = pt(a.pos + (netz::dir(a.richtung) * -6.0).extend(0.0)) {
+                        maler.line_segment([m, q], egui::Stroke::new(2.0, c));
+                    }
+                    if let Some(i) = nr {
+                        maler.text(m + egui::vec2(10.0, -10.0), egui::Align2::LEFT_BOTTOM, format!("{}", i + 1), egui::FontId::proportional(15.0), orange);
+                    }
+                }
+                if self.kreuzung_enden.len() >= 2 {
+                    let mitte = self.kreuzung_enden.iter().fold(DVec3::ZERO, |s, x| s + x.1.pos) / self.kreuzung_enden.len() as f64;
+                    if let Some(mm) = pt(mitte) {
+                        for (_, a) in &self.kreuzung_enden {
+                            if let Some(m) = pt(a.pos) {
+                                maler.line_segment([mm, m], egui::Stroke::new(1.5, orange.gamma_multiply(0.6)));
+                            }
+                        }
+                        maler.circle_filled(mm, 5.0, orange);
+                    }
+                }
+            }
+            if self.bearb.werkzeug == Werkzeug::Kreuzung && !self.spur_modus && !self.kreuzung_bauen {
                 let maus_netz = match &self.kreuzung_maus { Some(KreuzungsZiel::Netz(k)) => Some(*k), _ => None };
                 for k in self.strasse.kreuzungen() {
                     let Some(m) = bearbeiten::projizieren(&self.kam, k.pos + DVec3::Z * 0.3, bw, bh).map(|(x, y, _)| egui::pos2(x, y)) else { continue };
@@ -3048,6 +3107,21 @@ impl App {
                     }
                 }
             }
+            UiAktion::KreuzungBauen => {
+                let arme: Vec<netz::Kartenarm> = self.kreuzung_enden.iter().map(|x| x.1.clone()).collect();
+                if let (Some(v), Some(a)) = (self.viewer.as_mut(), self.aendern.as_ref()) {
+                    protokoll::aktion(&format!("Kreuzung erstellen aus {} Enden", arme.len()));
+                    match self.strasse.kreuzung_aus_enden(v, a, arme) {
+                        Ok((id, m)) => {
+                            self.meldung = m;
+                            self.kreuzung_enden.clear();
+                            self.kreuzung_bauen = false;
+                            self.kreuzung_wahl = Some(id);
+                        }
+                        Err(e) => self.meldung = format!("Kreuzung nicht gebaut: {e}"),
+                    }
+                }
+            }
             UiAktion::BauwerkeNeu => {
                 if let Some(v) = self.viewer.as_mut() {
                     self.strasse.bauwerke_aktualisieren(v);
@@ -3227,6 +3301,19 @@ impl App {
     fn stapel_jetzt(&self) -> (usize, usize, usize, usize, usize, usize) {
         (self.bearb.undo_len(), self.strasse.undo_len(), self.aendern.as_ref().map(|a| a.undo_len()).unwrap_or(0), self.welt.undo_len(), self.orte.undo_len(),
          self.gelaende.undo_len())
+    }
+
+    /// freie Strassenenden fuer den Kreuzungs-Ersteller: (Schluessel, Arm mit Richtung von der Kreuzung weg)
+    fn kreuzung_kandidaten(&self, v: &Viewer) -> Vec<((i64, bool), netz::Kartenarm)> {
+        let mut out: Vec<((i64, bool), netz::Kartenarm)> = self.anschluesse.liste.iter().filter(|a| a.frei && a.objekt.is_none()).map(|a| {
+            ((a.spline_id, a.am_ende), netz::Kartenarm { pos: a.pos, richtung: (a.richtung + 180.0).rem_euclid(360.0), sli: a.sli.clone(),
+                                                         weg: a.am_ende == a.gespiegelt, halb: self.strasse.halb(v, &a.sli) })
+        }).collect();
+        for (k, pos, richtung, _, sli, gleichsinnig) in self.strasse.freie_enden() {
+            let halb = self.strasse.halb(v, &sli);
+            out.push(((-(k as i64) - 1, true), netz::Kartenarm { pos, richtung: (richtung + 180.0).rem_euclid(360.0), sli, weg: !gleichsinnig, halb }));
+        }
+        out
     }
 
     /// Vorschau eines Uebergangs am Strassenende `a` auf den gewaehlten Querschnitt
@@ -4166,7 +4253,25 @@ impl ApplicationHandler for App {
                             self.spur_ziel = neu;
                         }
                     }
-                    if button == MouseButton::Left && self.bearb.werkzeug == Werkzeug::Kreuzung && !self.spur_modus {
+                    if button == MouseButton::Left && self.bearb.werkzeug == Werkzeug::Kreuzung && self.kreuzung_bauen {
+                        let (_, bh) = self.bildgroesse();
+                        let fang = (14.0 * self.kam.m_pro_px(bh)).max(3.0);
+                        if let (Some(g), Some(v)) = (self.boden_unter_maus, self.viewer.as_ref()) {
+                            let treffer = self.kreuzung_kandidaten(v).into_iter().map(|c| ((c.1.pos.truncate() - g.truncate()).length(), c))
+                                .filter(|(d, _)| *d <= fang).min_by(|a, b| a.0.total_cmp(&b.0)).map(|(_, c)| c);
+                            match treffer {
+                                Some((key, arm)) => {
+                                    if let Some(i) = self.kreuzung_enden.iter().position(|x| x.0 == key) {
+                                        self.kreuzung_enden.remove(i);
+                                    } else {
+                                        self.kreuzung_enden.push((key, arm));
+                                    }
+                                    self.meldung = format!("{} Enden gewaehlt{}", self.kreuzung_enden.len(), if self.kreuzung_enden.len() >= 3 { " - \"Kreuzung bauen\" rechts" } else { "" });
+                                }
+                                None => self.meldung = "Kreuzung erstellen: auf ein freies Strassenende (blau) klicken".into(),
+                            }
+                        }
+                    } else if button == MouseButton::Left && self.bearb.werkzeug == Werkzeug::Kreuzung && !self.spur_modus {
                         match self.kreuzung_maus.clone() {
                             Some(KreuzungsZiel::Netz(k)) => self.kreuzung_wahl = Some(k),
                             Some(KreuzungsZiel::Vorhanden(k)) => {

@@ -369,7 +369,7 @@ impl Strassenbau {
     }
 
     /// halbe Breite eines Querschnitts (aussen, groessere Seite)
-    fn halb(&self, v: &Viewer, sli: &str) -> f64 {
+    pub fn halb(&self, v: &Viewer, sli: &str) -> f64 {
         v.spline_lanes(sli).map(|(_, (l, r))| l.max(r) as f64).unwrap_or(5.0)
     }
 
@@ -1045,6 +1045,9 @@ impl Strassenbau {
             }
             let e = an[0];
             let h = self.netz.weiter_richtung(k.id)?;
+            if self.netz.knoten.iter().any(|x| x.kartenarme.iter().any(|a| (a.pos - k.pos).truncate().length() < 0.05)) {
+                return None;
+            }
             Some((k.id, k.pos, h, self.steigung_aus(k.id, h), e.sli.clone(), e.b == k.id))
         }).collect()
     }
@@ -1332,6 +1335,51 @@ impl Strassenbau {
                 if o.objekt.signale.is_empty() { String::new() } else { format!(", Ampel (Umlauf {:.0} s)", o.objekt.umlauf.unwrap_or(0.0)) }),
             None => self.kreuzung_fehler.clone().map(|e| format!("Kreuzung nicht erzeugt: {e}")).unwrap_or_default(),
         }
+    }
+
+    /// Kreuzungs-Ersteller: aus freien Strassenenden (der Karte oder eigener Strassen) EINE Kreuzung - ein Knoten nur
+    /// mit Armen an genau diesen Enden (die Strassen bleiben, wie sie sind), Objekt von omsigen wie jede Kreuzung des
+    /// Netzes (Vorfahrt, Ampel, Spurpfeile im Werkzeug Kreuzungen; beim Speichern in die Karte) -> (Knoten, Meldung)
+    pub fn kreuzung_aus_enden(&mut self, v: &mut Viewer, ae: &Aendern, arme: Vec<netz::Kartenarm>) -> Result<(u32, String), String> {
+        if arme.len() < 3 {
+            return Err("eine Kreuzung braucht mindestens 3 Strassenenden".into());
+        }
+        let n = arme.len() as f64;
+        let mitte = arme.iter().fold(DVec3::ZERO, |s, a| s + a.pos) / n;
+        let (lo, hi) = arme.iter().fold((f64::MAX, f64::MIN), |(a, b), x| (a.min(x.pos.z), b.max(x.pos.z)));
+        // je zwei Arme nicht in fast derselben Richtung (sonst ueberlappen ihre Spuren)
+        for (i, a) in arme.iter().enumerate() {
+            for b in arme.iter().skip(i + 1) {
+                if norm180(a.richtung - b.richtung).abs() < 15.0 && (a.pos - b.pos).truncate().length() < a.halb + b.halb {
+                    return Err("zwei Strassenenden liegen nebeneinander in derselben Richtung".into());
+                }
+            }
+        }
+        if self.kreuzungs_ordner.is_none() {
+            self.kreuzungs_ordner = Some(ae.kreuzungs_ordner());
+        }
+        self.undo.push((self.netz.clone(), 0));
+        self.redo.clear();
+        self.aenderungen += 1;
+        for a in &arme {
+            self.netz.breiten.insert(a.sli.clone(), a.halb);
+        }
+        let id = self.netz.knoten_mit_kartenarmen(mitte, arme);
+        self.zeichnen_alle(v);
+        if !self.objekte.contains_key(&id) {
+            let e = self.kreuzung_fehler.clone().unwrap_or_else(|| "omsigen hat kein Objekt gebaut".into());
+            if let Some((netz, _)) = self.undo.pop() {
+                self.netz = netz;
+                self.aenderungen += 1;
+                self.zeichnen_alle(v);
+            }
+            return Err(e);
+        }
+        let mut m = format!("Kreuzung aus {} Strassenenden gebaut - Vorfahrt/Ampel: Modus \"Vorfahrt und Ampel\"", n as usize);
+        if hi - lo > 0.5 {
+            m += &format!(" (Achtung: die Enden liegen bis {:.1} m verschieden hoch, die Kreuzung ist eben)", hi - lo);
+        }
+        Ok((id, m))
     }
 
     /// vorhandene Kreuzung der Karte uebernehmen (wird durch eine eigene mit denselben Armen ersetzt), damit sich
@@ -1781,5 +1829,56 @@ mod tests {
         v2.tiles_around(DVec3::new(150.0, 150.0, 0.0), 8).unwrap();
         assert_eq!(v2.spline_end_free(a.spline_id, a.am_ende), Some(false), "das Ende ist im Spiel nicht angeschlossen");
         std::fs::remove_dir_all(&test_root).ok();
+    }
+
+    /// Kreuzungs-Ersteller: drei eigene Strassen enden frei um eine Stelle; aus ihren Enden wird eine Kreuzung (ein
+    /// Objekt, Strassen unveraendert), die Enden sind danach nicht mehr frei; Rueckgaengig nimmt sie zurueck (OMSI_BILD)
+    #[test]
+    #[ignore]
+    fn kreuzung_aus_freien_enden() {
+        let _sperre = crate::bearbeiten::tests::sperre();
+        use crate::bearbeiten::tests::grundorf;
+        let root = Path::new(crate::bearbeiten::tests::OMSI);
+        let mut v = grundorf();
+        let ae = Aendern::neu(&v);
+        let mut s = Strassenbau::neu(Some("Splines\\Marcel\\str_2spur_10m_Grunewaldstr.sli".into()), Modus::Gerade);
+        s.root = Some(root.to_path_buf());
+        s.kreuzungs_ordner = Some(ae.kreuzungs_ordner());
+        let boden = |v: &Viewer, p: DVec2| p.extend(v.terrain_height(p.x, p.y).unwrap_or(0.0));
+        let frei = |v: &Viewer, p: DVec2| (-80..=80).step_by(8).all(|dx| (-80..=80).step_by(8).all(|dy| v.surface_height(p.x + dx as f64, p.y + dy as f64).is_none()));
+        let c = (0..60).map(|i| DVec2::new(-280.0 + (i % 10) as f64 * 50.0, -250.0 + (i / 10) as f64 * 50.0)).find(|p| frei(&v, *p)).expect("keine freie Wiese");
+        for h in [0.0f64, 110.0, 235.0] {
+            let d = netz::dir(h);
+            let innen = c + d * 14.0;
+            let aussen = c + d * 70.0;
+            let (pa, pi) = (boden(&v, aussen), boden(&v, innen));
+            s.klick(&mut v, pa, 3.0, &Anschluesse::default(), None).unwrap();
+            s.maus(&mut v, pi, 3.0, &Anschluesse::default(), None);
+            s.klick(&mut v, pi, 3.0, &Anschluesse::default(), None).unwrap();
+            s.beenden(&mut v);
+        }
+        let enden: Vec<_> = s.freie_enden().into_iter().filter(|e| (e.1.truncate() - c).length() < 20.0).collect();
+        assert_eq!(enden.len(), 3, "drei freie Enden an der Stelle");
+        let arme: Vec<netz::Kartenarm> = enden.iter().map(|(_, pos, richtung, _, sli, gleich)| netz::Kartenarm {
+            pos: *pos, richtung: (richtung + 180.0).rem_euclid(360.0), sli: sli.clone(), weg: !gleich, halb: s.halb(&v, sli),
+        }).collect();
+        let kanten_vorher = s.netz.kanten.clone();
+        let (id, m) = s.kreuzung_aus_enden(&mut v, &ae, arme).unwrap();
+        println!("{m}");
+        assert!(s.objekte.contains_key(&id), "kein Kreuzungsobjekt");
+        assert_eq!(s.objekte[&id].arme.len(), 3);
+        assert_eq!(s.netz.kanten, kanten_vorher, "die Strassen duerfen sich nicht aendern");
+        assert!(s.freie_enden().iter().all(|e| (e.1.truncate() - c).length() >= 20.0), "Enden noch frei");
+        let gesetzt = s.gesetzte_kreuzungen();
+        assert_eq!(gesetzt.len(), 1);
+        if let Some(b) = std::env::var_os("OMSI_BILD") {
+            let kam = crate::kamera::Kamera { ziel: boden(&v, c), gier: 20.0, neigung: -55.0, abstand: 70.0, fov: 50.0 };
+            let px = v.render_image(1280, 800, &kam.camera()).unwrap();
+            image::save_buffer(b, &px, 1280, 800, image::ColorType::Rgba8).unwrap();
+        }
+        assert!(s.rueckgaengig(&mut v, None));
+        assert!(s.gesetzte_kreuzungen().is_empty());
+        assert_eq!(s.freie_enden().iter().filter(|e| (e.1.truncate() - c).length() < 20.0).count(), 3);
+        drop(ae);
     }
 }
