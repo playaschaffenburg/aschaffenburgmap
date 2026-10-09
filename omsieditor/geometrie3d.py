@@ -38,7 +38,8 @@ class Szene(dict):
 def textur_ordner(omsi):
     if not omsi:
         return []
-    return [os.path.join(omsi, 'Splines', 'Aschaffenburg_KI', 'texture'), os.path.join(omsi, 'Splines', 'Marcel', 'texture'),
+    return [os.path.join(omsi, 'Splines', 'Aschaffenburg', 'texture'), os.path.join(omsi, 'Splines', 'Aschaffenburg_KI', 'texture'),
+            os.path.join(omsi, 'Splines', 'Marcel', 'texture'),
             os.path.join(omsi, 'Texture')]
 
 

@@ -238,7 +238,7 @@ def _path_lines(e, height, kind, width, direction, blinker):
 def sco_text(name, mesh_file, moves, walks, ampel_block=()):
     """moves: Liste (Elemente, Blinker[, Signalgruppe oder None]); die Signalgruppe gilt fuer das erste Stueck"""
     L = ['Erzeugt mit omsigen (Aschaffenburg-KI). Strassendaten (c) OpenStreetMap-Mitwirkende, ODbL.', '',
-         '[friendlyname]', name, '', '[groups]', '1', 'Aschaffenburg_KI', '',
+         '[friendlyname]', name, '', '[groups]', '1', 'Aschaffenburg', '',
          '[rendertype]', 'surface', '', '[LightMapMapping]', '', '[fixed]', '', '[surface]', '',
          '[absheight]', '']
     L += list(ampel_block)
@@ -319,15 +319,15 @@ def build_objects(net, sdb, map_name, korrekturen=(), to_ll=None):
                         sco=sco_text(f'{map_name} Kreuzung {n + 1}', name + '.x', moves, J['walks'],
                                      ampel.sco_block(plan) if plan else ()),
                         paths=idx + sum(len(w) for w in J['walks']),
-                        rel=f'Sceneryobjects\\Aschaffenburg_KI\\{map_name}\\{name}.sco', geom=J,
+                        rel=f'Sceneryobjects\\Aschaffenburg\\{map_name}\\{name}.sco', geom=J,
                         mesh=(V, F), mats=list(MATS)))
     return out
 
 
 def install_objects(root, map_name, objects, omsi_dir=None, overwrite=False):
-    """Dateien nach <root>/Sceneryobjects/Aschaffenburg_KI/<Karte>/ schreiben (Modelle in model/, Texturen in
+    """Dateien nach <root>/Sceneryobjects/Aschaffenburg/<Karte>/ schreiben (Modelle in model/, Texturen in
     texture/, kopiert aus Splines/Marcel/texture der OMSI-Installation)"""
-    d = os.path.join(root, 'Sceneryobjects', 'Aschaffenburg_KI', map_name)
+    d = os.path.join(root, 'Sceneryobjects', 'Aschaffenburg', map_name)
     if os.path.exists(d):
         if not overwrite:
             raise FileExistsError(f'Objektordner {d} existiert schon - anderen Kartennamen waehlen')

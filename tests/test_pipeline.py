@@ -15,7 +15,7 @@ def test_hbf_city_galerie(tmp_path):
     assert rc == 0
     d = tmp_path / 'maps' / 'Test'
     assert (d / 'global.cfg').exists()
-    k = tmp_path / 'Sceneryobjects' / 'Aschaffenburg_KI' / 'Test'
+    k = tmp_path / 'Sceneryobjects' / 'Aschaffenburg' / 'Test'
     scos = sorted(k.glob('K_*.sco'))
     assert len(scos) > 20 and all((k / 'model' / (s.stem + '.x')).exists() for s in scos)
     assert (k / 'model' / 'K_001.x').read_text(encoding='ascii').startswith('xof 0302txt')
@@ -32,7 +32,7 @@ def test_hbf_city_galerie(tmp_path):
 def test_alte_spline_kreuzungen(tmp_path):
     """--kreuzungen spline: der alte Kreuzungsbau aus Spur-Splines bleibt verfuegbar."""
     assert main(ARGS + ['--ausgabe', str(tmp_path), '--kreuzungen', 'spline']) == 0
-    assert (tmp_path / 'Splines' / 'Aschaffenburg_KI' / 'AB_kreuzung_spur.sli').exists()
+    assert (tmp_path / 'Splines' / 'Aschaffenburg' / 'AB_kreuzung_spur.sli').exists()
     assert not (tmp_path / 'Sceneryobjects').exists()
     res = validate(str(tmp_path / 'maps' / 'Test'), SplineDB(), edge_points=[(0, 0)])
     assert res['splines'] > 300

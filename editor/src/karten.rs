@@ -2,7 +2,7 @@
 //! Ordnername aendern, Karte in den Papierkorb verschieben.
 //!
 //! Eine OMSI-Karte hat zwei Namen: den Ordner unter maps\ (steht auch in global.cfg unter [name]; Spielstaende und
-//! die Objektordner unter Aschaffenburg_KI\ verweisen darauf) und den Anzeigenamen [friendlyname] in global.cfg und
+//! die Objektordner unter Aschaffenburg\ verweisen darauf) und den Anzeigenamen [friendlyname] in global.cfg und
 //! in den Sprachdateien global_<Sprache>.dsc, den OMSI in der Kartenauswahl zeigt.
 
 use crate::speichern::{dekodieren, global_setzen, kodieren, name_ok};
@@ -320,7 +320,8 @@ fn kopieren(von: &Path, nach: &Path) -> Result<()> {
 }
 
 /// Ordner einer Karte umbenennen: maps\alt -> maps\neu, [name] in global.cfg, die eigenen Ordner unter
-/// Sceneryobjects\Aschaffenburg_KI\ und Splines\Aschaffenburg_KI\ und die Verweise der Kacheln darauf
+/// Sceneryobjects\Aschaffenburg\ und Splines\Aschaffenburg\ (und die frueheren unter Aschaffenburg_KI\) und die
+/// Verweise der Kacheln darauf
 pub fn umbenennen(root: &Path, alt: &str, neu: &str) -> Result<()> {
     if !name_ok(neu) {
         bail!("Ordnername \"{neu}\": nur Buchstaben, Ziffern, _ - und Leerzeichen");
@@ -333,7 +334,7 @@ pub fn umbenennen(root: &Path, alt: &str, neu: &str) -> Result<()> {
         bail!("{} gibt es schon", nach.display());
     }
     let eigene: Vec<(PathBuf, PathBuf)> = ["Sceneryobjects", "Splines"].iter()
-        .map(|b| (root.join(b).join("Aschaffenburg_KI").join(alt), root.join(b).join("Aschaffenburg_KI").join(neu)))
+        .flat_map(|b| crate::speichern::EIGENE_ORDNER.iter().map(move |o| (root.join(b).join(o).join(alt), root.join(b).join(o).join(neu))))
         .filter(|(a, _)| a.is_dir()).collect();
     for (_, n) in &eigene {
         if n.exists() {
@@ -351,15 +352,18 @@ pub fn umbenennen(root: &Path, alt: &str, neu: &str) -> Result<()> {
         std::fs::rename(a, n).with_context(|| format!("{} umbenennen", a.display()))?;
     }
     if !eigene.is_empty() {
-        let (alt_rel, neu_rel) = (format!("Aschaffenburg_KI\\{alt}\\"), format!("Aschaffenburg_KI\\{neu}\\"));
         for e in std::fs::read_dir(&nach)?.flatten() {
             let n = e.file_name().to_string_lossy().to_lowercase();
             if !(n.starts_with("tile_") && n.ends_with(".map")) {
                 continue;
             }
             let (text, utf16) = dekodieren(&std::fs::read(e.path())?);
-            if text.contains(&alt_rel) {
-                std::fs::write(e.path(), kodieren(&text.replace(&alt_rel, &neu_rel), utf16))?;
+            let mut neu_text = text.clone();
+            for o in crate::speichern::EIGENE_ORDNER {
+                neu_text = neu_text.replace(&format!("{o}\\{alt}\\"), &format!("{o}\\{neu}\\"));
+            }
+            if neu_text != text {
+                std::fs::write(e.path(), kodieren(&neu_text, utf16))?;
             }
         }
     }
@@ -367,7 +371,7 @@ pub fn umbenennen(root: &Path, alt: &str, neu: &str) -> Result<()> {
     Ok(())
 }
 
-/// Karte in den Windows-Papierkorb verschieben (mit ihren eigenen Ordnern unter Aschaffenburg_KI\) -> was verschoben
+/// Karte in den Windows-Papierkorb verschieben (mit ihren eigenen Ordnern unter Aschaffenburg\ bzw. Aschaffenburg_KI\) -> was verschoben
 /// wurde. Geloescht wird nichts endgueltig.
 pub fn in_papierkorb(root: &Path, ordner: &str) -> Result<Vec<PathBuf>> {
     let d = root.join("maps").join(ordner);
@@ -376,9 +380,11 @@ pub fn in_papierkorb(root: &Path, ordner: &str) -> Result<Vec<PathBuf>> {
     }
     let mut wege = vec![d];
     for b in ["Sceneryobjects", "Splines"] {
-        let e = root.join(b).join("Aschaffenburg_KI").join(ordner);
-        if e.is_dir() {
-            wege.push(e);
+        for o in crate::speichern::EIGENE_ORDNER {
+            let e = root.join(b).join(o).join(ordner);
+            if e.is_dir() {
+                wege.push(e);
+            }
         }
     }
     // andere Karten, die Objekte dieser Karte nutzen, holen sie vorher zu sich (sonst fehlen ihnen danach Kreuzungen)
@@ -465,20 +471,21 @@ mod tests {
         std::fs::write(root.join("Sceneryobjects/Aschaffenburg_KI/A/model/K_1.x"), "Modell A").unwrap();
         // B: verweist auf A\K_1.sco und hat selbst ein anderes K_1.sco
         testkarte(&root, "B");
-        std::fs::write(root.join("Sceneryobjects/Aschaffenburg_KI/B/K_1.sco"), "[mesh]\r\nK_1.x\r\n(B)").unwrap();
+        std::fs::create_dir_all(root.join("Sceneryobjects/Aschaffenburg/B")).unwrap();
+        std::fs::write(root.join("Sceneryobjects/Aschaffenburg/B/K_1.sco"), "[mesh]\r\nK_1.x\r\n(B)").unwrap();
         let utf16 = |t: &str| -> Vec<u8> { [0xFF, 0xFE].into_iter().chain(t.encode_utf16().flat_map(|u| u.to_le_bytes())).collect() };
         std::fs::write(root.join("maps/B/tile_0_1.map"), utf16("[object]\r\n0\r\nSceneryobjects\\Aschaffenburg_KI\\A\\K_1.sco\r\n9\r\n")).unwrap();
-        assert_eq!(crate::speichern::fremde_objekte(&root, "B"), vec![("A".to_string(), "K_1.sco".to_string())]);
+        assert_eq!(crate::speichern::fremde_objekte(&root, "B"), vec![("Aschaffenburg_KI".to_string(), "A".to_string(), "K_1.sco".to_string())]);
         // A loeschen geht nicht ohne Papierkorb im Test; daher: A umbenennen - B holt sich vorher die Objekte
         umbenennen(&root, "A", "A2").unwrap();
         assert!(crate::speichern::fremde_objekte(&root, "B").is_empty(), "B haengt noch von A ab");
         let kachel = dekodieren(&std::fs::read(root.join("maps/B/tile_0_1.map")).unwrap()).0;
-        assert!(kachel.contains("Aschaffenburg_KI\\B\\K_1_A.sco"), "{kachel}");
+        assert!(kachel.contains("Aschaffenburg\\B\\K_1_A.sco"), "{kachel}");
         // die geholte .sco zeigt auf ihr eigenes (umbenanntes) Modell, das vorhandene K_1.sco von B ist unveraendert
-        let sco = std::fs::read_to_string(root.join("Sceneryobjects/Aschaffenburg_KI/B/K_1_A.sco")).unwrap();
+        let sco = std::fs::read_to_string(root.join("Sceneryobjects/Aschaffenburg/B/K_1_A.sco")).unwrap();
         assert!(sco.contains("K_1_A.x"), "{sco}");
-        assert_eq!(std::fs::read_to_string(root.join("Sceneryobjects/Aschaffenburg_KI/B/model/K_1_A.x")).unwrap(), "Modell A");
-        assert!(std::fs::read_to_string(root.join("Sceneryobjects/Aschaffenburg_KI/B/K_1.sco")).unwrap().contains("(B)"));
+        assert_eq!(std::fs::read_to_string(root.join("Sceneryobjects/Aschaffenburg/B/model/K_1_A.x")).unwrap(), "Modell A");
+        assert!(std::fs::read_to_string(root.join("Sceneryobjects/Aschaffenburg/B/K_1.sco")).unwrap().contains("(B)"));
         // der Ordner von A (jetzt A2) kann weg, B bleibt vollstaendig
         std::fs::remove_dir_all(root.join("Sceneryobjects/Aschaffenburg_KI/A2")).unwrap();
         assert!(crate::speichern::fremde_objekte(&root, "B").is_empty());

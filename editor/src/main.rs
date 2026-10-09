@@ -12,6 +12,7 @@
 
 mod aendern;
 mod anschluss;
+mod baukasten;
 mod bearbeiten;
 mod gelaende;
 mod geo;
@@ -25,6 +26,7 @@ mod luftbild;
 mod netz;
 mod orte;
 mod protokoll;
+mod querschnitt;
 mod speichern;
 mod spuren;
 mod strasse;
@@ -273,6 +275,12 @@ struct App {
     /// Ort einer geoeffneten Karte nachtraeglich festlegen (Bezug, Gelaende der Kacheln), mit Gelaende ersetzen
     ort_setzen_job: Option<std::thread::JoinHandle<Result<(geo::Bezug, Vec<geo::KachelDaten>)>>>,
     ort_gelaende: bool,
+    /// Querschnitt-Baukasten (Fenster offen)
+    baukasten: Option<baukasten::Baukasten>,
+    /// Messwerkzeug (M): an, Anfangs- und Endpunkt der letzten Messung
+    messen: bool,
+    mess_a: Option<DVec3>,
+    mess_b: Option<DVec3>,
 }
 
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -339,6 +347,11 @@ enum UiAktion {
     OrtFestlegen(geo::Ort, bool),
     /// Ort fuer eine neue Karte suchen
     OrtSuchen(String),
+    /// Querschnitt-Baukasten oeffnen (mit dem Querschnitt aus dieser Bauanleitung)
+    Baukasten(Option<querschnitt::Querschnitt>),
+    /// Querschnitt gespeichert: (.sli, Querschnitt, gleich damit bauen)
+    QsGespeichert(String, querschnitt::Querschnitt, bool),
+    Messen,
     /// Objekte aus Ordnern anderer Karten in die geoeffnete Karte holen (dann neu laden)
     ObjekteHolen,
     /// "Speichern": die geoeffnete Karte ueberschreiben (eigene sofort, fremde nach Rueckfrage)
@@ -483,6 +496,10 @@ impl App {
             neue_karte_job: None,
             ort_setzen_job: None,
             ort_gelaende: true,
+            baukasten: None,
+            messen: false,
+            mess_a: None,
+            mess_b: None,
         }
     }
 
@@ -949,7 +966,7 @@ impl App {
                 let standard = self.karten.iter().any(|k| k.ordner == karte && k.standard);
                 egui::Window::new("Karte loeschen?").collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
                     ui.label(format!("Soll die Karte \"{karte}\" wirklich geloescht werden?"));
-                    ui.label("Sie kommt mit ihren eigenen Objekten (Aschaffenburg_KI) in den Papierkorb.");
+                    ui.label("Sie kommt mit ihren eigenen Objekten (Aschaffenburg) in den Papierkorb.");
                     if standard {
                         ui.colored_label(egui::Color32::from_rgb(255, 120, 90), "Das ist eine Standardkarte von OMSI 2 (Steam stellt sie nur ueber \"Dateien pruefen\" wieder her).");
                     }
@@ -966,7 +983,7 @@ impl App {
             KartenDialog::FremdeObjekte(n, fehlend) => {
                 let (n, fehlend) = (*n, *fehlend);
                 egui::Window::new("Objekte anderer Karten").collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
-                    ui.label(format!("Diese Karte nutzt {n} Kreuzungsobjekt(e) aus den Ordnern anderer Karten (Aschaffenburg_KI)."));
+                    ui.label(format!("Diese Karte nutzt {n} Kreuzungsobjekt(e) aus den Ordnern anderer Karten (Aschaffenburg)."));
                     if fehlend > 0 {
                         ui.colored_label(egui::Color32::from_rgb(255, 120, 90), format!("{fehlend} davon fehlen (ihre Karte wurde geloescht oder umbenannt) - sie werden im Papierkorb gesucht."));
                     }
@@ -1077,8 +1094,7 @@ impl App {
                     if let Some(k) = self.karte.clone() {
                         let fremde = speichern::fremde_objekte(&self.root, &k);
                         if !fremde.is_empty() {
-                            let ki = self.root.join("Sceneryobjects").join("Aschaffenburg_KI");
-                            let fehlend = fremde.iter().filter(|(o, d)| !ki.join(o).join(d).is_file()).count();
+                            let fehlend = fremde.iter().filter(|(b, o, d)| !self.root.join("Sceneryobjects").join(b).join(o).join(d).is_file()).count();
                             log::warn!("Karte {k} nutzt {} Objekte anderer Karten, {fehlend} fehlen: {fremde:?}", fremde.len());
                             self.karten_dialog = Some(KartenDialog::FremdeObjekte(fremde.len(), fehlend));
                         }
@@ -1182,6 +1198,9 @@ impl App {
                         aktionen.push(UiAktion::Werkzeug(if self.bearb.werkzeug == Werkzeug::Welt { Werkzeug::Ansehen } else { Werkzeug::Welt }));
                     }
                     ui.separator();
+                    if ui.selectable_label(self.messen, "Messen (M)").on_hover_text("Strecke messen (waagerecht, mit Hoehenunterschied) - z. B. Strassenbreiten im Luftbild").clicked() {
+                        aktionen.push(UiAktion::Messen);
+                    }
                     if ui.selectable_label(self.pipette, "\u{1F58C} Pipette (I)").on_hover_text("Klick auf ein Objekt, einen Baum, eine Strasse oder einen Kreisverkehr: wechselt ins passende Werkzeug und uebernimmt es").clicked() {
                         aktionen.push(UiAktion::Pipette);
                     }
@@ -1237,6 +1256,16 @@ impl App {
                 self.kartenwahl_offen = offen;
             }
             self.karten_dialoge(ctx, &mut aktionen);
+            let messung = self.messung();
+            if let Some(bk) = self.baukasten.as_mut() {
+                let mut offen = true;
+                if let Some(baukasten::Ergebnis::Gespeichert(rel, q, bauen)) = bk.ui(ctx, &self.root, &mut offen, messung) {
+                    aktionen.push(UiAktion::QsGespeichert(rel, q, bauen));
+                }
+                if !offen {
+                    self.baukasten = None;
+                }
+            }
             if self.bearb.werkzeug == Werkzeug::Objekte {
                 egui::Panel::right("eigenschaften").default_size(270.0).show(ctx, |ui| {
                     ui.heading("Objekt");
@@ -1444,7 +1473,22 @@ impl App {
                         ui.label("Klick setzt die Mitte, die Maus die Groesse (Durchmesser 24 bis 120 m), Klick baut. Er wird ein Objekt wie in Rheinhausen: runde Ringfahrbahn (7 m), Mittelinsel, Gehweg aussen, Ring mit Vorfahrt.");
                         ui.label("Liegt er ueber vorhandenen Strassen, faellt alles im Ring weg und sie werden Zufahrten. Weitere Zufahrten: eine Strasse auf den Kreisverkehr ziehen.");
                     } else {
-                        ui.label("Querschnitt");
+                        ui.horizontal(|ui| {
+                            ui.label("Querschnitt");
+                            if ui.button("Querschnitt-Baukasten ...").on_hover_text("eigenen Querschnitt aus Fahrspuren, Gehwegen, Rad- und Parkstreifen ... zusammenstellen").clicked() {
+                                aktionen.push(UiAktion::Baukasten(None));
+                            }
+                            // gewaehlter eigener Querschnitt: bearbeiten
+                            let eigen = self.strasse.sli.as_ref().and_then(|rel| {
+                                let p = self.root.join(rel.replace('\\', "/")).with_extension("qs.json");
+                                serde_json::from_slice::<serde_json::Value>(&std::fs::read(p).ok()?).ok().and_then(|v| querschnitt::Querschnitt::aus_json(&v))
+                            });
+                            if let Some(q) = eigen {
+                                if ui.small_button("bearbeiten").on_hover_text("den gewaehlten eigenen Querschnitt im Baukasten oeffnen").clicked() {
+                                    aktionen.push(UiAktion::Baukasten(Some(q)));
+                                }
+                            }
+                        });
                         if let Some(rel) = self.qs_raster(ui, self.strasse.sli.clone()) {
                             aktionen.push(UiAktion::Querschnitt(rel));
                         }
@@ -1971,6 +2015,26 @@ impl App {
             if let Some(o) = gewaehlt.as_ref() {
                 bearbeiten::markieren(&maler, &self.kam, o, bw, bh, egui::Color32::from_rgb(255, 60, 220), 3.0);
             }
+            // Messung: Linie mit Laenge (waagerecht) und Hoehenunterschied; waehrend des Messens bis zur Maus
+            if self.messen || self.baukasten.is_some() {
+                let ende = self.mess_b.or(if self.messen { self.boden_unter_maus } else { None });
+                if let (Some(a), Some(b)) = (self.mess_a, ende) {
+                    let pt = |p: DVec3| bearbeiten::projizieren(&self.kam, p + DVec3::Z * 0.3, bw, bh).map(|(x, y, _)| egui::pos2(x, y));
+                    let c = egui::Color32::from_rgb(255, 230, 60);
+                    if let (Some(pa), Some(pb)) = (pt(a), pt(b)) {
+                        maler.line_segment([pa, pb], egui::Stroke::new(2.5, c));
+                        maler.circle_filled(pa, 4.0, c);
+                        maler.circle_filled(pb, 4.0, c);
+                        let d = (b - a).truncate().length();
+                        let dh = b.z - a.z;
+                        let text = if dh.abs() >= 0.05 { format!("{d:.2} m  (Hoehe {dh:+.2} m, {:.1} %)", if d > 0.01 { dh / d * 100.0 } else { 0.0 }) } else { format!("{d:.2} m") };
+                        let mitte = egui::pos2((pa.x + pb.x) / 2.0, (pa.y + pb.y) / 2.0);
+                        let r = maler.text(mitte + egui::vec2(8.0, -8.0), egui::Align2::LEFT_BOTTOM, &text, egui::FontId::proportional(15.0), c);
+                        maler.rect_filled(r.expand(3.0), 3.0, egui::Color32::from_black_alpha(150));
+                        maler.text(mitte + egui::vec2(8.0, -8.0), egui::Align2::LEFT_BOTTOM, &text, egui::FontId::proportional(15.0), c);
+                    }
+                }
+            }
             if let (Werkzeug::Welt, WeltModus::Gelaende, Some(v), Some(g)) = (self.bearb.werkzeug, self.welt_modus, self.viewer.as_ref(), self.gelaende_unter) {
                 let pinsel = &self.gelaende.pinsel;
                 let ring = |r: f64| -> Vec<egui::Pos2> {
@@ -2444,6 +2508,9 @@ impl App {
             }
         });
         gui.state.handle_platform_output(window, out.platform_output);
+        if let (Some(bk), Some(v)) = (self.baukasten.as_mut(), self.viewer.as_mut()) {
+            bk.vorschau_rendern(v, &gui.ctx, &self.root);
+        }
         if matches!(self.bearb.werkzeug, Werkzeug::Platzieren | Werkzeug::Strasse) {
             if let Some(v) = self.viewer.as_mut() {
                 self.vorschau.erzeugen(v, &gui.ctx, 8);
@@ -2834,6 +2901,46 @@ impl App {
                     Ok((b, daten))
                 }));
             }
+            UiAktion::Baukasten(q) => {
+                self.baukasten = Some(baukasten::Baukasten::neu(&self.root, q));
+            }
+            UiAktion::QsGespeichert(rel, q, bauen) => {
+                if let Some(v) = self.viewer.as_mut() {
+                    v.forget_spline_type(&rel);
+                }
+                if let Some(a) = self.aendern.as_mut() {
+                    a.breite_vergessen(&rel);
+                }
+                let halb = (-q.links()).max(q.gesamtbreite() + q.links());
+                self.strasse.netz.breiten.insert(rel.clone(), halb);
+                let (vor, zurueck, gehwege) = q.spuren();
+                let neu = strasse::Querschnitt { rel: rel.clone(), name: q.datei(), ordner: speichern::EIGEN.to_string(), vor, zurueck, gehwege,
+                                                 breite: q.gesamtbreite() as f32, herkunft: strasse::EIGENE_HERKUNFT.to_string() };
+                if let Some(liste) = self.querschnitte.as_mut() {
+                    liste.retain(|x| !x.rel.eq_ignore_ascii_case(&rel));
+                    liste.push(neu);
+                }
+                self.vorschau.vergessen(&rel);
+                self.meldung = format!("Querschnitt \"{}\" gespeichert ({rel})", q.name);
+                if bauen {
+                    self.strasse.sli = Some(rel);
+                    if self.bearb.werkzeug != Werkzeug::Strasse {
+                        self.ausfuehren(UiAktion::Werkzeug(Werkzeug::Strasse));
+                    }
+                    if self.strasse.modus == strasse::Modus::Kreisel {
+                        self.strasse.modus = strasse::Modus::Gerade;
+                    }
+                }
+            }
+            UiAktion::Messen => {
+                self.messen = !self.messen;
+                if self.messen {
+                    self.mess_a = None;
+                    self.mess_b = None;
+                    self.pipette = false;
+                }
+                self.meldung = if self.messen { "Messen: Klick setzt den Anfang, zweiter Klick das Ende (Esc/M: aus)".into() } else { "Messen aus".into() };
+            }
             UiAktion::OrtSuchen(text) => {
                 if self.ort_job.is_none() && !text.trim().is_empty() {
                     self.meldung = format!("suche \"{}\" ...", text.trim());
@@ -2979,6 +3086,11 @@ impl App {
     fn stapel_jetzt(&self) -> (usize, usize, usize, usize, usize, usize) {
         (self.bearb.undo_len(), self.strasse.undo_len(), self.aendern.as_ref().map(|a| a.undo_len()).unwrap_or(0), self.welt.undo_len(), self.orte.undo_len(),
          self.gelaende.undo_len())
+    }
+
+    /// letzte Messung (waagerechte Strecke in m)
+    fn messung(&self) -> Option<f64> {
+        Some((self.mess_b? - self.mess_a?).truncate().length())
     }
 
     /// Sitzungsordner der geoeffneten Karte (Kopien geaenderter Kacheldateien)
@@ -3183,6 +3295,8 @@ impl App {
                 None
             }
             KeyCode::KeyI if !self.strg => Some(UiAktion::Pipette),
+            KeyCode::KeyM if !self.strg => Some(UiAktion::Messen),
+            KeyCode::Escape if self.messen => Some(UiAktion::Messen),
             KeyCode::Delete if self.bearb.werkzeug == Werkzeug::Welt && self.welt_wahl.is_some() => {
                 self.welt_frage = self.welt_wahl;
                 None
@@ -3495,6 +3609,9 @@ impl ApplicationHandler for App {
                             println!("Testlauf Katalog: {} Vorschaubilder erzeugt, Herkuenfte: {}", self.vorschau.erzeugt,
                                      k.herkuenfte.iter().map(|(h, n)| format!("{h} {n}")).collect::<Vec<_>>().join(", "));
                         }
+                        if let Some(bk) = self.baukasten.as_ref() {
+                            println!("Testlauf Baukasten: Vorschau {}, {} Teile, Messung {:?}", if bk.hat_vorschau() { "da" } else { "fehlt" }, bk.q.teile.len(), self.messung());
+                        }
                         println!("Testlauf: {} Bilder in {:.1} s, zuletzt {:.0} fps, laengstes Bild {:.0} ms, {} Kacheln, {} | {}", self.bilder, s, self.fps, self.laengstes * 1000.0, self.viewer.as_ref().map(|v| v.loaded_tiles()).unwrap_or(0),
                                  self.karte.as_deref().unwrap_or("-"), self.meldung);
                         self.sitzung_schliessen();
@@ -3583,6 +3700,11 @@ impl ApplicationHandler for App {
                                  kopie, self.katalog.as_ref().map(|k| k.eintraege.len()).unwrap_or(0), platziert);
                         println!("Testlauf Bearbeiten: {} Objekte, Objekt {:?} gewaehlt, Aenderungen {}, Meldung: {}",
                                  self.viewer.as_ref().map(|v| v.objects().len()).unwrap_or(0), gefunden, self.bearb.aenderungen, self.meldung);
+                    } else if s > t * 0.8 && self.baukasten.is_none() && self.viewer.is_some() {
+                        // Baukasten oeffnen (Fenster, Skizze, 3D-Vorschau) und eine Messung von 7 m
+                        self.ausfuehren(UiAktion::Baukasten(None));
+                        self.mess_a = Some(self.kam.ziel);
+                        self.mess_b = Some(self.kam.ziel + DVec3::new(7.0, 0.0, 0.5));
                     } else if s > t * 0.33 && self.testlauf_knoten.is_some() && (s > t * 0.5 || self.testlauf_geladen()) {
                         // Knoten: Stelle auf der Strasse vom Aendern-Test 3 m zur Seite ziehen, dann rueckgaengig (die
                         // Kachel ist inzwischen wieder geladen)
@@ -3766,6 +3888,20 @@ impl ApplicationHandler for App {
                 }
             }
             WindowEvent::MouseInput { state, button, .. } => {
+                if state == ElementState::Pressed && !egui_will && button == MouseButton::Left && self.messen {
+                    if let Some(g) = self.boden_unter_maus {
+                        if self.mess_a.is_none() || self.mess_b.is_some() {
+                            self.mess_a = Some(g);
+                            self.mess_b = None;
+                        } else {
+                            self.mess_b = Some(g);
+                            if let Some(m) = self.messung() {
+                                self.meldung = format!("Messung: {m:.2} m");
+                            }
+                        }
+                    }
+                    return;
+                }
                 if state == ElementState::Pressed && !egui_will && button == MouseButton::Left && self.pipette {
                     self.pipette_klicken();
                     return;

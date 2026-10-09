@@ -8,7 +8,7 @@ SPL = MARCEL + 'str_2spur_8m_altonaer1.sli'
 
 
 def auftrag(tmp_path, rolle_neben=None):
-    return dict(omsi=str(tmp_path / 'omsi'), ordner=str(tmp_path / 'K'), rel_ordner=r'Sceneryobjects\Aschaffenburg_KI\T',
+    return dict(omsi=str(tmp_path / 'omsi'), ordner=str(tmp_path / 'K'), rel_ordner=r'Sceneryobjects\Aschaffenburg\T',
                 name='K_E0001', titel='Test',
                 arme=[dict(pos=[0, -12], h=180, sli=SPL, away=False, rolle='haupt'),
                       dict(pos=[0, 12], h=0, sli=SPL, away=True, rolle='haupt'),
@@ -17,7 +17,7 @@ def auftrag(tmp_path, rolle_neben=None):
 
 def test_t_kreuzung(tmp_path):
     erg = editorkreuzung.bauen(auftrag(tmp_path), SplineDB())
-    assert erg['rel'] == r'Sceneryobjects\Aschaffenburg_KI\T\K_E0001.sco'
+    assert erg['rel'] == r'Sceneryobjects\Aschaffenburg\T\K_E0001.sco'
     assert erg['fehlgeschlagen'] == 0
     # T-Kreuzung mit je einer Spur pro Richtung: 2 geradeaus, 2 rechts, 2 links
     assert erg['bewegungen'] == {'gerade': 2, 'rechts': 2, 'links': 2}
@@ -60,7 +60,7 @@ def kreisel_auftrag(tmp_path, winkel=(0, 90, 180, 270), r=12.0, breite=7.0, d=27
     for w in winkel:
         p = [d * math.sin(math.radians(w)), d * math.cos(math.radians(w))]
         arme.append(dict(pos=p, h=w, sli=SPL, away=True))
-    return dict(omsi=str(tmp_path / 'omsi'), ordner=str(tmp_path / 'K'), rel_ordner=r'Sceneryobjects\Aschaffenburg_KI\T',
+    return dict(omsi=str(tmp_path / 'omsi'), ordner=str(tmp_path / 'K'), rel_ordner=r'Sceneryobjects\Aschaffenburg\T',
                 name='KV_0001', titel='Kreisel', arme=arme, kreisel=dict(mitte=[0, 0], r=r, breite=breite))
 
 

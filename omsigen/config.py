@@ -1,7 +1,7 @@
 """Zentrale Einstellungen: welche Strassen-Splines fuer welche OSM-Strassen benutzt werden."""
 
 MARCEL = 'Splines\\Marcel\\'          # Standard-Splines aus OMSI 2 (Spandau/Grundorf)
-KI = 'Splines\\Aschaffenburg_KI\\'    # eigene, vom Tool erzeugte Splines
+KI = 'Splines\\Aschaffenburg\\'    # eigene, vom Tool erzeugte Splines
 
 # Ersatzwerte fuer die Fahrspuren der benutzten Standard-Splines (aus den .sli-Dateien ausgelesen).
 # Werden benutzt, wenn keine OMSI-Installation angegeben ist (z. B. in Tests).

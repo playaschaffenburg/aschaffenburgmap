@@ -171,7 +171,7 @@ def erzeuge(projekt, name, omsi=None, ausgabe='build', korrekturen=None, uebersc
             + ('Strassendaten (c) OpenStreetMap-Mitwirkende, ODbL.' if 'OpenStreetMap' in projekt.get('quelle', '')
                else '') + (('\n' + gel_mod.QUELLE) if hat_gelaende else ''))
     if objekte:
-        kdir = os.path.join(root, 'Sceneryobjects', 'Aschaffenburg_KI', name)
+        kdir = os.path.join(root, 'Sceneryobjects', 'Aschaffenburg', name)
         if os.path.exists(kdir) and not ueberschreiben:
             raise FileExistsError(f'Objektordner {kdir} existiert schon - anderen Kartennamen waehlen')
     linie = projekt.get('linie') or [projekt['strassen'][0]['punkte'][0]]

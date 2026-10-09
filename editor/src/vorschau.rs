@@ -59,6 +59,13 @@ impl Vorschau {
         None
     }
 
+    /// Bild neu erzeugen (die Datei hat sich geaendert, z. B. ein eigener Querschnitt)
+    pub fn vergessen(&mut self, rel: &str) {
+        self.texturen.remove(rel);
+        self.fehlt.remove(rel);
+        let _ = std::fs::remove_file(datei(rel));
+    }
+
     pub fn fehlt(&self, rel: &str) -> bool {
         self.fehlt.contains(rel)
     }

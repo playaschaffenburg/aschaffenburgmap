@@ -3532,6 +3532,7 @@ dependencies = [
  "omsi-geometry",
  "omsi-map",
  "omsi-render",
+ "omsi-scenery",
  "omsi-texture",
  "pollster",
  "serde_json",

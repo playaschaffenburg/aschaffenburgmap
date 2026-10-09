@@ -75,6 +75,9 @@ pub fn kreisel_vorschlag(q: &[Querschnitt]) -> Option<String> {
 pub const SPURKLASSEN: [&str; 5] = ["1+1 Spuren", "2+2 Spuren", "Einbahn 1 Spur", "Einbahn 2+ Spuren", "andere"];
 
 /// alle .sli unter Splines mit mindestens einer Fahrspur (Hintergrund)
+/// Herkunft der Querschnitte aus dem Baukasten (Filter im Katalog)
+pub const EIGENE_HERKUNFT: &str = "Eigene (Baukasten)";
+
 pub fn querschnitte(root: &Path) -> Vec<Querschnitt> {
     let genutzt = crate::katalog::nutzung_splines(root);
     let basis = root.join("Splines");
@@ -88,7 +91,8 @@ pub fn querschnitte(root: &Path) -> Vec<Querschnitt> {
                 stapel.push(p);
                 continue;
             }
-            if !p.extension().is_some_and(|x| x.eq_ignore_ascii_case("sli")) {
+            // (Vorschauen des Baukastens beginnen mit _)
+            if !p.extension().is_some_and(|x| x.eq_ignore_ascii_case("sli")) || p.file_name().is_some_and(|n| n.to_string_lossy().starts_with('_')) {
                 continue;
             }
             let Ok(b) = std::fs::read(&p) else { continue };
@@ -128,7 +132,7 @@ pub fn querschnitte(root: &Path) -> Vec<Querschnitt> {
             let rel = p.strip_prefix(root).unwrap_or(&p).to_string_lossy().replace('/', "\\");
             let ordner = p.strip_prefix(&basis).ok().and_then(|r| r.components().next()).map(|c| c.as_os_str().to_string_lossy().to_string()).unwrap_or_default();
             let name = p.file_stem().map(|s| s.to_string_lossy().to_string()).unwrap_or_default();
-            let herkunft = crate::katalog::herkunft(&ordner, &genutzt);
+            let herkunft = if p.with_extension("qs.json").is_file() { EIGENE_HERKUNFT.to_string() } else { crate::katalog::herkunft(&ordner, &genutzt) };
             out.push(Querschnitt { rel, name, ordner, vor, zurueck, gehwege, breite: hi - lo, herkunft });
         }
     }
@@ -1141,7 +1145,7 @@ impl Strassenbau {
                         self.kreuzung_fehler = Some("Kreuzungsobjekt: kein Sitzungsordner".into());
                         continue;
                     };
-                    let rel_ordner = format!("Sceneryobjects\\Aschaffenburg_KI\\{tag}");
+                    let rel_ordner = format!("Sceneryobjects\\{}\\{tag}", crate::speichern::EIGEN);
                     crate::protokoll::aktion(&format!("Kreuzung (Knoten {k}): omsigen erzeugt das Objekt"));
                     let erg = kreuzung::erzeugen_mit(&v.root, &ordner, &rel_ordner, &kreuzung::freier_name(&ordner), &arme, ampel, kreisel, verbindungen.as_deref());
                     crate::protokoll::aktion("");

@@ -1,4 +1,4 @@
-"""Eigene Spline-Definitionen (.sli) fuer Splines\\Aschaffenburg_KI: Einbahnstrassen und Kreuzungsspuren.
+"""Eigene Spline-Definitionen (.sli) fuer Splines\\Aschaffenburg: Einbahnstrassen und Kreuzungsspuren.
 Texturen werden zur Laufzeit aus Splines\\Marcel\\texture der OMSI-Installation kopiert."""
 import os
 

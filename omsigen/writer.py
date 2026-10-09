@@ -260,8 +260,8 @@ def write_map(out_maps_dir, name, chains, stops, omsi_dir=None, friendly=None, d
 
 
 def install_splines(omsi_dir_or_out, extra=None):
-    """Eigene .sli-Dateien nach Splines\\Aschaffenburg_KI schreiben; Texturen aus Splines\\Marcel\\texture kopieren"""
-    d = os.path.join(omsi_dir_or_out, 'Splines', 'Aschaffenburg_KI')
+    """Eigene .sli-Dateien nach Splines\\Aschaffenburg schreiben; Texturen aus Splines\\Marcel\\texture kopieren"""
+    d = os.path.join(omsi_dir_or_out, 'Splines', 'Aschaffenburg')
     os.makedirs(os.path.join(d, 'texture'), exist_ok=True)
     dateien = {n: t for n, (t, _) in CUSTOM.items()}
     dateien.update(extra or {})          # Bauwerks-Splines (bauwerke.py)

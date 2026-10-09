@@ -7,7 +7,7 @@
 - Tunnel: Gelaende wird nie ausgeschnitten (Loecher zeigen im Spiel verzerrte Bodentextur), sondern zwischen den
   Portalen als Graben bis auf die Sohle abgesenkt (hoe.graeben -> Hoehen.raster), wie in Gladbeck. Darueber liegt
   ein Deckel-Objekt mit Bodentextur auf der Gelaendehoehe, an jedem Portal eine Portalwand so breit wie der Deckel.
-- Alle Objekte mit [absheight] in Sceneryobjects\\Aschaffenburg_KI\\<Karte>\\.
+- Alle Objekte mit [absheight] in Sceneryobjects\\Aschaffenburg\\<Karte>\\.
 """
 import math
 import numpy as np
@@ -104,11 +104,11 @@ def _viereck(V, F, q, n, uv, mat):
 
 def _objekt(name, map_name, V, F, x, z, hoehe, rot, art, mats=((('Beton', TEX)),)):
     sco = '\r\n'.join(['Erzeugt mit omsigen (Aschaffenburg-KI).', '', '[friendlyname]', f'{art} {name}', '',
-                       '[groups]', '1', 'Aschaffenburg_KI', '', '[fixed]', '', '[absheight]', '',
+                       '[groups]', '1', 'Aschaffenburg', '', '[fixed]', '', '[absheight]', '',
                        '[mesh]', name + '.x', '']) + '\r\n'
     return dict(name=name, origin=(x, z), hoehe=hoehe, rot=rot % 360, sco=sco, art=art, mats=list(mats),
                 x=x_file(V, F, list(mats)), faces=len(F), paths=0, mesh=(V, F),
-                rel=f'Sceneryobjects\\Aschaffenburg_KI\\{map_name}\\{name}.sco')
+                rel=f'Sceneryobjects\\Aschaffenburg\\{map_name}\\{name}.sco')
 
 
 # ------------------------------------------------------------------ Laeufe und Aufbau

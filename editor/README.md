@@ -32,9 +32,9 @@ target\release\omsi-editor.exe Grundorf --testlauf 20           # Fenster, nach 
 `picture.jpg`, Anzeigename, Beschreibung, Kachelzahl; „eigene“ = vom Editor angelegt oder von omsigen erzeugt).
 Doppelklick oder „Öffnen“ lädt die Karte; im Editor öffnet „Karten …“ (oben) dieselbe Auswahl. **Umbenennen …**:
 Anzeigename (`[friendlyname]` in global.cfg und allen `global_<Sprache>.dsc` – so heißt die Karte in OMSI) und/oder
-Ordner (`maps\<Ordner>`, `[name]`; die eigenen Ordner unter `Aschaffenburg_KI\` und die Verweise der Kacheln darauf
+Ordner (`maps\<Ordner>`, `[name]`; die eigenen Ordner unter `Aschaffenburg\` und die Verweise der Kacheln darauf
 werden mitgenommen; Spielstände der Karte passen danach nicht mehr). **Löschen …**: zwei Rückfragen (die zweite
-verlangt den Ordnernamen), dann kommen die Karte und ihre eigenen Ordner unter `Aschaffenburg_KI\` in den
+verlangt den Ordnernamen), dann kommen die Karte und ihre eigenen Ordner unter `Aschaffenburg\` in den
 Papierkorb. Die geöffnete Karte lässt sich weder umbenennen noch löschen.
 Jede Karte ist eigenständig: beim Speichern (auch „Als neue Karte“) kommen alle Kreuzungsobjekte, auf die sie in
 Ordnern anderer Karten verweist, in ihren eigenen Ordner (bei Namensgleichheit unter neuem Namen); vor dem Löschen
@@ -76,6 +76,24 @@ Zug. Freie Straßenenden (grüner Kreis) setzen tangential fort; trifft eine Kur
 eingefädelt (Bogenpaar). Am Mauszeiger: Länge, kleinster Radius, Steigung (rot bei R < 10 m oder > 12 %). Bild ↑/↓:
 Höhe des nächsten Punkts über dem Gelände. Entf: Straße unter der Maus löschen. Strg+Z / Strg+Y.
 
+**Querschnitt-Baukasten** („Straße bauen“ → „Querschnitt-Baukasten …“; eigener Querschnitt gewählt: „bearbeiten“):
+eigene Straßen-Splines aus Teilen von links nach rechts – **Fahrspur** (Richtung ▲ vor = mit dem Spline / ▼ zurück),
+**Busspur**, **Radfahrstreifen**, **Parkstreifen** (Fahrbahnhöhe 0,10 m), **Gehweg**, **Radweg**, **Grünstreifen**,
+**Mittelinsel** (Hochbord 0,25 m), je mit Breite (0,3–20 m) und Belag (Asphalt, roter Asphalt, Gehwegplatten,
+Verbund-, Kopfsteinpflaster, Betonplatten, Gras). Markierungen je Grenze automatisch (zwei Spuren: Leitlinie 3 m / 6 m;
+Bus-/Radfahrstreifen: Breitstrich; Parkstreifen: durchgezogen) oder von Hand (keine, Leitlinie, durchgezogen, doppelt,
+Breitstrich). Skizze maßstäblich mit Richtungspfeilen, Markierungen und Spline-Achse (Mitte der Fahrspuren; Klick wählt
+ein Teil), 3D-Vorschau aus openOMSI. Die Spline bekommt Bordsteine an jedem Höhenwechsel, gekachelte Beläge (breite
+Teile in Streifen, damit die Textur nicht verzerrt), Markierungen als eigene Profile 1 cm über der Fahrbahn
+(`[matl_alpha] 1`), `[heightprofile]` je Teil und `[path]` je Fahrspur (Richtung) und Gehweg – das sieht die KI.
+Gespeichert nach `Splines\Aschaffenburg\AB_<Name>.sli` mit Bauanleitung `AB_<Name>.qs.json` (wieder öffnen und ändern);
+Texturen in `Splines\Aschaffenburg\texture` (Beläge aus `Splines\Marcel\texture` kopiert, Markierungen und roter
+Asphalt erzeugt). Herkunft im Katalog: „Eigene (Baukasten)“. „Speichern und damit bauen“ wechselt gleich zu Straße bauen.
+
+**Messen (M, Knopf oben):** Klick setzt den Anfang, zweiter Klick das Ende; angezeigt werden die waagerechte Länge und
+der Höhenunterschied (mit Steigung). Im Baukasten lässt sich die letzte Messung als Breite des gewählten Teils
+übernehmen oder der ganze Querschnitt auf sie strecken – so passt der Querschnitt zum Luftbild.
+
 **An vorhandene Straßen anschließen:** blaue Kreise mit Strich zeigen freie Enden vorhandener Straßen (Richtung, in
 der es weitergeht). „Frei“ entscheidet openOMSIs Spurnetz – es verknüpft Spuren wie das Spiel, auch mit den Pfaden
 der Kreuzungsobjekte; Enden am Rand des geladenen Bereichs gelten nicht als frei. Start oder Ziel rasten dort ein;
@@ -112,7 +130,7 @@ laufen eben auf Kreuzungshöhe ein. Orange Markierungen zeigen in der Vorschau j
 - **Vorfahrt (vermutet, später per Klick änderbar):** im Kreisverkehr der Ring; sonst die durchgehende Straße – eine
   vorhandene vor einer neuen, dann gleicher Querschnitt, dann die breitere; zwei gleichwertige: rechts vor links.
 - Ein Strg+Z nimmt Straße, Kreuzungen und aufgeschnittene vorhandene Straßen zurück. Beim Speichern kommen die
-  Kreuzungsobjekte nach `Sceneryobjects\Aschaffenburg_KI\<neue Karte>\`. Python: `python` aus dem Pfad (oder
+  Kreuzungsobjekte nach `Sceneryobjects\Aschaffenburg\<neue Karte>\`. Python: `python` aus dem Pfad (oder
   `OMSIGEN_PYTHON`), omsigen aus diesem Repository (oder `OMSIGEN_DIR`).
 
 **Vorfahrt und Ampel (Werkzeug „Kreuzungen“, Taste X):** im Bild zeigen farbige Linien die Vorfahrt jeder Kreuzung
@@ -245,7 +263,7 @@ neue Karte kommen diese Kacheln mit.
 kommt vorher nach `%LOCALAPPDATA%\omsi-editor\sicherungen\<Karte>\<Zeit>\` (die letzten 10 je Karte bleiben). Eigene
 Karten (vom Editor angelegt – Markierung `omsi-editor.txt` – oder von omsigen erzeugt) werden ohne Rückfrage
 gespeichert, bei Standard- und Fremdkarten fragt der Editor nach und bietet „Als neue Karte“ an. Danach wird die Karte
-frisch geladen (Kamera bleibt). Kreuzungsobjekte kommen in `Sceneryobjects\Aschaffenburg_KI\<Karte>\` (eindeutige
+frisch geladen (Kamera bleibt). Kreuzungsobjekte kommen in `Sceneryobjects\Aschaffenburg\<Karte>\` (eindeutige
 Namen je Sitzung, nichts Vorhandenes wird ersetzt).
 **Als neue Karte (Strg+Umschalt+S)**: der Kartenordner wird kopiert, geänderte Kacheln (UTF-16 bleibt) kommen
 darüber, neue Objekte stehen als `[object]`-Einträge mit eindeutigen IDs in ihrer Kachel, `global.cfg` bekommt den

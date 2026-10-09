@@ -61,7 +61,7 @@ pub struct Aendern {
     /// fuer die Suche nach Querungen bei jeder Mausbewegung (geleert, wenn Kacheln neu gelesen werden)
     pub(crate) abgetastet: HashMap<i64, std::rc::Rc<(Vec<(DVec3, f64)>, DVec2, DVec2)>>,
     pub(crate) mit_spuren: HashMap<String, bool>,
-    /// Ordnername der Kreuzungsobjekte dieser Sitzung unter Sceneryobjects/Aschaffenburg_KI (beim Speichern wird
+    /// Ordnername der Kreuzungsobjekte dieser Sitzung unter Sceneryobjects/Aschaffenburg (beim Speichern wird
     /// daraus der Name der neuen Karte)
     pub tag: String,
     /// naechste freie Objekt-ID fuer Objekte, die direkt in die Sitzungskopie geschrieben werden (World Editor)
@@ -451,6 +451,11 @@ impl Aendern {
     }
 
     /// Sitzungskopien der Karte `alt` (fuers Speichern als neue Karte)
+    /// Breiten eines Querschnitts neu lesen (seine Datei hat sich geaendert)
+    pub fn breite_vergessen(&mut self, sli: &str) {
+        self.breiten.remove(sli);
+    }
+
     pub fn kopien(&self, alt: &str) -> Vec<PathBuf> {
         let d = self.sitzung.join("maps").join(alt);
         std::fs::read_dir(d).map(|r| r.flatten().map(|e| e.path()).filter(|p| p.is_file()).collect()).unwrap_or_default()

@@ -29,18 +29,29 @@ pub fn eigene_karte(root: &Path, karte: &str) -> bool {
     d.join(MARKE).exists() || d.join("LIESMICH_omsigen.txt").exists()
 }
 
-/// Verweise der Kacheln einer Karte auf Objekte in Ordnern anderer Karten (Sceneryobjects\Aschaffenburg_KI\<andere>\
-/// <Datei>) -> (Ordner, Datei), ohne Doppelte
-pub fn fremde_objekte(root: &Path, karte: &str) -> Vec<(String, String)> {
-    let mut out: Vec<(String, String)> = Vec::new();
+/// Ordner der eigenen Inhalte unter Sceneryobjects\ und Splines\ (je Karte ein Unterordner)
+pub const EIGEN: &str = "Aschaffenburg";
+/// frueherer Name - aeltere Karten verweisen noch darauf, die Dateien bleiben dort
+pub const FRUEHER: &str = "Aschaffenburg_KI";
+pub const EIGENE_ORDNER: [&str; 2] = [EIGEN, FRUEHER];
+
+/// verweist der Text auf eigene Inhalte (Sceneryobjects/Splines unter einem der eigenen Ordner)?
+pub fn hat_eigene_verweise(text: &str) -> bool {
+    EIGENE_ORDNER.iter().any(|o| text.contains(&format!("{o}\\")))
+}
+
+/// Verweise der Kacheln einer Karte auf Objekte in Ordnern anderer Karten (Sceneryobjects\<eigener Ordner>\<andere>\
+/// <Datei>) -> (eigener Ordner, Ordner der anderen Karte, Datei), ohne Doppelte
+pub fn fremde_objekte(root: &Path, karte: &str) -> Vec<(String, String, String)> {
+    let mut out: Vec<(String, String, String)> = Vec::new();
     for datei in kacheldateien(root, karte) {
         let Ok(b) = std::fs::read(&datei) else { continue };
         let (text, _) = dekodieren(&b);
         for z in text.lines() {
             let teile: Vec<&str> = z.trim().split('\\').collect();
-            if teile.len() == 4 && teile[0].eq_ignore_ascii_case("Sceneryobjects") && teile[1].eq_ignore_ascii_case("Aschaffenburg_KI")
+            if teile.len() == 4 && teile[0].eq_ignore_ascii_case("Sceneryobjects") && EIGENE_ORDNER.iter().any(|o| teile[1].eq_ignore_ascii_case(o))
                 && !teile[2].eq_ignore_ascii_case(karte) && teile[3].to_ascii_lowercase().ends_with(".sco") {
-                let e = (teile[2].to_string(), teile[3].to_string());
+                let e = (teile[1].to_string(), teile[2].to_string(), teile[3].to_string());
                 if !out.contains(&e) {
                     out.push(e);
                 }
@@ -81,13 +92,13 @@ pub fn objekte_einsammeln(root: &Path, karte: &str) -> Result<(usize, Vec<String
     if fremde.is_empty() {
         return Ok((0, vec![]));
     }
-    let ki = root.join("Sceneryobjects").join("Aschaffenburg_KI");
-    let ziel = ki.join(karte);
+    let ziel = root.join("Sceneryobjects").join(EIGEN).join(karte);
     std::fs::create_dir_all(ziel.join("model"))?;
     std::fs::create_dir_all(ziel.join("texture"))?;
     let mut ersetzen: Vec<(String, String)> = Vec::new();
     let mut fehlend = Vec::new();
-    for (ordner, datei) in &fremde {
+    for (basis, ordner, datei) in &fremde {
+        let ki = root.join("Sceneryobjects").join(basis);
         let quelle = Some(ki.join(ordner)).filter(|q| q.join(datei).is_file()).or_else(|| im_papierkorb(&ki.join(ordner)).filter(|q| q.join(datei).is_file()));
         let Some(quelle) = quelle else {
             fehlend.push(format!("{ordner}\\{datei}"));
@@ -133,7 +144,7 @@ pub fn objekte_einsammeln(root: &Path, karte: &str) -> Result<(usize, Vec<String
                 }
             }
         }
-        ersetzen.push((format!("Aschaffenburg_KI\\{ordner}\\{datei}"), format!("Aschaffenburg_KI\\{karte}\\{neu}.sco")));
+        ersetzen.push((format!("{basis}\\{ordner}\\{datei}"), format!("{EIGEN}\\{karte}\\{neu}.sco")));
     }
     for datei in kacheldateien(root, karte) {
         let (text, utf16) = dekodieren(&std::fs::read(&datei)?);
@@ -157,7 +168,7 @@ pub fn objekte_reparieren(root: &Path, karte: &str) -> Result<(usize, Vec<String
     std::fs::create_dir_all(&sicherung)?;
     for d in kacheldateien(root, karte) {
         let (t, _) = dekodieren(&std::fs::read(&d)?);
-        if t.contains("Aschaffenburg_KI\\") {
+        if hat_eigene_verweise(&t) {
             std::fs::copy(&d, sicherung.join(d.file_name().context("Datei ohne Namen")?))?;
         }
     }
@@ -175,7 +186,7 @@ pub fn abhaengige_loesen(root: &Path, karte: &str) -> Result<Vec<String>> {
         if andere.eq_ignore_ascii_case(karte) || !e.path().join("global.cfg").is_file() {
             continue;
         }
-        if fremde_objekte(root, &andere).iter().any(|(o, _)| o.eq_ignore_ascii_case(karte)) {
+        if fremde_objekte(root, &andere).iter().any(|(_, o, _)| o.eq_ignore_ascii_case(karte)) {
             objekte_einsammeln(root, &andere)?;
             out.push(andere);
         }
@@ -196,7 +207,7 @@ pub fn karte_ueberschreiben(root: &Path, karte: &str, paket: &Paket) -> Result<P
     if !ziel.join("global.cfg").exists() {
         bail!("{} ist keine Karte", ziel.display());
     }
-    let objekte = root.join("Sceneryobjects").join("Aschaffenburg_KI").join(karte);
+    let objekte = root.join("Sceneryobjects").join(EIGEN).join(karte);
     // erst pruefen, dann schreiben: kein Kreuzungsobjekt darf ein vorhandenes ersetzen
     if let Some((ordner, _)) = &paket.kreuzungen {
         for e in std::fs::read_dir(ordner)?.flatten() {
@@ -223,8 +234,8 @@ pub fn karte_ueberschreiben(root: &Path, karte: &str, paket: &Paket) -> Result<P
     }
     if let Some((ordner, tag)) = &paket.kreuzungen {
         ordner_zusammenfuehren(ordner, &objekte).with_context(|| format!("Kreuzungsobjekte nach {} kopieren", objekte.display()))?;
-        let alt_rel = format!("Aschaffenburg_KI\\{tag}\\");
-        let neu_rel = format!("Aschaffenburg_KI\\{karte}\\");
+        let alt_rel = format!("{EIGEN}\\{tag}\\");
+        let neu_rel = format!("{EIGEN}\\{karte}\\");
         for d in &paket.dateien {
             let datei = ziel.join(d.file_name().context("Datei ohne Namen")?);
             let (text, utf16) = dekodieren(&std::fs::read(&datei)?);
@@ -253,7 +264,7 @@ pub fn karte_ueberschreiben(root: &Path, karte: &str, paket: &Paket) -> Result<P
     for d in kacheldateien(root, karte) {
         let (t, _) = dekodieren(&std::fs::read(&d)?);
         let n = d.file_name().context("Datei ohne Namen")?;
-        if t.contains("Aschaffenburg_KI\\") && !sicherung.join(n).exists() {
+        if hat_eigene_verweise(&t) && !sicherung.join(n).exists() {
             std::fs::copy(&d, sicherung.join(n))?;
         }
     }
@@ -324,7 +335,7 @@ pub struct Paket {
     pub neue_splines: usize,
     /// Zwischenordner (wird nach dem Anlegen der Karte geloescht)
     pub staging: PathBuf,
-    /// Kreuzungsobjekte der Sitzung: (Ordner, Name unter Sceneryobjects/Aschaffenburg_KI) - kommen in den Ordner
+    /// Kreuzungsobjekte der Sitzung: (Ordner, Name unter Sceneryobjects/<eigener Ordner>) - kommen in den Ordner
     /// der neuen Karte
     pub kreuzungen: Option<(PathBuf, String)>,
     /// Kacheln hinzugefuegt/weggenommen (World Editor): (Liste beim Oeffnen, neue Liste) - [map] von global.cfg
@@ -514,7 +525,7 @@ pub fn karte_anlegen(root: &Path, alt: &str, neu: &str, paket: &Paket) -> Result
     if ziel.exists() {
         bail!("{} gibt es schon - anderen Namen waehlen (vorhandene Karten werden nie ueberschrieben)", ziel.display());
     }
-    let objekte = root.join("Sceneryobjects").join("Aschaffenburg_KI").join(neu);
+    let objekte = root.join("Sceneryobjects").join(EIGEN).join(neu);
     if paket.kreuzungen.is_some() && objekte.exists() {
         bail!("{} gibt es schon - anderen Namen waehlen", objekte.display());
     }
@@ -526,8 +537,8 @@ pub fn karte_anlegen(root: &Path, alt: &str, neu: &str, paket: &Paket) -> Result
     // Kreuzungsobjekte in den Ordner der neuen Karte, die Kacheln verweisen dann dorthin
     if let Some((ordner, tag)) = &paket.kreuzungen {
         ordner_kopieren(ordner, &objekte).with_context(|| format!("Kreuzungsobjekte nach {} kopieren", objekte.display()))?;
-        let alt_rel = format!("Aschaffenburg_KI\\{tag}\\");
-        let neu_rel = format!("Aschaffenburg_KI\\{neu}\\");
+        let alt_rel = format!("{EIGEN}\\{tag}\\");
+        let neu_rel = format!("{EIGEN}\\{neu}\\");
         for d in dateien {
             let datei = ziel.join(d.file_name().context("Datei ohne Namen")?);
             let (text, utf16) = dekodieren(&std::fs::read(&datei)?);
@@ -722,9 +733,8 @@ mod papierkorb_tests {
         let root = std::path::Path::new(crate::bearbeiten::tests::OMSI);
         let fremde = super::fremde_objekte(root, "Grundorf_editornew");
         println!("fremde: {fremde:?}");
-        let ki = root.join("Sceneryobjects").join("Aschaffenburg_KI");
-        for (o, d) in &fremde {
-            let q = super::im_papierkorb(&ki.join(o));
+        for (b, o, d) in &fremde {
+            let q = super::im_papierkorb(&root.join("Sceneryobjects").join(b).join(o));
             println!("  {o}/{d}: Papierkorb {:?}, Datei da: {}", q, q.as_ref().is_some_and(|q| q.join(d).is_file()));
         }
     }

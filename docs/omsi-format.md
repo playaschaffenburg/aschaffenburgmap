@@ -189,7 +189,7 @@ Steigung), damit die Spuranschlüsse unverändert bleiben:
 Grundorf und Spandau verwenden fertige Kreuzungsobjekte: eine Platte (`[mesh]`) mit eigenen Pfaden, an die die
 Straßen-Splines heranführen. omsigen macht es seit Okt. 2026 genauso (`omsigen/kreuzung.py`):
 
-- `Sceneryobjects\Aschaffenburg_KI\<Karte>\K_nnn.sco`, Modell in `model\K_nnn.x`, Texturen in `texture\`
+- `Sceneryobjects\Aschaffenburg\<Karte>\K_nnn.sco`, Modell in `model\K_nnn.x`, Texturen in `texture\`
   (kopiert aus `Splines\Marcel\texture`). Kopf wie `Kreuz_MC\Einm_See.sco`: `[rendertype] surface`,
   `[LightMapMapping]`, `[fixed]`, `[surface]`.
 - Objekt am Kreuzungsmittelpunkt, Drehung 0; Modell-Koordinaten x = Ost, y = Höhe, z = Nord (Direct3D: x rechts,

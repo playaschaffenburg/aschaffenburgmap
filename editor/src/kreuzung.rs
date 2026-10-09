@@ -4,7 +4,7 @@
 //! Vorfahrt - erzeugt von omsigen (python -m omsigen.editorkreuzung), und die neue Strasse beginnt am dritten Arm.
 //!
 //! Alles geht ueber das Werkzeug "Aendern" (Sitzungskopien der Kacheln, ein Rueckgaengig-Schritt); die Objekte
-//! liegen im Sitzungsordner unter Sceneryobjects/Aschaffenburg_KI/<tag>/ und kommen beim Speichern in den Ordner
+//! liegen im Sitzungsordner unter Sceneryobjects/Aschaffenburg/<tag>/ und kommen beim Speichern in den Ordner
 //! der neuen Karte.
 
 use crate::aendern::{eintrag_ende, eintrag_finden, Aendern, KartenSpline};
@@ -175,9 +175,9 @@ enum Schnitt {
 }
 
 impl Aendern {
-    /// Ordner der Kreuzungsobjekte dieser Sitzung und sein Name unter Sceneryobjects/Aschaffenburg_KI
+    /// Ordner der Kreuzungsobjekte dieser Sitzung und sein Name unter Sceneryobjects/Aschaffenburg
     pub fn kreuzungs_ordner(&self) -> (PathBuf, String) {
-        (self.sitzung.join("Sceneryobjects").join("Aschaffenburg_KI").join(&self.tag), self.tag.clone())
+        (self.sitzung.join("Sceneryobjects").join(crate::speichern::EIGEN).join(&self.tag), self.tag.clone())
     }
 
     /// vorhandenes Kreuzungsobjekt unter dem Bodenpunkt: ein Objekt mit Fahrpfaden, an dem Strassen haengen; seine
@@ -1019,8 +1019,8 @@ pub(crate) mod tests {
         let sli = "Splines\\Marcel\\str_2spur_8m_altonaer1.sli".to_string();
         let arm = |x: f64, y: f64, h: f64, weg: bool, rolle| Arm { pos: DVec3::new(x, y, 0.0), richtung: h, sli: sli.clone(), weg, rolle, gesperrt: false };
         let arme = [arm(0.0, -12.0, 180.0, false, Rolle::Haupt), arm(0.0, 12.0, 0.0, true, Rolle::Haupt), arm(12.0, 0.0, 90.0, true, Rolle::Neben)];
-        let o = erzeugen(root, &d, "Sceneryobjects\\Aschaffenburg_KI\\Test", "K_E0001", &arme, false).unwrap();
-        assert_eq!(o.rel, "Sceneryobjects\\Aschaffenburg_KI\\Test\\K_E0001.sco");
+        let o = erzeugen(root, &d, "Sceneryobjects\\Aschaffenburg\\Test", "K_E0001", &arme, false).unwrap();
+        assert_eq!(o.rel, "Sceneryobjects\\Aschaffenburg\\Test\\K_E0001.sco");
         assert_eq!((o.spuren, o.fehlgeschlagen), (6, 0));
         assert!(!o.rules.is_empty() && d.join("K_E0001.sco").exists() && d.join("model").join("K_E0001.x").exists());
         assert!(freier_name(&d).ends_with("_0001") && freier_name(&d).starts_with("K_omsieditorkreuzung"), "{}", freier_name(&d));
@@ -1134,7 +1134,7 @@ pub(crate) mod tests {
         kopieren(&root.join("maps/Grundorf"), &test_root.join("maps/Grundorf"));
         let paket = crate::speichern::vorbereiten(&v, &Bearbeiten::neu(Werkzeug::Strasse), &s.netz, &s.gesetzte_kreuzungen(), &a.kopien("Grundorf"), Some(a.kreuzungs_ordner()), "Grundorf").unwrap();
         let karte = crate::speichern::karte_anlegen(&test_root, "Grundorf", "Grundorf_kreuzung", &paket).unwrap();
-        let objekte = test_root.join("Sceneryobjects/Aschaffenburg_KI/Grundorf_kreuzung");
+        let objekte = test_root.join("Sceneryobjects/Aschaffenburg/Grundorf_kreuzung");
         assert!(std::fs::read_dir(&objekte).unwrap().flatten().any(|e| e.path().extension().is_some_and(|x| x == "sco")));
         // neue Strasse: der Spline, der am Arm beginnt
         let mut neu_id = None;
@@ -1145,7 +1145,7 @@ pub(crate) mod tests {
             let mut it = rest.split('_').map(|x| x.parse::<i32>().unwrap());
             let (tx, ty) = (it.next().unwrap(), it.next().unwrap());
             let t = omsi_map::Tile::load(&e.path()).unwrap();
-            verweis |= t.objects.iter().any(|o| o.file.contains("Aschaffenburg_KI\\Grundorf_kreuzung\\K_"));
+            verweis |= t.objects.iter().any(|o| o.file.contains("Aschaffenburg\\Grundorf_kreuzung\\K_"));
             for sp in &t.splines {
                 let k = omsi_geometry::SplineCurve::from_map(sp, DVec2::new(tx as f64 * 300.0, ty as f64 * 300.0));
                 if (k.start - start).length() < 0.01 {
@@ -2061,7 +2061,7 @@ pub(crate) mod tests {
         assert!(sicherung.join("global.cfg").exists());
         let gesichert = std::fs::read_dir(&sicherung).unwrap().flatten().filter(|e| e.file_name().to_string_lossy().starts_with("tile_")).count();
         assert!(gesichert >= 1, "ersetzte Kacheln gesichert");
-        let objekte = test_root.join("Sceneryobjects/Aschaffenburg_KI/Grundorf_hier");
+        let objekte = test_root.join("Sceneryobjects/Aschaffenburg/Grundorf_hier");
         let sco: Vec<String> = std::fs::read_dir(&objekte).unwrap().flatten().map(|e| e.file_name().to_string_lossy().to_string()).filter(|n| n.ends_with(".sco")).collect();
         println!("Kreuzungsobjekte: {sco:?}");
         assert_eq!(sco.len(), 2, "beide Sitzungen");
@@ -2080,7 +2080,7 @@ pub(crate) mod tests {
             let mut it = rest.split('_').map(|x| x.parse::<i32>().unwrap());
             let (tx, ty) = (it.next().unwrap(), it.next().unwrap());
             let t = omsi_map::Tile::load(&e.path()).unwrap();
-            verweise += t.objects.iter().filter(|o| o.file.contains("Aschaffenburg_KI\\Grundorf_hier\\K_")).count();
+            verweise += t.objects.iter().filter(|o| o.file.contains("Aschaffenburg\\Grundorf_hier\\K_")).count();
             for sp in &t.splines {
                 let k = omsi_geometry::SplineCurve::from_map(sp, DVec2::new(tx as f64 * 300.0, ty as f64 * 300.0));
                 if (k.end_point().truncate() - start2).length() < 0.01 {
