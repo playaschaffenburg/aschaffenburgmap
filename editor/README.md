@@ -101,8 +101,11 @@ liegen genau auf den Spuren der Splines. Beide Seiten können Baukasten-Querschn
 beliebige `.sli` (Flächen aus `[heightprofile]`, Spuren aus `[path]`). Länge automatisch (8 m je Meter Versatz, mindestens
 15 m) oder fest. Vorschau: Umriss und „A (Spuren, Breite) → B …“ am Mauszeiger. Danach am freien Ende des Übergangs mit
 dem neuen Querschnitt weiterbauen. Das Objekt liegt bis zum Speichern im Sitzungsordner und kommt dann nach
-`Sceneryobjects\Aschaffenburg\<Karte>\` (Strg+Z nimmt ihn zurück). Noch nicht: Steigung (der Übergang liegt waagerecht),
-eigene ungespeicherte Straßen (erst Strg+S).
+`Sceneryobjects\Aschaffenburg\<Karte>\` (Strg+Z nimmt ihn zurück). **Steigung:** der Übergang übernimmt die Steigung
+des Straßenendes (Modell und Pfade steigen gleichmäßig – Objektpfade haben dafür eine Höhenänderung, siehe
+docs/omsi-format.md), der offene Arm am anderen Ende meldet sie weiter, die nächste Straße setzt sie fort. **Eigene
+Straßen:** auch an freien Enden eigener, noch nicht gespeicherter Straßen; beim Speichern endet deren Spline genau am
+Übergang (Lage, Höhe, Richtung, Steigung).
 
 **Messen (M, Knopf oben):** Klick setzt den Anfang, zweiter Klick das Ende; angezeigt werden die waagerechte Länge und
 der Höhenunterschied (mit Steigung). Im Baukasten lässt sich die letzte Messung als Breite des gewählten Teils

@@ -1,7 +1,7 @@
 From 6a28afa52f391b1e21dd812a7f86f94221f673a7 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 16:01:32 +0200
-Subject: [PATCH 01/20] editor-api: oeffentliche Viewer-Schnittstelle, OpenXR
+Subject: [PATCH 01/21] editor-api: oeffentliche Viewer-Schnittstelle, OpenXR
  zur Laufzeit laden
 
 ---
@@ -210,7 +210,7 @@ index 0000000..f57565c
 From cc51e3c693d2333dc4ee49c47f6e37c20ab516e8 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 16:22:56 +0200
-Subject: [PATCH 02/20] editor-api: Hintergrund-Streaming und Kartenwechsel mit
+Subject: [PATCH 02/21] editor-api: Hintergrund-Streaming und Kartenwechsel mit
  demselben Renderer
 
 ---
@@ -316,7 +316,7 @@ index f57565c..ebd8833 100644
 From 596e460251b086f739871a8134343aea3f22e5e0 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 16:35:56 +0200
-Subject: [PATCH 03/20] editor-api: Objekte bearbeiten und Kacheln schreiben
+Subject: [PATCH 03/21] editor-api: Objekte bearbeiten und Kacheln schreiben
  ueber den Viewer
 
 ---
@@ -391,7 +391,7 @@ index ebd8833..e926a15 100644
 From 0cb9086cbb9faad1472cd454cb3fd12000216701 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 16:54:59 +0200
-Subject: [PATCH 04/20] editor-api: freie Objekte setzen, naechste freie ID,
+Subject: [PATCH 04/21] editor-api: freie Objekte setzen, naechste freie ID,
  Kacheldatei
 
 ---
@@ -448,7 +448,7 @@ index e926a15..61f58bb 100644
 From 237ec37d6957dab1787c4d67d58d7803945fd3f5 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 17:10:18 +0200
-Subject: [PATCH 05/20] editor-api: Objektausmasse und Vorschaubilder
+Subject: [PATCH 05/21] editor-api: Objektausmasse und Vorschaubilder
 
 ---
  crates/omsi-app/src/viewer.rs | 34 ++++++++++++++++++++++++++++++++++
@@ -504,7 +504,7 @@ index 61f58bb..e92c3f2 100644
 From 9988917031be8d360dab043f72364f777791de76 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 17:24:46 +0200
-Subject: [PATCH 06/20] editor-api: Splines frei zeichnen (Live-Vorschau),
+Subject: [PATCH 06/21] editor-api: Splines frei zeichnen (Live-Vorschau),
  Spuren einer .sli
 
 ---
@@ -614,7 +614,7 @@ index e92c3f2..d50c032 100644
 From d35054e68c9b423943fb69c23c58cdc2d8efbd2b Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 17:43:57 +0200
-Subject: [PATCH 07/20] editor-api: Vorschaubild fuer Strassen-Splines
+Subject: [PATCH 07/21] editor-api: Vorschaubild fuer Strassen-Splines
 
 ---
  crates/omsi-app/src/viewer.rs | 23 +++++++++++++++++++++++
@@ -659,7 +659,7 @@ index d50c032..95495df 100644
 From 75a2e1b33f1c31ba93373732ec3a2bea0cca2a96 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 17:59:02 +0200
-Subject: [PATCH 08/20] editor-api: Spurnetz der geladenen Kacheln, freie
+Subject: [PATCH 08/21] editor-api: Spurnetz der geladenen Kacheln, freie
  Spline-Enden
 
 ---
@@ -767,7 +767,7 @@ index 95495df..39d3a19 100644
 From 1f9802294094922bdb9a50fdec716db6f2ac445b Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 18:19:59 +0200
-Subject: [PATCH 09/20] editor-api: Sitzungsebene fuer geaenderte Kacheln,
+Subject: [PATCH 09/21] editor-api: Sitzungsebene fuer geaenderte Kacheln,
  Kacheln neu laden
 
 ---
@@ -865,7 +865,7 @@ index 39d3a19..0dab235 100644
 From 19d1a75a1fe8c3035a4da58ecacc0944c1bf59e0 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 18:36:54 +0200
-Subject: [PATCH 10/20] editor-api: Kacheln neu laden auch beim Streaming
+Subject: [PATCH 10/21] editor-api: Kacheln neu laden auch beim Streaming
  (Pfade, Zwischenspeicher, Spuren)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -942,7 +942,7 @@ index 0dab235..27eeea0 100644
 From 46577556082be58a6a5e4121521161d75fbadc0d Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 23:21:40 +0200
-Subject: [PATCH 11/20] editor-api: offene Objektarme, LaneKind,
+Subject: [PATCH 11/21] editor-api: offene Objektarme, LaneKind,
  Streaming-Neuladen ohne Wettlauf
 
 - object_free_lane_ends: Spuren von Objekten, die nirgends hinfuehren
@@ -1118,7 +1118,7 @@ index 27eeea0..7b984af 100644
 From e464c56366b8b4204e87f95e7e179faff2f40004 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 7 Oct 2026 08:09:46 +0200
-Subject: [PATCH 12/20] editor-api: Objekte mit absoluter Hoehe bearbeitbar
+Subject: [PATCH 12/21] editor-api: Objekte mit absoluter Hoehe bearbeitbar
  (behalten beim Ziehen ihre Hoehe)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -1204,7 +1204,7 @@ index 421cd69..6943b4c 100644
 From e4ef9c5f97dcc8ad0333c44feb3e7c41c2144674 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 7 Oct 2026 08:25:56 +0200
-Subject: [PATCH 13/20] editor-api: Baeume der Karte im Objekt-Editor
+Subject: [PATCH 13/21] editor-api: Baeume der Karte im Objekt-Editor
  (verschieben, drehen, loeschen)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -1273,7 +1273,7 @@ index 6943b4c..791651b 100644
 From fe94f6cce870569c558992a177d3782813cebb6b Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 7 Oct 2026 16:53:35 +0200
-Subject: [PATCH 14/20] editor-api: unsichtbare Objekte der Karte fuer die
+Subject: [PATCH 14/21] editor-api: unsichtbare Objekte der Karte fuer die
  Hilfsansicht des Editors
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -1373,7 +1373,7 @@ index 7b984af..69d6350 100644
 From 66d3999a4dca9b37c1683f4c64e4e7ce7a825675 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 7 Oct 2026 17:12:14 +0200
-Subject: [PATCH 15/20] editor-api: unsichtbare Objekte im Objekt-Editor
+Subject: [PATCH 15/21] editor-api: unsichtbare Objekte im Objekt-Editor
  bearbeitbar
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -1426,7 +1426,7 @@ index 69d6350..d671655 100644
 From 273bc3a4ed2140bf0a6bbeabebaeccb5bb552dd7 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Fri, 9 Oct 2026 16:17:24 +0200
-Subject: [PATCH 16/20] editor-api: Kachelliste zur Laufzeit aendern (Kacheln
+Subject: [PATCH 16/21] editor-api: Kachelliste zur Laufzeit aendern (Kacheln
  hinzufuegen/wegnehmen)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -1580,7 +1580,7 @@ index d671655..79ec018 100644
 From 17ba41beb935bef7cc531a2a24d24a215c55932e Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Fri, 9 Oct 2026 17:33:03 +0200
-Subject: [PATCH 17/20] editor-api: Gelaende einer Kachel lesen, Live-Vorschau
+Subject: [PATCH 17/21] editor-api: Gelaende einer Kachel lesen, Live-Vorschau
  beim Formen, Oberflaechenhoehe
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -1700,7 +1700,7 @@ index 79ec018..2f82a47 100644
 From df8057ae8454fa90c9986e82d6fc73837ddf112a Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Fri, 9 Oct 2026 18:11:12 +0200
-Subject: [PATCH 18/20] editor-api: Luftbild ueber dem Gelaende je Kachel
+Subject: [PATCH 18/21] editor-api: Luftbild ueber dem Gelaende je Kachel
  (Ebene auf dem Gelaendenetz, Deckkraft)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -1872,7 +1872,7 @@ index 2f82a47..8f09dc2 100644
 From efc8eb0a59d6697fe1c32a08dcffe02bdbefd048 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Fri, 9 Oct 2026 18:34:47 +0200
-Subject: [PATCH 19/20] editor-api: Deckkraft des Luftbilds ueber die Maske
+Subject: [PATCH 19/21] editor-api: Deckkraft des Luftbilds ueber die Maske
  (Ebenen ignorieren die Slot-Deckkraft)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -1964,7 +1964,7 @@ index b5cef00..c49d2df 100644
 From 5ac3dc8934245ae5bf872ae7795ddf87b621e435 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Fri, 9 Oct 2026 19:15:13 +0200
-Subject: [PATCH 20/20] editor-api: Spline-Typ neu lesen (forget_spline_type)
+Subject: [PATCH 20/21] editor-api: Spline-Typ neu lesen (forget_spline_type)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
 ---
@@ -2007,6 +2007,55 @@ index 8f09dc2..6a34474 100644
      /// The lanes of spline type `rel`: (kind 0 road / 1 footway / 2 rail, x across (right
      /// positive), height, width, direction 0 along / 1 against / 2 both), and the outer
      /// half widths (left, right) of its drawn profile.
+-- 
+2.55.0.windows.5
+
+
+From 41bb8a3984c00ae70a4b4066221e0aed8441093f Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 9 Oct 2026 20:08:59 +0200
+Subject: [PATCH 21/21] editor-api: Steigung an offenen Objektarmen
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ crates/omsi-app/src/viewer.rs | 14 ++++++++++----
+ 1 file changed, 10 insertions(+), 4 deletions(-)
+
+diff --git a/crates/omsi-app/src/viewer.rs b/crates/omsi-app/src/viewer.rs
+index 6a34474..0f32154 100644
+--- a/crates/omsi-app/src/viewer.rs
++++ b/crates/omsi-app/src/viewer.rs
+@@ -543,20 +543,26 @@ impl Viewer {
+ 
+     /// Street lane ends of scenery objects (junctions) that lead nowhere - the open arms of a
+     /// junction object: (object id, point, heading pointing away from the object, true when
+-    /// traffic leaves the object there, lane width).
+-    pub fn object_free_lane_ends(&self) -> Vec<(i64, DVec3, f64, bool, f32)> {
++    /// traffic leaves the object there, lane width, grade going away from the object).
++    pub fn object_free_lane_ends(&self) -> Vec<(i64, DVec3, f64, bool, f32, f64)> {
+         let mut out = Vec::new();
++        // grade (rise over run) going away from the object at that end
++        let grade = |a: DVec3, b: DVec3| {
++            let run = (b - a).truncate().length();
++            if run > 1e-3 { (b.z - a.z) / run } else { 0.0 }
++        };
+         for (i, l) in self.lanes.lanes.iter().enumerate() {
+             // lanes of splines carry their .sli; those of objects no file name (or the .sco)
+             if l.kind != omsi_sim::traffic::LaneKind::Street || l.name.to_ascii_lowercase().ends_with(".sli") || l.points.len() < 2 {
+                 continue;
+             }
+             let Some(id) = l.key.map(|k| k.id) else { continue };
++            let n = l.points.len();
+             if l.next.is_empty() {
+-                out.push((id, *l.points.last().unwrap(), *l.headings.last().unwrap() as f64, true, l.width));
++                out.push((id, l.points[n - 1], *l.headings.last().unwrap() as f64, true, l.width, grade(l.points[n - 2], l.points[n - 1])));
+             }
+             if self.lanes.prev.get(i).is_none_or(|p| p.is_empty()) {
+-                out.push((id, l.points[0], (l.headings[0] as f64 + 180.0).rem_euclid(360.0), false, l.width));
++                out.push((id, l.points[0], (l.headings[0] as f64 + 180.0).rem_euclid(360.0), false, l.width, grade(l.points[1], l.points[0])));
+             }
+         }
+         out
 -- 
 2.55.0.windows.5
 

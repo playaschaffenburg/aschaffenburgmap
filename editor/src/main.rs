@@ -286,7 +286,7 @@ struct App {
     /// (Breiten A/B links und rechts, Laenge)
     uebergang_modus: bool,
     uebergang_laenge: Option<f64>,
-    uebergang_unter: Option<(anschluss::Anschluss, Option<UebergangPlan>)>,
+    uebergang_unter: Option<(uebergang::Stelle, (i64, bool), Option<UebergangPlan>)>,
 }
 
 /// Vorschau eines Uebergangs: (links A, rechts A, links B, rechts B, Laenge, Text)
@@ -295,6 +295,7 @@ struct UebergangPlan {
     a: (f64, f64),
     b: (f64, f64),
     laenge: f64,
+    steigung: f64,
     text: String,
 }
 
@@ -1526,7 +1527,7 @@ impl App {
                             }
                         });
                         if self.uebergang_modus {
-                            ui.label(egui::RichText::new("Uebergang: Klick auf ein freies Strassenende (blau) - vom Querschnitt dort auf den unten gewaehlten. Danach am freien Ende des Uebergangs mit dem neuen Querschnitt weiterbauen. Eigene, noch nicht gespeicherte Strassen: erst speichern (Strg+S).").small());
+                            ui.label(egui::RichText::new("Uebergang: Klick auf ein freies Strassenende (blau) - vom Querschnitt dort auf den unten gewaehlten. Danach am freien Ende des Uebergangs mit dem neuen Querschnitt weiterbauen. Auch an eigenen Strassen; der Uebergang uebernimmt ihre Steigung.").small());
                         }
                         if let Some(rel) = self.qs_raster(ui, self.strasse.sli.clone()) {
                             aktionen.push(UiAktion::Querschnitt(rel));
@@ -2056,7 +2057,7 @@ impl App {
                 bearbeiten::markieren(&maler, &self.kam, o, bw, bh, egui::Color32::from_rgb(255, 60, 220), 3.0);
             }
             // Uebergang: Umriss vom Strassenende aus
-            if let (Werkzeug::Strasse, true, Some((a, plan))) = (self.bearb.werkzeug, self.uebergang_modus, self.uebergang_unter.as_ref()) {
+            if let (Werkzeug::Strasse, true, Some((a, _, plan))) = (self.bearb.werkzeug, self.uebergang_modus, self.uebergang_unter.as_ref()) {
                 let pt = |p: DVec3| bearbeiten::projizieren(&self.kam, p + DVec3::Z * 0.4, bw, bh).map(|(x, y, _)| egui::pos2(x, y));
                 let c = egui::Color32::from_rgb(90, 220, 255);
                 if let Some(m) = pt(a.pos) {
@@ -2065,7 +2066,8 @@ impl App {
                 if let Some(pl) = plan {
                     let vorn = netz::dir(a.richtung);
                     let quer = netz::rechts(a.richtung);
-                    let p = |y: f64, x: f64| a.pos + (vorn * y + quer * x).extend(0.0);
+                    let stg = pl.steigung;
+                    let p = |y: f64, x: f64| a.pos + (vorn * y + quer * x).extend(y * stg);
                     if pl.laenge > 0.0 {
                         let n = 12;
                         let mut links = Vec::new();
@@ -3164,21 +3166,22 @@ impl App {
     }
 
     /// Vorschau eines Uebergangs am Strassenende `a` auf den gewaehlten Querschnitt
-    fn uebergang_plan(&self, a: &anschluss::Anschluss) -> Option<UebergangPlan> {
+    fn uebergang_plan(&self, st: &uebergang::Stelle) -> Option<UebergangPlan> {
         let ziel = self.strasse.sli.clone()?;
-        let st = uebergang::Stelle { pos: a.pos, richtung: a.richtung, sli: a.sli.clone(), gleichsinnig: a.am_ende != a.gespiegelt };
+        let a = st;
         let kurz = |s: &str| std::path::Path::new(s).file_stem().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
-        match uebergang::planen(&self.root, &st, &ziel, self.uebergang_laenge) {
+        match uebergang::planen(&self.root, st, &ziel, self.uebergang_laenge) {
             Ok((sa, sb, l)) => {
                 let spuren = |s: &uebergang::Seite| {
                     let v = s.pfade.iter().filter(|p| p.art == 0 && p.richtung != 1).count();
                     let z = s.pfade.iter().filter(|p| p.art == 0 && p.richtung == 1).count();
                     format!("{z}+{v}")
                 };
-                Some(UebergangPlan { a: (sa.links, sa.links + sa.breite()), b: (sb.links, sb.links + sb.breite()), laenge: l,
-                                     text: format!("{} ({}, {:.1} m) -> {} ({}, {:.1} m), {l:.0} m", kurz(&a.sli), spuren(&sa), sa.breite(), kurz(&ziel), spuren(&sb), sb.breite()) })
+                let stg = if a.steigung.abs() >= 0.005 { format!(", {:+.1} %", a.steigung * 100.0) } else { String::new() };
+                Some(UebergangPlan { a: (sa.links, sa.links + sa.breite()), b: (sb.links, sb.links + sb.breite()), laenge: l, steigung: a.steigung,
+                                     text: format!("{} ({}, {:.1} m) -> {} ({}, {:.1} m), {l:.0} m{stg}", kurz(&a.sli), spuren(&sa), sa.breite(), kurz(&ziel), spuren(&sb), sb.breite()) })
             }
-            Err(e) => Some(UebergangPlan { a: (0.0, 0.0), b: (0.0, 0.0), laenge: 0.0, text: format!("nicht moeglich: {e:#}") }),
+            Err(e) => Some(UebergangPlan { a: (0.0, 0.0), b: (0.0, 0.0), laenge: 0.0, steigung: 0.0, text: format!("nicht moeglich: {e:#}") }),
         }
     }
 
@@ -3964,20 +3967,26 @@ impl ApplicationHandler for App {
                     }
                     if self.bearb.werkzeug == Werkzeug::Strasse && self.uebergang_modus {
                         let fang = (14.0 * self.kam.m_pro_px(bh)).max(3.0);
+                        // freie Enden der Karte und eigener (noch nicht gespeicherter) Strassen
+                        let mut kandidaten: Vec<(uebergang::Stelle, (i64, bool))> = self.anschluesse.liste.iter().filter(|a| a.frei && a.objekt.is_none())
+                            .map(|a| (uebergang::Stelle { pos: a.pos, richtung: a.richtung, sli: a.sli.clone(), gleichsinnig: a.am_ende != a.gespiegelt, steigung: a.steigung },
+                                      (a.spline_id, a.am_ende))).collect();
+                        kandidaten.extend(self.strasse.freie_enden().into_iter().map(|(k, pos, richtung, steigung, sli, gleichsinnig)| {
+                            (uebergang::Stelle { pos, richtung, sli, gleichsinnig, steigung }, (-(k as i64) - 1, true))
+                        }));
                         let neu = self.boden_unter_maus.filter(|_| !egui_will).and_then(|g| {
-                            self.anschluesse.liste.iter().filter(|a| a.frei && a.objekt.is_none())
-                                .map(|a| ((a.pos.truncate() - g.truncate()).length(), a)).filter(|(d, _)| *d <= fang)
-                                .min_by(|x, y| x.0.total_cmp(&y.0)).map(|(_, a)| a.clone())
+                            kandidaten.into_iter().map(|c| ((c.0.pos.truncate() - g.truncate()).length(), c)).filter(|(d, _)| *d <= fang)
+                                .min_by(|x, y| x.0.total_cmp(&y.0)).map(|(_, c)| c)
                         });
                         let gleich = match (&neu, &self.uebergang_unter) {
-                            (Some(n), Some((alt, _))) => n.spline_id == alt.spline_id && n.am_ende == alt.am_ende,
+                            (Some(n), Some((_, alt, _))) => n.1 == *alt,
                             (None, None) => true,
                             _ => false,
                         };
                         if !gleich {
-                            self.uebergang_unter = neu.map(|a| {
-                                let plan = self.uebergang_plan(&a);
-                                (a, plan)
+                            self.uebergang_unter = neu.map(|(st, key)| {
+                                let plan = self.uebergang_plan(&st);
+                                (st, key, plan)
                             });
                         }
                     } else if self.bearb.werkzeug == Werkzeug::Strasse {
@@ -4156,10 +4165,9 @@ impl ApplicationHandler for App {
                     }
                     if button == MouseButton::Left && self.bearb.werkzeug == Werkzeug::Strasse && self.uebergang_modus {
                         match (self.uebergang_unter.clone(), self.strasse.sli.clone()) {
-                            (Some((a, _)), Some(ziel)) => {
-                                let st = uebergang::Stelle { pos: a.pos, richtung: a.richtung, sli: a.sli.clone(), gleichsinnig: a.am_ende != a.gespiegelt };
+                            (Some((st, key, _)), Some(ziel)) => {
                                 if let (Some(v), Some(ae)) = (self.viewer.as_mut(), self.aendern.as_mut()) {
-                                    protokoll::aktion(&format!("Uebergang: Spline {} -> {ziel}", a.spline_id));
+                                    protokoll::aktion(&format!("Uebergang: {} ({key:?}) -> {ziel}", st.sli));
                                     self.meldung = match uebergang::setzen(v, ae, &self.root, &st, &ziel, self.uebergang_laenge) {
                                         Ok(m) => {
                                             self.uebergang_modus = false;

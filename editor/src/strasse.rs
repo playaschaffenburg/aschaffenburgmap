@@ -1024,6 +1024,21 @@ impl Strassenbau {
         }
     }
 
+    /// freie Enden eigener Strassen (Knoten mit genau einer Kante, keine Kreuzung, kein Anschluss an die Karte):
+    /// (Knoten, Lage, Richtung weg von der Strasse, Steigung in dieser Richtung, .sli, faehrt man dort in
+    /// Splinerichtung weiter)
+    pub fn freie_enden(&self) -> Vec<(u32, DVec3, f64, f64, String, bool)> {
+        self.netz.knoten.iter().filter(|k| k.kreisel.is_none() && k.kartenarme.is_empty() && k.anschluss.is_none()).filter_map(|k| {
+            let an = self.netz.an(k.id);
+            if an.len() != 1 {
+                return None;
+            }
+            let e = an[0];
+            let h = self.netz.weiter_richtung(k.id)?;
+            Some((k.id, k.pos, h, self.steigung_aus(k.id, h), e.sli.clone(), e.b == k.id))
+        }).collect()
+    }
+
     /// Steigung (Verhaeltnis) beim Verlassen von Knoten k in Richtung h: die der anschliessenden Kante
     fn steigung_aus(&self, k: u32, h: f64) -> f64 {
         let an = self.netz.an(k);

@@ -37,10 +37,10 @@ pub fn objekt_arme(v: &Viewer) -> Vec<Anschluss> {
         if genommen[i] {
             continue;
         }
-        let (id, p0, h0, _, _) = enden[i];
+        let (id, p0, h0, _, _, _) = enden[i];
         // Enden desselben Objekts, gleiche Richtung, nebeneinander (quer bis 15 m, laengs bis 3 m)
         let gruppe: Vec<usize> = (i..enden.len()).filter(|&j| {
-            let (id2, p, h, _, _) = enden[j];
+            let (id2, p, h, _, _, _) = enden[j];
             let d = (p - p0).truncate();
             !genommen[j] && id2 == id && crate::netz::norm180(h - h0).abs() < 25.0
                 && d.dot(crate::netz::dir(h0)).abs() < 3.0 && d.dot(crate::netz::rechts(h0)).abs() < 15.0
@@ -57,7 +57,8 @@ pub fn objekt_arme(v: &Viewer) -> Vec<Anschluss> {
         let pos = (p0.truncate() + crate::netz::rechts(h) * mitte_q + crate::netz::dir(h) * laengs).extend(z);
         let mut spuren: Vec<(f32, u8)> = gruppe.iter().zip(&quer).map(|(&j, q)| ((q - mitte_q) as f32, if enden[j].3 { 0 } else { 1 })).collect();
         spuren.sort_by(|a, b| a.0.total_cmp(&b.0));
-        out.push(Anschluss { spline_id: 0, am_ende: true, pos, richtung: h.rem_euclid(360.0), steigung: 0.0, sli: String::new(),
+        let steigung = gruppe.iter().map(|&j| enden[j].5).sum::<f64>() / gruppe.len() as f64;
+        out.push(Anschluss { spline_id: 0, am_ende: true, pos, richtung: h.rem_euclid(360.0), steigung, sli: String::new(),
                              gespiegelt: false, frei: true, objekt: Some(id), spuren });
     }
     out

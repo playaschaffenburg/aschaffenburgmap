@@ -351,8 +351,8 @@ impl Modell {
 /// der fertige Uebergang
 pub struct Uebergang {
     pub modell: Modell,
-    /// Pfadelemente: (x, y, Hoehe, Richtung, Radius, Laenge, Art, Breite, Fahrtrichtung)
-    pub pfade: Vec<([f64; 6], u8, f64, u8)>,
+    /// Pfadelemente: ([x, y, Hoehe, Richtung, Radius, Laenge, Hoehenaenderung], Art, Breite, Fahrtrichtung)
+    pub pfade: Vec<([f64; 7], u8, f64, u8)>,
     pub laenge: f64,
     pub breite: (f64, f64),
 }
@@ -364,7 +364,8 @@ pub fn laenge_vorschlag(a: &Seite, b: &Seite) -> f64 {
     ((versatz.max(breiten * 0.7) * 8.0).max(15.0) / 5.0).ceil() * 5.0
 }
 
-pub fn bauen(a: &Seite, b: &Seite, laenge: f64) -> Result<Uebergang> {
+/// Uebergang bauen; `steigung` (Verhaeltnis, in Richtung von A nach B): Modell und Pfade steigen gleichmaessig
+pub fn bauen(a: &Seite, b: &Seite, laenge: f64, steigung: f64) -> Result<Uebergang> {
     if laenge < 5.0 {
         bail!("Uebergang zu kurz ({laenge:.1} m)");
     }
@@ -455,11 +456,24 @@ pub fn bauen(a: &Seite, b: &Seite, laenge: f64) -> Result<Uebergang> {
                       [[0.0, y0 * v], [1.0, y0 * v], [1.0, y1 * v], [0.0, y1 * v]], [0.0, 0.0, 1.0]);
         }
     }
-    // Pfade
+    // Steigung: alles hebt sich mit y (.x: Hoehe ist die zweite, vorwaerts die dritte Koordinate); die Normalen
+    // der Flaechen kippen mit
+    if steigung.abs() > 1e-6 {
+        let n = (1.0 + steigung * steigung).sqrt();
+        for e in &mut m.ecken {
+            e[1] += e[2] * steigung;
+            let (ny, nz) = (e[4], e[5]);
+            e[4] = ny / n;
+            e[5] = nz / n - ny * steigung / n;
+        }
+    }
+    // Pfade (Hoehe am Anfang jedes Elements, Hoehenaenderung ueber seine Laenge in y)
     let mut pfade = Vec::new();
     for (xa, xb, p) in pfade_paaren(&a.pfade, &b.pfade) {
-        for e in s_kurve(xa, xb, laenge) {
-            pfade.push(([e[0], e[1], p.h, e[2], e[3], e[4]], p.art, p.breite.min(3.5), p.richtung));
+        let el = s_kurve(xa, xb, laenge);
+        for (k, e) in el.iter().enumerate() {
+            let y1 = el.get(k + 1).map(|n| n[1]).unwrap_or(laenge);
+            pfade.push(([e[0], e[1], p.h + e[1] * steigung, e[2], e[3], e[4], (y1 - e[1]) * steigung], p.art, p.breite.min(3.5), p.richtung));
         }
     }
     if !pfade.iter().any(|p| p.1 == 0) {
@@ -479,7 +493,7 @@ impl Uebergang {
             for v in [e[0], e[1], e[2], e[3].rem_euclid(360.0), e[4], e[5]] {
                 l.push(format!("{v:.4}"));
             }
-            l.extend(["0".into(), "0".into(), art.to_string(), format!("{breite:.4}"), richtung.to_string(), "0".into(), String::new()]);
+            l.extend(["0".into(), format!("{:.4}", e[6]), art.to_string(), format!("{breite:.4}"), richtung.to_string(), "0".into(), String::new()]);
         }
         l.extend(["[mesh]".into(), modell.into(), String::new()]);
         for m in &self.modell.materialien {
@@ -526,6 +540,7 @@ pub fn seite(root: &Path, sli: &str) -> Result<Seite> {
 }
 
 /// was `setzen` braucht: die Stelle (Spline-Ende) und wie die Strasse dort liegt
+#[derive(Clone, Debug)]
 pub struct Stelle {
     pub pos: glam::DVec3,
     /// Richtung, in der es weitergeht (vom vorhandenen Spline weg)
@@ -533,6 +548,8 @@ pub struct Stelle {
     pub sli: String,
     /// faehrt man dort in Splinerichtung weiter (Spline-Ende, nicht gespiegelt)
     pub gleichsinnig: bool,
+    /// Steigung (Verhaeltnis) in `richtung`
+    pub steigung: f64,
 }
 
 /// Uebergang planen: (Seite A, Seite B, Laenge)
@@ -548,7 +565,7 @@ pub fn planen(root: &Path, st: &Stelle, ziel_sli: &str, laenge: Option<f64>) -> 
 /// Rueckgaengig-Schritt des Aendern-Werkzeugs) -> Meldung
 pub fn setzen(v: &mut openomsi_game::viewer::Viewer, ae: &mut crate::aendern::Aendern, root: &Path, st: &Stelle, ziel_sli: &str, laenge: Option<f64>) -> Result<String> {
     let (a, b, l) = planen(root, st, ziel_sli, laenge)?;
-    let u = bauen(&a, &b, l)?;
+    let u = bauen(&a, &b, l, st.steigung)?;
     let (ordner, tag) = ae.kreuzungs_ordner();
     let nr = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() % 1_000_000).unwrap_or(0);
     let name = format!("UE_{nr:06}");
@@ -556,8 +573,9 @@ pub fn setzen(v: &mut openomsi_game::viewer::Viewer, ae: &mut crate::aendern::Ae
     u.schreiben(root, &ordner, &name, &format!("Uebergang {} -> {}", kurz(&st.sli), kurz(ziel_sli)))?;
     let rel = format!("Sceneryobjects\\{}\\{tag}\\{name}.sco", crate::speichern::EIGEN);
     let (id, _) = ae.objekt_anlegen_hoehe(v, &rel, st.pos.truncate(), st.pos.z, st.richtung, &[])?;
-    log::info!("Uebergang {rel} (Objekt {id}): {} -> {}, {l:.0} m, {} Pfadelemente", st.sli, ziel_sli, u.pfade.len());
-    Ok(format!("Uebergang gesetzt: {} -> {} auf {l:.0} m - am freien Ende mit dem neuen Querschnitt weiterbauen", kurz(&st.sli), kurz(ziel_sli)))
+    log::info!("Uebergang {rel} (Objekt {id}): {} -> {}, {l:.0} m, Steigung {:.1} %, {} Pfadelemente", st.sli, ziel_sli, st.steigung * 100.0, u.pfade.len());
+    let stg = if st.steigung.abs() >= 0.005 { format!(", {:+.1} %", st.steigung * 100.0) } else { String::new() };
+    Ok(format!("Uebergang gesetzt: {} -> {} auf {l:.0} m{stg} - am freien Ende mit dem neuen Querschnitt weiterbauen", kurz(&st.sli), kurz(ziel_sli)))
 }
 
 #[cfg(test)]
@@ -587,7 +605,7 @@ mod tests {
         let ziele: Vec<f64> = b.pfade.iter().filter(|p| p.art == 0 && p.richtung == 0).map(|p| p.x).collect();
         assert!(vor.iter().all(|p| ziele.iter().any(|z| (z - p.1).abs() < 1e-9)));
         assert!(vor.iter().all(|p| (p.0 - a.pfade.iter().find(|q| q.art == 0 && q.richtung == 0).unwrap().x).abs() < 1e-9), "beide aus der einen Spur von A");
-        let u = bauen(&a, &b, laenge_vorschlag(&a, &b)).unwrap();
+        let u = bauen(&a, &b, laenge_vorschlag(&a, &b), 0.0).unwrap();
         println!("Laenge {} m, {} Pfadelemente, {} Dreiecke, Materialien {:?}", u.laenge, u.pfade.len(), u.modell.dreiecke.len(), u.modell.materialien);
         assert!(u.laenge >= 15.0);
         // Gehwege laufen durch, Pfad-Enden: S-Kurve endet genau bei xb, y = L
@@ -627,7 +645,16 @@ mod tests {
         assert_eq!((g.teile[1].richtung, g.teile[2].richtung), (Zurueck, Vor));
         // Marcel 2 Spuren -> Baukasten mit Radfahrstreifen: Uebergang geht
         let b = Seite::aus_querschnitt(&q(&[(Gehweg, Vor), (Fahrspur, Zurueck), (Fahrspur, Vor), (Radfahrstreifen, Vor), (Gehweg, Vor)]));
-        let u = bauen(&s, &b, 20.0).unwrap();
+        let u = bauen(&s, &b, 20.0, 0.0).unwrap();
+        // mit 6 % Steigung: das Modell endet 1,2 m hoeher, die Pfade steigen mit
+        let u6 = bauen(&s, &b, 20.0, 0.06).unwrap();
+        let hoch = u6.modell.ecken.iter().filter(|e| (e[2] - 20.0).abs() < 1e-6).map(|e| e[1]).fold(f64::MIN, f64::max);
+        assert!((hoch - (1.2 + 0.25)).abs() < 1e-6, "Hoehe am Ende {hoch}");
+        for (e, _, _, _) in &u6.pfade {
+            let basis = e[2] - e[1] * 0.06;
+            assert!((basis - 0.1).abs() < 1e-6 || (basis - 0.25).abs() < 1e-6, "Hoehe {}", e[2]);
+            assert!((e[6] - 1.2).abs() < 1e-6 || (e[6] - 0.6).abs() < 1e-6, "Hoehenaenderung {}", e[6]);
+        }
         assert_eq!(u.pfade.iter().filter(|p| p.1 == 0).count(), 4, "zwei Spuren, je zwei Boegen");
     }
 
@@ -659,7 +686,7 @@ mod tests {
             panic!("kein freies Strassenende: {:?}", an.liste.iter().filter(|a| (a.pos.truncate() - glam::DVec2::new(150.0, 150.0)).length() < 250.0).map(|a| (a.spline_id, a.am_ende, a.frei)).collect::<Vec<_>>())
         });
         println!("freies Ende: Spline {} ({}) bei {:?}", a.spline_id, a.sli, a.pos);
-        let st = Stelle { pos: a.pos, richtung: a.richtung, sli: a.sli.clone(), gleichsinnig: a.am_ende != a.gespiegelt };
+        let st = Stelle { pos: a.pos, richtung: a.richtung, sli: a.sli.clone(), gleichsinnig: a.am_ende != a.gespiegelt, steigung: a.steigung };
         let ziel = "Splines\\Marcel\\str_2spur_8m_altonaer1.sli";
         let (sa, sb, l) = planen(root, &st, ziel, None).unwrap();
         println!("A {:.2} m, B {:.2} m, Laenge {l} m", sa.breite(), sb.breite());
@@ -700,6 +727,88 @@ mod tests {
             t.contains("Aschaffenburg\\Grundorf_ue\\UE_")
         });
         assert!(verweis, "keine Kachel verweist auf den Uebergang im Ordner der neuen Karte");
+        std::fs::remove_dir_all(&test_root).ok();
+        drop(ae);
+    }
+
+    /// eigene, ansteigende Strasse (noch nicht gespeichert): Uebergang an ihrem freien Ende mit ihrer Steigung; der
+    /// offene Arm liegt entsprechend hoeher und meldet die Steigung; als neue Karte gespeichert endet der Spline genau
+    /// am Uebergang (Lage, Hoehe, Richtung, Steigung)
+    #[test]
+    #[ignore]
+    fn eigene_strasse_mit_steigung() {
+        let _sperre = crate::bearbeiten::tests::sperre();
+        use crate::anschluss::Anschluesse;
+        use crate::strasse::{Modus, Strassenbau};
+        let root = Path::new(crate::bearbeiten::tests::OMSI);
+        let mut v = crate::bearbeiten::tests::grundorf();
+        let mut ae = crate::aendern::Aendern::neu(&v);
+        let mut s = Strassenbau::neu(Some("Splines\\Marcel\\str_2spur_10m_Grunewaldstr.sli".into()), Modus::Gerade);
+        let boden = |v: &openomsi_game::viewer::Viewer, x: f64, y: f64| glam::DVec3::new(x, y, v.terrain_height(x, y).unwrap_or(0.0));
+        let a = boden(&v, 120.0, 100.0);
+        s.klick(&mut v, a, 3.0, &Anschluesse::default(), None).unwrap();
+        s.hoehe = 4.0;
+        let b = boden(&v, 120.0, 180.0);
+        s.maus(&mut v, b, 3.0, &Anschluesse::default(), None);
+        s.klick(&mut v, b, 3.0, &Anschluesse::default(), None).unwrap();
+        s.beenden(&mut v);
+        let enden = s.freie_enden();
+        assert_eq!(enden.len(), 2, "zwei freie Enden der eigenen Strasse");
+        let (_, pos, richtung, steigung, sli, gleichsinnig) = enden.iter().find(|e| (e.1.truncate() - b.truncate()).length() < 0.5).cloned().expect("Ende bei b");
+        println!("Ende: {pos:?}, Richtung {richtung:.1}, Steigung {:.2} %, gleichsinnig {gleichsinnig}", steigung * 100.0);
+        assert!(steigung > 0.01, "die Strasse steigt zum Ende hin");
+        assert!((pos.z - (b.z + 4.0)).abs() < 0.01);
+        let st = Stelle { pos, richtung, sli, gleichsinnig, steigung };
+        let ziel = "Splines\\Marcel\\str_2spur_11m_SeeburgerStr1.sli";
+        println!("{}", setzen(&mut v, &mut ae, root, &st, ziel, Some(20.0)).unwrap());
+        v.tiles_around(glam::DVec3::new(150.0, 150.0, 0.0), 1).unwrap();
+        let mut an = Anschluesse::default();
+        an.aktualisieren(&v);
+        let fern = pos.truncate() + crate::netz::dir(richtung) * 20.0;
+        let arm = an.liste.iter().find(|x| x.objekt.is_some() && (x.pos.truncate() - fern).length() < 1.0).expect("offener Arm am Ende");
+        println!("Arm: {:?}, Steigung {:.2} %", arm.pos, arm.steigung * 100.0);
+        if let Some(bild) = std::env::var_os("OMSI_BILD") {
+            let kam = crate::kamera::Kamera { ziel: pos + glam::DVec3::new(0.0, 5.0, 0.0), gier: 270.0, neigung: -12.0, abstand: 45.0, fov: 50.0 };
+            let px = v.render_image(1280, 800, &kam.camera()).unwrap();
+            image::save_buffer(bild, &px, 1280, 800, image::ColorType::Rgba8).unwrap();
+        }
+        assert!((arm.pos.z - (pos.z + 0.1 + 20.0 * steigung)).abs() < 0.05, "Arm auf {:.2} statt {:.2}", arm.pos.z, pos.z + 0.1 + 20.0 * steigung);
+        assert!((arm.steigung - steigung).abs() < 0.002, "Steigung am Arm {}", arm.steigung);
+        // als neue Karte: die eigene Strasse endet genau am Uebergang
+        fn kopieren(a: &Path, b: &Path) {
+            std::fs::create_dir_all(b).unwrap();
+            for e in std::fs::read_dir(a).unwrap().flatten() {
+                if e.file_type().unwrap().is_dir() { kopieren(&e.path(), &b.join(e.file_name())) } else { std::fs::copy(e.path(), b.join(e.file_name())).unwrap(); }
+            }
+        }
+        let test_root = std::env::temp_dir().join(format!("omsi-editor-ue2-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&test_root);
+        kopieren(&root.join("maps/Grundorf"), &test_root.join("maps/Grundorf"));
+        let paket = crate::speichern::vorbereiten(&v, &crate::bearbeiten::Bearbeiten::neu(crate::bearbeiten::Werkzeug::Strasse), &s.netz, &s.gesetzte_kreuzungen(),
+                                                  &ae.kopien("Grundorf"), Some(ae.kreuzungs_ordner()), "Grundorf").unwrap();
+        let karte = crate::speichern::karte_anlegen(&test_root, "Grundorf", "Grundorf_ue2", &paket).unwrap();
+        let (mut obj, mut enden_sp) = (None, Vec::new());
+        for e in std::fs::read_dir(&karte).unwrap().flatten() {
+            let n = e.file_name().to_string_lossy().to_string();
+            let Some(rest) = n.strip_prefix("tile_").and_then(|r| r.strip_suffix(".map")) else { continue };
+            let k: Vec<i32> = rest.split('_').filter_map(|x| x.parse().ok()).collect();
+            let o = glam::DVec2::new(k[0] as f64 * 300.0, k[1] as f64 * 300.0);
+            let t = omsi_map::Tile::load(&e.path()).unwrap();
+            for ob in &t.objects {
+                if ob.file.contains("UE_") {
+                    obj = Some((glam::DVec3::new(o.x + ob.pos[0], o.y + ob.pos[1], ob.pos[2]), ob.rot[0]));
+                }
+            }
+            for sp in t.splines.iter().filter(|sp| sp.file.contains("Grunewald")) {
+                let k = omsi_geometry::SplineCurve::from_map(sp, o);
+                enden_sp.push((k.end_point(), k.heading_at(k.length), k.slope_at(k.length), k.start, k.heading_deg));
+            }
+        }
+        let (op, orot) = obj.expect("Uebergang nicht in der Karte");
+        println!("Objekt bei {op:?}, Richtung {orot:.2}");
+        let passt = enden_sp.iter().any(|(e, h, g, _, _)| (*e - op).length() < 0.02 && crate::netz::norm180(h - orot).abs() < 0.1 && (g - steigung).abs() < 0.002)
+            || enden_sp.iter().any(|(_, _, _, s0, h0)| (*s0 - op).length() < 0.02 && crate::netz::norm180(h0 + 180.0 - orot).abs() < 0.1);
+        assert!(passt, "kein Spline endet am Uebergang: {enden_sp:?}");
         std::fs::remove_dir_all(&test_root).ok();
         drop(ae);
     }
