@@ -30,6 +30,12 @@ const PFEILER_DICKE: f64 = 1.2;
 const PFEILER_MIN: f64 = 1.5;
 const MAUER_DICKE: f64 = 0.3;
 const ZELLE: f64 = 5.0;
+/// Einschnitt mit Mauern: das Gelaende wird so weit ueber die Mauer hinaus auf die Sohle abgesenkt (mehr als die
+/// Diagonale einer Rasterzelle, sonst ragen Gelaendedreiecke mit einer hohen Ecke in den Einschnitt) ...
+const GRABEN_RAND: f64 = 8.0;
+/// ... und ein Deckel mit der Bodentextur liegt auf der alten Gelaendehoehe darueber (wie omsigen bauwerke.py an
+/// Tunneln): Abstaende seiner Laengsstreifen von der Mauer-Innenseite
+const DECKEL: [f64; 4] = [0.3, 5.5, 11.0, 16.5];
 
 /// Pfeiler: Fuss (Gelaende, absolut), Richtung der Bruecke, Hoehe bis unter die Platte, Breite quer
 #[derive(Clone, Debug)]
@@ -48,6 +54,12 @@ pub struct Plan {
     pub pfeiler: Vec<Pfeiler>,
     /// Sockel unter hochliegenden Kreuzungen
     pub sockel: Vec<Sockel>,
+    /// Stuetzmauern (je Stueck einer Strasse beide Seiten)
+    pub mauern: Vec<MauerStueck>,
+    /// Klinker-Verblendung zur Strasse hin (sonst Beton)
+    pub klinker: bool,
+    /// Bodentextur der Karte (erste [groundtex]) fuer die Deckel neben Einschnitten
+    pub bodentextur: Option<Bodentextur>,
     /// geaendertes Gelaende je Kachel (ganze Kachel)
     pub gelaende: HashMap<(i32, i32), Terrain>,
     pub bruecken_m: f64,
@@ -66,6 +78,9 @@ impl Plan {
         }
         if self.mauern_m > 0.0 {
             t.push(format!("{:.0} m Stuetzmauer", self.mauern_m));
+        }
+        if !self.mauern.is_empty() && self.mauern_m == 0.0 {
+            t.push("Stuetzmauer".into());
         }
         if !self.sockel.is_empty() {
             t.push(format!("{} Kreuzung(en) auf Sockel", self.sockel.len()));
@@ -107,7 +122,7 @@ fn ansprueche(proben: &[Probe], basis: &Gitter, nur_graben: bool, ziel: &mut Has
         let mauer = pr.bauweise == Bauweise::Mauer;
         let Some(g0) = boden(basis, pr.p.x, pr.p.y) else { continue };
         let luft = pr.p.z - g0;
-        let reich = pr.halb + if mauer { 0.5 } else { luft.abs() * BOESCHUNG + ZELLE };
+        let reich = pr.halb + if mauer { 0.5 + GRABEN_RAND } else { luft.abs() * BOESCHUNG + ZELLE };
         let (gx0, gx1) = (((pr.p.x - reich) / ZELLE).floor() as i32, ((pr.p.x + reich) / ZELLE).ceil() as i32);
         let (gy0, gy1) = (((pr.p.y - reich) / ZELLE).floor() as i32, ((pr.p.y + reich) / ZELLE).ceil() as i32);
         let unter = pr.p.z - 0.05;
@@ -119,7 +134,7 @@ fn ansprueche(proben: &[Probe], basis: &Gitter, nur_graben: bool, ziel: &mut Has
                 }
                 let Some(g) = basis.hoehe(gx, gy).map(|h| h as f64) else { continue };
                 let a = ziel.entry((gx, gy)).or_default();
-                let innen = d <= pr.halb + if mauer { 0.5 } else { 0.0 };
+                let innen = d <= pr.halb + if mauer { 0.5 + GRABEN_RAND } else { 0.0 };
                 // abtragen (die Strasse liegt tiefer)
                 let graben = if innen { unter } else if mauer { f64::INFINITY } else { unter + (d - pr.halb) / BOESCHUNG };
                 if graben < g {
@@ -270,10 +285,32 @@ pub fn planen(v: &Viewer, netz: &Netz, kanten: &dyn Fn(&str) -> (f64, f64), brue
             let luft_min = luft.iter().copied().fold(f64::MAX, f64::min);
             if luft_max > 0.3 || luft_min < -0.3 {
                 if x.bauweise == Bauweise::Mauer {
-                    // Mauern: nach unten (Fahrbahn ueber dem Gelaende) oder oben (im Einschnitt), Hoehe in 1-m-Stufen
-                    let (unten, h) = if luft_max.abs() >= luft_min.abs() { (true, luft_max) } else { (false, -luft_min) };
-                    let hh = (h + 1.0).ceil();
-                    plan.begleit.push((format!("Splines\\{}\\AB_mauer_{}_{}_{}_{}.sli", crate::speichern::EIGEN, if unten { "unten" } else { "oben" }, zahl(x.l), zahl(x.r), zahl(hh)), x.el, x.kante, x.cum));
+                    // Stuetzmauern an beiden Raendern, Oberkante an jeder Stelle nach dem Gelaende (siehe `MauerStueck`)
+                    let ursprung = x.proben[0].0;
+                    let mut seiten = Vec::new();
+                    for (rand, aussen) in [(x.l, -1.0), (x.r, 1.0)] {
+                        let linie: Vec<MauerPunkt> = x.proben.iter().map(|(p, h)| {
+                            let q = p.truncate() + crate::netz::rechts(*h) * rand;
+                            let g = boden(&basis, q.x, q.y).unwrap_or(p.z);
+                            let oben_strasse = p.z + GEHWEG_H;
+                            let (unten, oben) = if g > oben_strasse {
+                                // Einschnitt: von unter dem Gehweg bis knapp ueber das Gelaende
+                                (oben_strasse - 0.4, g + 0.3)
+                            } else {
+                                // Rampe ueber dem Gelaende: vom Gelaende bis zur Bruestung ueber dem Gehweg
+                                (g - 0.5, oben_strasse + 0.6)
+                            };
+                            let richtung_aussen = crate::netz::rechts(*h) * aussen;
+                            // Deckel ueber dem breiter abgesenkten Gelaende (nur im Einschnitt)
+                            let deckel = (g > oben_strasse).then(|| DECKEL.map(|o| {
+                                let w = q + richtung_aussen * o;
+                                boden(&basis, w.x, w.y).unwrap_or(g) + 0.03 - ursprung.z
+                            }));
+                            MauerPunkt { pos: (q - ursprung.truncate()), aussen: richtung_aussen, unten: unten - ursprung.z, oben: oben - ursprung.z, deckel }
+                        }).collect();
+                        seiten.push(linie);
+                    }
+                    plan.mauern.push(MauerStueck { pos: ursprung, seiten });
                     plan.mauern_m += x.el.stueck.laenge;
                 } else {
                     plan.rampen_m += x.el.stueck.laenge;
@@ -354,6 +391,177 @@ fn huelle(punkte: &[DVec2], mitte: DVec2) -> Vec<DVec2> {
     oben.pop();
     unten.extend(oben);
     unten
+}
+
+/// erste Bodentextur der Karte: Textur, Detailtextur und wie oft die Detailtextur je Kachel wiederholt wird
+#[derive(Clone, Debug, PartialEq)]
+pub struct Bodentextur {
+    pub basis: std::path::PathBuf,
+    pub detail: Option<std::path::PathBuf>,
+    pub detail_je_kachel: f64,
+}
+
+/// Deckel-Textur wie das Gelaende sie zeigt (openOMSI: Bodentextur mal Detailtextur): die Detailtextur, eingefaerbt mit
+/// der mittleren Farbe der Bodentextur (deren grosse Flecken je Kachel gehen verloren, die Koernung passt) ->
+/// (Dateiname, Meter je Wiederholung)
+fn deckel_textur(ordner: &Path, b: Option<&Bodentextur>) -> (String, f64) {
+    const NAME: &str = "AB_boden.bmp";
+    let ts = omsi_map::tile_size();
+    let Some(b) = b else { return ("gras.bmp".into(), ts) };
+    let ziel = ordner.join("texture").join(NAME);
+    let wiederholung = ts / b.detail_je_kachel.max(1.0);
+    if ziel.is_file() {
+        return (NAME.into(), wiederholung);
+    }
+    let basis = image::open(&b.basis).ok().map(|i| i.to_rgb8());
+    let detail = b.detail.as_ref().and_then(|d| image::open(d).ok()).map(|i| i.to_rgb8());
+    match (basis, detail) {
+        (Some(bas), Some(det)) => {
+            let n = (bas.width() * bas.height()) as f64;
+            let mittel: [f64; 3] = [0, 1, 2].map(|k| bas.pixels().map(|p| p[k] as f64).sum::<f64>() / n);
+            let out = image::RgbImage::from_fn(det.width(), det.height(), |x, y| {
+                let d = det.get_pixel(x, y);
+                image::Rgb([0, 1, 2].map(|k| (mittel[k] * d[k] as f64 / 255.0).clamp(0.0, 255.0) as u8))
+            });
+            if out.save(&ziel).is_ok() {
+                return (NAME.into(), wiederholung);
+            }
+            let name = b.basis.file_name().map(|x| x.to_string_lossy().to_string()).unwrap_or_default();
+            let _ = std::fs::copy(&b.basis, ordner.join("texture").join(&name));
+            (name, ts)
+        }
+        _ => {
+            let name = b.basis.file_name().map(|x| x.to_string_lossy().to_string()).unwrap_or_default();
+            let _ = std::fs::copy(&b.basis, ordner.join("texture").join(&name));
+            (name, ts)
+        }
+    }
+}
+
+/// ein Punkt einer Stuetzmauer (relativ zum Ursprung des Stuecks): Lage der Innenseite, Richtung nach aussen (vom
+/// Fahrweg weg), Unter- und Oberkante
+#[derive(Clone, Copy, Debug)]
+pub struct MauerPunkt {
+    pub pos: DVec2,
+    pub aussen: DVec2,
+    pub unten: f64,
+    pub oben: f64,
+    /// im Einschnitt: Hoehen des Deckels an den Abstaenden `DECKEL` von der Innenseite
+    pub deckel: Option<[f64; 4]>,
+}
+
+/// Stuetzmauern eines Strassenstuecks: Ursprung (absolut) und je Seite die Punkte alle 2 m
+#[derive(Clone, Debug)]
+pub struct MauerStueck {
+    pub pos: DVec3,
+    pub seiten: Vec<Vec<MauerPunkt>>,
+}
+
+/// Stuetzmauer-Objekt: Wand 0,3 m dick, zur Strasse hin Klinker (oder Beton), oben Betonkappe, darauf ein Gelaender
+/// (Pfosten alle 2 m, Hand- und Knieleiste) -> Dateiname (.sco)
+pub fn mauer_objekt(root: &Path, ordner: &Path, m: &MauerStueck, klinker: bool, bodentextur: Option<&Bodentextur>) -> Result<String> {
+    let mut h: u64 = 0xcbf2_9ce4_8422_2325;
+    for s in &m.seiten {
+        for p in s {
+            for b in format!("{:.2},{:.2},{:.2},{:.2};", p.pos.x, p.pos.y, p.unten, p.oben).bytes() {
+                h ^= b as u64;
+                h = h.wrapping_mul(0x0100_0000_01b3);
+            }
+        }
+    }
+    let name = format!("Mauer_{}{:012x}", if klinker { "K" } else { "B" }, h & 0xffff_ffff_ffff);
+    let _ = &bodentextur;
+    let sco = ordner.join(format!("{name}.sco"));
+    if sco.is_file() {
+        return Ok(format!("{name}.sco"));
+    }
+    std::fs::create_dir_all(ordner.join("model"))?;
+    std::fs::create_dir_all(ordner.join("texture"))?;
+    let texturen = ["betonwand1.bmp", "AB_klinker.bmp", "AB_gelaender.bmp"];
+    crate::querschnitt::texturen_bereitstellen(root, &texturen)?;
+    for t in texturen {
+        let q = crate::querschnitt::ordner(root).join("texture").join(t);
+        if q.is_file() {
+            std::fs::copy(&q, ordner.join("texture").join(t))?;
+        }
+    }
+    let mut md = crate::uebergang::Modell::default();
+    let beton = md.material("betonwand1.bmp");
+    let innen_mat = if klinker { md.material("AB_klinker.bmp") } else { beton };
+    let stahl = md.material("AB_gelaender.bmp");
+    // Deckel: wie das Gelaende (Textur in Weltkoordinaten, siehe deckel_textur)
+    let (boden_name, wiederholung) = deckel_textur(ordner, bodentextur);
+    if bodentextur.is_none() {
+        let q = root.join("Texture").join("gras.bmp");
+        if q.is_file() && !ordner.join("texture").join("gras.bmp").is_file() {
+            std::fs::copy(&q, ordner.join("texture").join("gras.bmp"))?;
+        }
+    }
+    let boden_mat = md.material(&boden_name);
+    let welt_uv = |q: DVec2| [(m.pos.x + q.x) / wiederholung, (m.pos.y + q.y) / wiederholung];
+    const DICKE: f64 = 0.3;
+    for seite in &m.seiten {
+        let mut s = 0.0;
+        for w in seite.windows(2) {
+            let (a, b) = (w[0], w[1]);
+            let len = (b.pos - a.pos).length();
+            if len < 1e-3 {
+                continue;
+            }
+            let innen = -(a.aussen + b.aussen).normalize_or_zero();
+            let (ao, bo) = (a.pos + a.aussen * DICKE, b.pos + b.aussen * DICKE);
+            let p3 = |q: DVec2, z: f64| [q.x, q.y, z];
+            // Innenseite (zur Strasse): Klinker bis unter die Kappe
+            let (ka, kb) = (a.oben - 0.25, b.oben - 0.25);
+            md.viereck(innen_mat, [p3(a.pos, a.unten), p3(b.pos, b.unten), p3(b.pos, kb.max(b.unten)), p3(a.pos, ka.max(a.unten))],
+                       [[s / 2.0, a.unten], [(s + len) / 2.0, b.unten], [(s + len) / 2.0, kb], [s / 2.0, ka]], [innen.x, innen.y, 0.0]);
+            // Kappe innen, oben, aussen
+            md.viereck(beton, [p3(a.pos, ka), p3(b.pos, kb), p3(b.pos, b.oben), p3(a.pos, a.oben)],
+                       [[s / 4.0, 0.0], [(s + len) / 4.0, 0.0], [(s + len) / 4.0, 0.06], [s / 4.0, 0.06]], [innen.x, innen.y, 0.0]);
+            md.viereck(beton, [p3(a.pos, a.oben), p3(b.pos, b.oben), p3(bo, b.oben), p3(ao, a.oben)],
+                       [[s / 4.0, 0.0], [(s + len) / 4.0, 0.0], [(s + len) / 4.0, 0.08], [s / 4.0, 0.08]], [0.0, 0.0, 1.0]);
+            md.viereck(beton, [p3(ao, a.unten), p3(bo, b.unten), p3(bo, b.oben), p3(ao, a.oben)],
+                       [[s / 4.0, a.unten / 4.0], [(s + len) / 4.0, b.unten / 4.0], [(s + len) / 4.0, b.oben / 4.0], [s / 4.0, a.oben / 4.0]], [-innen.x, -innen.y, 0.0]);
+            // Deckel ueber dem abgesenkten Gelaende hinter der Mauer
+            if let (Some(da), Some(db)) = (a.deckel, b.deckel) {
+                for j in 0..3 {
+                    let (pa0, pa1) = (a.pos + a.aussen * DECKEL[j], a.pos + a.aussen * DECKEL[j + 1]);
+                    let (pb0, pb1) = (b.pos + b.aussen * DECKEL[j], b.pos + b.aussen * DECKEL[j + 1]);
+                    md.viereck(boden_mat, [p3(pa0, da[j]), p3(pb0, db[j]), p3(pb1, db[j + 1]), p3(pa1, da[j + 1])],
+                               [welt_uv(pa0), welt_uv(pb0), welt_uv(pb1), welt_uv(pa1)], [0.0, 0.0, 1.0]);
+                }
+            }
+            // Gelaender: Hand- und Knieleiste (beidseitig sichtbar)
+            let mitte = |q: DVec2, r: DVec2| q + r * (DICKE / 2.0);
+            let (ga, gb) = (mitte(a.pos, a.aussen), mitte(b.pos, b.aussen));
+            for (z0, z1) in [(0.95, 1.05), (0.5, 0.56)] {
+                for n in [innen, -innen] {
+                    md.viereck(stahl, [p3(ga, a.oben + z0), p3(gb, b.oben + z0), p3(gb, b.oben + z1), p3(ga, a.oben + z1)],
+                               [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]], [n.x, n.y, 0.0]);
+                }
+            }
+            s += len;
+        }
+        // Pfosten an jedem Punkt
+        for p in seite {
+            let c = p.pos + p.aussen * (DICKE / 2.0);
+            let quer = DVec2::new(-p.aussen.y, p.aussen.x) * 0.03;
+            let tief = p.aussen * 0.03;
+            for (d, n) in [(quer, quer), (-quer, -quer), (tief, tief), (-tief, -tief)] {
+                let seitlich = if d == quer || d == -quer { tief } else { quer };
+                let (q1, q2) = (c + d - seitlich, c + d + seitlich);
+                let nn = n.normalize_or_zero();
+                md.viereck(stahl, [[q1.x, q1.y, p.oben], [q2.x, q2.y, p.oben], [q2.x, q2.y, p.oben + 1.05], [q1.x, q1.y, p.oben + 1.05]],
+                           [[0.0, 0.0], [1.0, 0.0], [1.0, 1.0], [0.0, 1.0]], [nn.x, nn.y, 0.0]);
+            }
+        }
+    }
+    std::fs::write(ordner.join("model").join(format!("{name}.x")), md.x_datei())?;
+    let text = ["Erzeugt mit omsi-editor (Stuetzmauer)", "", "[friendlyname]", "Stuetzmauer", "", "[groups]", "1",
+                crate::speichern::EIGEN, "", "[fixed]", "", "[absheight]", "", "[mesh]", &format!("{name}.x"), ""].join("\r\n") + "\r\n";
+    std::fs::write(&sco, text)?;
+    omsi_cfg::content_changed();
+    Ok(format!("{name}.sco"))
 }
 
 /// Sockel unter einer hochliegenden Kreuzung: Umriss (relativ zur Mitte, gegen den Uhrzeigersinn)
@@ -602,7 +810,13 @@ mod tests {
         }
         s.bauwerke_aktualisieren(&mut v);
         println!("Mauer: {}", s.bauwerke.text());
-        assert!(s.bauwerke.mauern_m > 0.0 && s.bauwerke.begleit.iter().any(|b| b.0.contains("AB_mauer_unten")));
+        assert!(s.bauwerke.mauern_m > 0.0 && !s.bauwerke.mauern.is_empty());
+        // Rampe ueber dem Gelaende: Oberkante ueber dem Gehweg, Unterkante unter dem Gelaende
+        for m in &s.bauwerke.mauern {
+            for p in m.seiten.iter().flatten() {
+                assert!(p.oben > p.unten + 0.3, "Mauer ohne Hoehe: {p:?}");
+            }
+        }
         for (rel, ..) in &s.bauwerke.begleit {
             assert!(root.join(rel.replace('\\', "/")).is_file(), "{rel} fehlt");
         }
@@ -688,6 +902,39 @@ mod tests {
             let kam = crate::kamera::Kamera { ziel: DVec3::new(m.x, m.y, b.z - 3.0), gier: 210.0, neigung: -25.0, abstand: 90.0, fov: 50.0 };
             let px = v.render_image(1280, 800, &kam.camera()).unwrap();
             image::save_buffer(std::path::PathBuf::from(&bild).with_extension("einschnitt.png"), &px, 1280, 800, image::ColorType::Rgba8).unwrap();
+        }
+        // wie am Ring: die untere Strasse zwischen Stuetzmauern (Klinker) statt Boeschungen; Deckel in der Bodentextur
+        let omsi = Path::new(crate::bearbeiten::tests::OMSI);
+        s.bodentextur = Some(Bodentextur { basis: omsi.join("Texture/gras.bmp"), detail: Some(omsi.join("Texture/gras_det.bmp")), detail_je_kachel: 60.0 });
+        let untere: Vec<u32> = s.netz.kanten.iter().filter(|e| (s.netz.knoten(e.a).unwrap().pos.x - m.x).abs() < 1.0).map(|e| e.id).collect();
+        for e in s.netz.kanten.iter_mut().filter(|e| untere.contains(&e.id)) {
+            e.bauweise = crate::netz::Bauweise::Mauer;
+        }
+        s.bauwerke_aktualisieren(&mut v);
+        println!("mit Mauern: {}", s.bauwerke.text());
+        assert!(!s.bauwerke.mauern.is_empty());
+        // hinter der Mauer: Gelaende abgesenkt (5-m-Raster), darueber ein Deckel auf alter Hoehe
+        let mit_deckel = s.bauwerke.mauern.iter().flat_map(|mm| mm.seiten.iter().flatten()).filter(|p| p.deckel.is_some()).count();
+        println!("Mauerpunkte mit Deckel: {mit_deckel}");
+        assert!(mit_deckel > 10, "kein Deckel im Einschnitt");
+        for mm in &s.bauwerke.mauern {
+            for p in mm.seiten.iter().flatten() {
+                if let Some(d) = p.deckel {
+                    // Deckel an der Mauer unter der Mauerkrone und ueber der Strasse im Einschnitt
+                    assert!(d[0] < p.oben && d.iter().all(|z| *z > p.unten), "Deckel {d:?}, Krone {}, Fuss {}", p.oben, p.unten);
+                }
+            }
+        }
+        // im Einschnitt: die Mauer reicht bis knapp ueber das Gelaende
+        let tief = s.bauwerke.mauern.iter().flat_map(|mm| mm.seiten.iter().flatten().map(move |p| (mm.pos.z + p.oben, mm.pos.z + p.unten))).fold(0.0f64, |a, (o, u)| a.max(o - u));
+        assert!(tief > 6.0, "Mauer im 7-m-Einschnitt nur {tief:.1} m hoch");
+        if let Some(bild) = std::env::var_os("OMSI_BILD") {
+            let kam = crate::kamera::Kamera { ziel: DVec3::new(m.x, m.y + 45.0, b.z - 5.0), gier: 180.0, neigung: -12.0, abstand: 30.0, fov: 60.0 };
+            let px = v.render_image(1280, 800, &kam.camera()).unwrap();
+            image::save_buffer(std::path::PathBuf::from(&bild).with_extension("einschnitt_mauer.png"), &px, 1280, 800, image::ColorType::Rgba8).unwrap();
+            let kam = crate::kamera::Kamera { ziel: DVec3::new(m.x, m.y, b.z - 3.0), gier: 210.0, neigung: -30.0, abstand: 90.0, fov: 50.0 };
+            let px = v.render_image(1280, 800, &kam.camera()).unwrap();
+            image::save_buffer(std::path::PathBuf::from(&bild).with_extension("einschnitt_mauer_oben.png"), &px, 1280, 800, image::ColorType::Rgba8).unwrap();
         }
         drop(ae);
     }

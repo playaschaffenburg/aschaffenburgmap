@@ -291,6 +291,10 @@ pub struct Strassenbau {
     pub root: Option<PathBuf>,
     /// Bruecke ab so viel Luft unter der Fahrbahn (m)
     pub bruecke_ab: f64,
+    /// Stuetzmauern mit Klinker-Verblendung (sonst Beton)
+    pub klinker: bool,
+    /// Bodentextur der Karte (Deckel neben Einschnitten)
+    pub bodentextur: Option<crate::bauwerke::Bodentextur>,
     /// Bruecken, Rampen, Mauern des Netzes (bauwerke.rs), gezeichnet, und die Kacheln mit Gelaende-Vorschau
     pub bauwerke: crate::bauwerke::Plan,
     bauwerke_gpu: Vec<TileGpu>,
@@ -307,7 +311,7 @@ impl Default for Strassenbau {
                       vorschau: vec![], gezeichnet: HashMap::new(), undo: vec![], redo: vec![], aenderungen: 0,
                       uebernehmen: true, spuren_cache: HashMap::new(), zeiger: None, objekte: HashMap::new(),
                       objekt_cache: HashMap::new(), kreuzungs_ordner: None, kreuzung_fehler: None, kreisel_sli: None, root: None,
-                      bruecke_ab: crate::bauwerke::BRUECKE_AB, bauwerke: Default::default(), bauwerke_gpu: Vec::new(),
+                      bruecke_ab: crate::bauwerke::BRUECKE_AB, klinker: true, bodentextur: None, bauwerke: Default::default(), bauwerke_gpu: Vec::new(),
                       gelaende_vorschau: Default::default() }
     }
 }
@@ -1115,7 +1119,9 @@ impl Strassenbau {
     /// Bruecken, Rampen und Mauern neu planen und zeigen (Begleit-Splines, Pfeiler, Gelaende)
     pub fn bauwerke_aktualisieren(&mut self, v: &mut Viewer) {
         let kanten = |sli: &str| v.spline_lanes(sli).map(|(_, (l, r))| (-(l as f64), r as f64)).unwrap_or((-5.0, 5.0));
-        let plan = crate::bauwerke::planen(v, &self.netz, &kanten, self.bruecke_ab);
+        let mut plan = crate::bauwerke::planen(v, &self.netz, &kanten, self.bruecke_ab);
+        plan.klinker = self.klinker;
+        plan.bodentextur = self.bodentextur.clone();
         if let Some(root) = &self.root {
             if let Err(e) = crate::bauwerke::splines_schreiben(root, &plan) {
                 log::warn!("Bruecken-/Mauer-Splines: {e:#}");
@@ -1130,6 +1136,17 @@ impl Strassenbau {
             }
         }
         if let (Some(root), Some((ordner, tag))) = (&self.root, &self.kreuzungs_ordner) {
+            for m in &plan.mauern {
+                match crate::bauwerke::mauer_objekt(root, ordner, m, plan.klinker, plan.bodentextur.as_ref()) {
+                    Ok(name) => {
+                        let rel = format!("Sceneryobjects\\{}\\{tag}\\{name}", crate::speichern::EIGEN);
+                        if let Some(g) = v.add_object(&rel, m.pos, 0.0) {
+                            self.bauwerke_gpu.push(g);
+                        }
+                    }
+                    Err(e) => log::warn!("Stuetzmauer: {e:#}"),
+                }
+            }
             for so in &plan.sockel {
                 match crate::bauwerke::sockel_objekt(root, ordner, so) {
                     Ok(name) => {

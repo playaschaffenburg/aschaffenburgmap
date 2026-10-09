@@ -486,7 +486,7 @@ pub fn vorbereiten(v: &Viewer, b: &Bearbeiten, netz: &crate::netz::Netz, netz_kr
 
 /// Bruecken, Mauern (Begleit-Splines), Pfeiler und das Gelaende der Rampen in die Kacheln des Pakets schreiben
 pub fn bauwerke_anhaengen(v: &Viewer, paket: &mut Paket, plan: &crate::bauwerke::Plan, pfeiler_ordner: Option<(&Path, &str)>, root: &Path, alt: &str) -> Result<()> {
-    if plan.begleit.is_empty() && plan.pfeiler.is_empty() && plan.sockel.is_empty() && plan.gelaende.is_empty() {
+    if plan.begleit.is_empty() && plan.pfeiler.is_empty() && plan.sockel.is_empty() && plan.mauern.is_empty() && plan.gelaende.is_empty() {
         return Ok(());
     }
     let ordner = paket.staging.join("maps").join(alt);
@@ -507,6 +507,17 @@ pub fn bauwerke_anhaengen(v: &Viewer, paket: &mut Paket, plan: &crate::bauwerke:
         paket.neue_splines += 1;
     }
     if let Some((po, tag)) = pfeiler_ordner {
+        for m in &plan.mauern {
+            let name = crate::bauwerke::mauer_objekt(root, po, m, plan.klinker, plan.bodentextur.as_ref())?;
+            let (tx, ty) = kachel(m.pos.x, m.pos.y);
+            je_kachel.entry((tx, ty)).or_default().push(vec![
+                "[object]".to_string(), "0".into(), format!("Sceneryobjects\\{EIGEN}\\{tag}\\{name}"), id.to_string(),
+                zahl(m.pos.x - tx as f64 * groesse), zahl(m.pos.y - ty as f64 * groesse), zahl(m.pos.z),
+                "0".into(), "0".into(), "0".into(), "0".into(),
+            ]);
+            id += 1;
+            paket.neue_objekte += 1;
+        }
         for so in &plan.sockel {
             let name = crate::bauwerke::sockel_objekt(root, po, so)?;
             let (tx, ty) = kachel(so.pos.x, so.pos.y);

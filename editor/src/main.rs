@@ -549,6 +549,7 @@ impl App {
             self.aendern = Some(aendern::Aendern::neu(v));
             self.strasse.kreuzungs_ordner = self.aendern.as_ref().map(|a| a.kreuzungs_ordner());
             self.strasse.root = Some(self.root.clone());
+            self.strasse.bodentextur = bodentextur(&self.root, &self.karten[i].global);
             self.kamera_von(&cam);
             let (ziel, weite) = (self.kam.ziel, self.sichtweite());
             if let Some(v) = self.viewer.as_mut() {
@@ -584,6 +585,7 @@ impl App {
         self.aendern = Some(aendern::Aendern::neu(&v));
         self.strasse.kreuzungs_ordner = self.aendern.as_ref().map(|a| a.kreuzungs_ordner());
         self.strasse.root = Some(self.root.clone());
+        self.strasse.bodentextur = bodentextur(&self.root, &self.karten[i].global);
         self.surface = Some(surface);
         self.viewer = Some(v);
         self.karte = Some(self.karten[i].ordner.clone());
@@ -1517,6 +1519,9 @@ impl App {
                             if ui.selectable_label(self.strasse.netz.bauweise_neu == b, t).on_hover_text(hilfe).clicked() {
                                 self.strasse.netz.bauweise_neu = b;
                             }
+                        }
+                        if self.strasse.netz.bauweise_neu == netz::Bauweise::Mauer && ui.checkbox(&mut self.strasse.klinker, "Klinker").on_hover_text("Mauern zur Strasse hin mit Klinker verblendet (sonst Beton)").changed() {
+                            aktionen.push(UiAktion::BauwerkeNeu);
                         }
                     });
                     ui.horizontal(|ui| {
@@ -3206,7 +3211,7 @@ impl App {
                             return;
                         }
                         // die Pfeiler liegen bei den Kreuzungsobjekten der Sitzung: mit ihnen in den Ordner der Karte
-                        if paket.kreuzungen.is_none() && (!self.strasse.bauwerke.pfeiler.is_empty() || !self.strasse.bauwerke.sockel.is_empty()) {
+                        if paket.kreuzungen.is_none() && (!self.strasse.bauwerke.pfeiler.is_empty() || !self.strasse.bauwerke.sockel.is_empty() || !self.strasse.bauwerke.mauern.is_empty()) {
                             paket.kreuzungen = pfeiler;
                         }
                         let root = self.root.clone();
@@ -3237,7 +3242,7 @@ impl App {
                             return;
                         }
                         // die Pfeiler liegen bei den Kreuzungsobjekten der Sitzung: mit ihnen in den Ordner der Karte
-                        if paket.kreuzungen.is_none() && (!self.strasse.bauwerke.pfeiler.is_empty() || !self.strasse.bauwerke.sockel.is_empty()) {
+                        if paket.kreuzungen.is_none() && (!self.strasse.bauwerke.pfeiler.is_empty() || !self.strasse.bauwerke.sockel.is_empty() || !self.strasse.bauwerke.mauern.is_empty()) {
                             paket.kreuzungen = pfeiler;
                         }
                         let root = self.root.clone();
@@ -3670,6 +3675,23 @@ fn einbahn_knoepfe(ui: &mut egui::Ui, stand: Option<netz::Einbahn>) -> Option<ne
     }
     ui.label(egui::RichText::new("Einbahn: die Spuren der Gegenrichtung bekommen [rule] no_cars - die KI faehrt dort nicht, der Spieler schon. Der Pfeil im Bild zeigt die Splinerichtung; mit H sieht man gesperrte Spuren rot.").small().weak());
     wahl
+}
+
+/// erste Bodentextur der Karte ([groundtex] in global.cfg: Textur, Detailtextur, 3 Werte - der dritte: Wiederholungen der
+/// Detailtextur je Kachel, wie openOMSI `GroundTexture::detail_repeats`)
+fn bodentextur(root: &std::path::Path, global: &std::path::Path) -> Option<bauwerke::Bodentextur> {
+    let (text, _) = speichern::dekodieren(&std::fs::read(global).ok()?);
+    let z: Vec<&str> = text.lines().collect();
+    let i = z.iter().position(|l| l.trim().eq_ignore_ascii_case("[groundtex]"))?;
+    let datei = |k: usize| z.get(i + k).map(|r| omsi_cfg::resolve_path(root, &r.trim().replace(chr_backslash(), "/"))).filter(|p| p.is_file());
+    let basis = datei(1)?;
+    let wert = |k: usize| z.get(i + k).and_then(|x| x.trim().parse::<f64>().ok()).unwrap_or(0.0);
+    let wiederholt = if wert(5) > 0.0 { wert(5) } else if wert(4) > 0.0 { wert(4) } else { 1.0 };
+    Some(bauwerke::Bodentextur { basis, detail: datei(2), detail_je_kachel: wiederholt })
+}
+
+fn chr_backslash() -> char {
+    char::from(92u8)
 }
 
 /// Maler fuer Markierungen ueber dem 3D-Bild: auf die freie Bildflaeche zwischen den Leisten zugeschnitten (sonst

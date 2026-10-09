@@ -560,6 +560,28 @@ pub fn texturen_bereitstellen(root: &Path, texturen: &[&str]) -> Result<()> {
             "AB_marke_strich.tga" => tga(&z, 16, 288, |_, y| y < 96)?,
             "AB_marke_voll.tga" => tga(&z, 16, 64, |_, _| true)?,
             "AB_marke_doppelt.tga" => tga(&z, 48, 64, |x, _| !(16..32).contains(&x))?,
+            "AB_klinker.bmp" => {
+                // Klinker im Laeuferverband: 256 px = 2 m breit, 1 m hoch (Stein 24 x 7 cm, Fuge 1 cm)
+                let img = image::RgbImage::from_fn(256, 256, |x, y| {
+                    let reihe = y / 19;
+                    let versatz = if reihe % 2 == 0 { 0 } else { 16 };
+                    let fuge = y % 19 >= 17 || (x + versatz) % 32 >= 30;
+                    let stein = (x + versatz) / 32 + reihe * 7;
+                    let n = ((x.wrapping_mul(73) ^ y.wrapping_mul(151)) % 23) as i32 - 11;
+                    if fuge {
+                        image::Rgb([(150 + n) as u8, (146 + n) as u8, (138 + n) as u8])
+                    } else {
+                        let ton = (stein.wrapping_mul(2654435761) >> 7) % 30;
+                        image::Rgb([(128 + ton as i32 + n).clamp(0, 255) as u8, (52 + ton as i32 / 2 + n / 2).clamp(0, 255) as u8, (42 + n / 2).clamp(0, 255) as u8])
+                    }
+                });
+                img.save(&z)?;
+            }
+            "AB_gelaender.bmp" => {
+                // Geländer: Stahl, lackiert (altrosa wie am Dr.-Willi-Reiland-Ring)
+                let img = image::RgbImage::from_fn(8, 8, |x, y| image::Rgb([150 + (x % 3) as u8 * 4, 80 + (y % 2) as u8 * 3, 110]));
+                img.save(&z)?;
+            }
             "AB_asphalt_rot.bmp" => {
                 let img = image::open(marcel.join("str_asphdrk.bmp")).context("Splines\\Marcel\\texture\\str_asphdrk.bmp fehlt")?.to_rgb8();
                 let rot = image::ImageBuffer::from_fn(img.width(), img.height(), |x, y| {

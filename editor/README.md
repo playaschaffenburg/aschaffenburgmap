@@ -97,8 +97,12 @@ Straße nimmt Brücke, Damm und Mauern mit zurück. Je Spline-Stück (höchstens
 (1,2 m) und Brüstung (1 m) auf genau derselben Kurve wie die Fahrbahn (ohne Pfade, die Spuren bleiben unberührt; wie
 in den Standardkarten), Pfeiler als Objekte an den Stückgrenzen, wo genug Luft ist (nicht auf vorhandenen Straßen).
 Darunter **Rampen** nach der gewählten Bauweise: **Damm** (Gelände unter der Straße eben aufgeschüttet, daneben
-Böschung 1 : 1,5; liegt die Straße tiefer, ein Einschnitt) oder **Stützmauer** (Betonwände an den Fahrbahnrändern,
-`AB_mauer_unten/oben_…`, Gelände nur unter der Fahrbahn abgesenkt – für die Stadt). Vorhandene Straßen der Karte werden
+Böschung 1 : 1,5; liegt die Straße tiefer, ein Einschnitt) oder **Stützmauer** (für die Stadt, wie am Dr.-Willi-Reiland-Ring): Mauer-Objekte an beiden Rändern, deren
+Oberkante an jeder Stelle dem Gelände folgt – im Einschnitt knapp über Geländehöhe, an der Rampe 0,6 m über dem Gehweg –,
+zur Straße hin Klinker (abschaltbar: Beton), Betonkappe, Geländer (Pfosten alle 2 m, Hand- und Knieleiste). Im Einschnitt
+wird das Gelände 8 m über die Mauer hinaus auf die Sohle abgesenkt (das 5-m-Raster kann keine senkrechte Kante) und ein
+Deckel in der Bodentextur der Karte (Detailtextur in der mittleren Farbe der Grastextur, Weltkoordinaten) liegt auf der
+alten Höhe darüber – so baut omsigen auch an Tunneln. Vorhandene Straßen der Karte werden
 nicht zugeschüttet. Reihenfolge wie in TPF 2: erst graben tiefer liegende Straßen ihre Einschnitte, dann entscheidet sich gegen dieses
 Gelände, was Brücke wird (eine Straße über einem Einschnitt wird dort zur Brücke), dann wird aufgeschüttet – wo beides
 verlangt ist, gewinnt der Einschnitt. Kreuzungsflächen werden wie Straßen aufgeschüttet bzw. eingeschnitten; liegt eine
