@@ -35,10 +35,11 @@ SCHRITT = 2.0
 STUECK = 40.0                                          # m je Wand-Objekt
 
 TEX = {'beton': 'betonwand1.bmp', 'klinker': 'AB_klinker.bmp', 'gabionen': 'AB_gabionen.bmp',
-       'lsw_gruen': 'AB_lsw_gruen.bmp', 'glas': 'AB_glas.tga', 'gelaender': 'AB_gelaender.bmp',
+       'lsw_gruen': 'AB_lsw_gruen.bmp', 'glas': 'AB_glas.tga', 'gelaender': 'AB_gelaender.bmp', 'stab': 'AB_stabgelaender.tga',
        'decke': 'AB_beton_dunkel.bmp', 'pflanzen': 'AB_bodendecker.bmp', 'asphalt': 'str_asphdrk.bmp',
        'boden': 'AB_boden.bmp', 'weiss': 'AB_weiss.bmp', 'radfurt': 'AB_radfurt.bmp', 'sperr': 'AB_sperrflaeche.tga',
-       'gehweg': 'str_gehweg02.bmp', 'bord': 'str_side1.bmp', 'busbeton': 'str_betonplatten.bmp'}
+       'gehweg': 'str_gehweg02.bmp', 'bord': 'str_side1.bmp', 'busbeton': 'str_betonplatten.bmp',
+       'gehweg_asphalt': 'AB_gehweg_asphalt.bmp'}
 
 
 # ------------------------------------------------------------------ Geometrie-Helfer
@@ -108,6 +109,25 @@ def band(mesh, key, unten, oben, normale, s0, tex=(2.0, 1.0)):
         sa, sb = s0[i], s0[i + 1]
         mesh.quad(key, [a, b, c, d], [(sa / tex[0], a[2] / tex[1]), (sb / tex[0], b[2] / tex[1]),
                                       (sb / tex[0], c[2] / tex[1]), (sa / tex[0], d[2] / tex[1])], normale[i])
+
+
+def stabgelaender(mesh, p0, p1, z0, z1, hoehe=1.0, u0=0.0, pfosten=2.5):
+    """Stabgelaender wie am Ring (rosa, senkrechte Staebe, Holm oben): eine durchscheinende Flaeche von p0 nach p1
+    (Fuss z0/z1, je (x, y) im Objektrahmen), Pfosten alle `pfosten` m. u0: Laenge davor (Staebe laufen durch)"""
+    p0, p1 = np.asarray(p0, float)[:2], np.asarray(p1, float)[:2]
+    L = float(np.linalg.norm(p1 - p0))
+    if L < 1e-3:
+        return
+    n = np.array([p1[1] - p0[1], p0[0] - p1[0]]) / L
+    q = [(p0[0], p0[1], z0), (p1[0], p1[1], z1), (p1[0], p1[1], z1 + hoehe), (p0[0], p0[1], z0 + hoehe)]
+    mesh.quad('stab', q, [(u0, 0), (u0 + L, 0), (u0 + L, 1), (u0, 1)], (n[0], n[1], 0), beidseitig=True)
+    k0 = int(np.ceil(u0 / pfosten))
+    while k0 * pfosten <= u0 + L:
+        f = (k0 * pfosten - u0) / L
+        c = p0 + (p1 - p0) * f
+        zf = z0 + (z1 - z0) * f
+        kasten(mesh, 'gelaender', c[0] - 0.03, c[0] + 0.03, c[1] - 0.03, c[1] + 0.03, zf, zf + hoehe + 0.02)
+        k0 += 1
 
 
 def kasten(mesh, key, x0, x1, y0, y1, z0, z1, uvs=4.0):
@@ -231,7 +251,7 @@ def fuge(e, seite):
 
 def im_knoten(e):
     """Station im Bereich der Ludwigsallee (dort keine Aussenwaende, die Kreuzung liegt darueber)"""
-    return -280.0 <= e['p'][1] <= -247.0          # dort beginnen die Eckbruestungen des Kreuzungsobjekts
+    return -281.0 <= e['p'][1] <= -252.0          # dort beginnen die gerundeten Ecken des Kreuzungsobjekts
 
 
 def aussen(e, seite):
@@ -269,7 +289,9 @@ def trennwand(roh, seite, o, platte=None):
         z = e[seite]['z']
         if unter(e):
             q = welt(e, t, 0)
-            z = min(z, float(platte(q[0], q[1])) - 0.1)
+            zp = float(platte(q[0], q[1]))
+            # unter der Decke darunter; davor/dahinter steht die Bruestung auf der Kreuzungsflaeche (Trogrand)
+            z = min(z, zp - 0.1) if e['unter_decke'] else zp + 0.05
         lauf.append((e, t, z))
     s_ges = 0.0
     letzte = None
@@ -293,23 +315,16 @@ def trennwand(roh, seite, o, platte=None):
                [(s_ges / 2, za), ((s_ges + laenge) / 2, zb), ((s_ges + laenge) / 2, kappe_b - 0.4), (s_ges / 2, kappe_a - 0.4)], n_ring)
         m.quad('beton', [p(ea, ri_a, kappe_a - 0.4), p(eb, ri_b, kappe_b - 0.4), p(eb, ri_b, kappe_b), p(ea, ri_a, kappe_a)],
                [(s_ges / 4, 0), ((s_ges + laenge) / 4, 0), ((s_ges + laenge) / 4, 0.1), (s_ges / 4, 0.1)], n_ring)
-        if not (ea['unter_decke'] and eb['unter_decke']) and not (unter(ea) or unter(eb)):
-            # Bruestung 0,5 m ueber der Rampe, Rueckseite zur Rampe, darauf Gelaender bis 1,1 m
-            br_a, br_b = kappe_a + 0.5, kappe_b + 0.5
+        if not (ea['unter_decke'] or eb['unter_decke']):
+            # Bruestung (niedrige Betonkante) ueber der Rampe, darauf das Stabgelaender (Fotos)
+            br_a, br_b = kappe_a + 0.25, kappe_b + 0.25
             m.quad('beton', [p(ea, ri_a, kappe_a), p(eb, ri_b, kappe_b), p(eb, ri_b, br_b), p(ea, ri_a, br_a)],
                    [(s_ges / 4, 0), ((s_ges + laenge) / 4, 0), ((s_ges + laenge) / 4, 0.25), (s_ges / 4, 0.25)], n_ring)
             m.quad('beton', [p(ea, ra_a, kappe_a - 0.2), p(eb, ra_b, kappe_b - 0.2), p(eb, ra_b, br_b), p(ea, ra_a, br_a)],
                    [(s_ges / 4, 0), ((s_ges + laenge) / 4, 0), ((s_ges + laenge) / 4, 0.3), (s_ges / 4, 0.3)], -n_ring)
             m.quad('beton', [p(ea, ri_a, br_a), p(eb, ri_b, br_b), p(eb, ra_b, br_b), p(ea, ra_a, br_a)],
                    [(0, 0), (laenge / 4, 0), (laenge / 4, 0.1), (0, 0.1)], (0, 0, 1))
-            for z0, z1 in ((0.55, 0.6), (0.25, 0.29)):
-                m.quad('gelaender', [p(ea, ta, br_a + z0), p(eb, tb, br_b + z0), p(eb, tb, br_b + z1), p(ea, ta, br_a + z1)],
-                       [(0, 0), (1, 0), (1, 1), (0, 1)], n_ring, beidseitig=True)
-            for k in range(int(s_ges // 2.5) + 1, int((s_ges + laenge) // 2.5) + 1):
-                f = (k * 2.5 - s_ges) / laenge
-                q = welt(ea, ta, 0) * (1 - f) + welt(eb, tb, 0) * f - o
-                zb_ = br_a * (1 - f) + br_b * f
-                kasten(m, 'gelaender', q[0] - 0.03, q[0] + 0.03, q[1] - 0.03, q[1] + 0.03, zb_ - o[2], zb_ + 0.6 - o[2])
+            stabgelaender(m, p(ea, ta, 0), p(eb, tb, 0), br_a - o[2], br_b - o[2], 1.0, s_ges)
         # Pfeiler alle 5 m (Beton, 0,15 m vor der Wand, 0,6 m breit)
         for k in range(int(s_ges // 5) + 1, int((s_ges + laenge) // 5) + 1):
             f = (k * 5 - s_ges) / laenge
@@ -469,20 +484,15 @@ def bahnbruecke(st, gel, o, z_platte=None):
     zb = z_bei(a1) - 0.05
     for b, sgn in ((bl, 1), (br, -1)) if a1 > a0 + 0.5 else ():
         bi = b - sgn * 0.3
-        m.quad('beton', [W(a0, b, za - dicke), W(a1, b, zb - dicke), W(a1, b, zb + 1.1), W(a0, b, za + 1.1)],
-               [(0, 0), ((a1 - a0) / 4, 0), ((a1 - a0) / 4, 0.6), (0, 0.6)], N(0, sgn, 0))
-        m.quad('beton', [W(a0, bi, za), W(a1, bi, zb), W(a1, bi, zb + 1.1), W(a0, bi, za + 1.1)],
-               [(0, 0), ((a1 - a0) / 4, 0), ((a1 - a0) / 4, 0.3), (0, 0.3)], N(0, -sgn, 0))
-        m.quad('beton', [W(a0, b, za + 1.1), W(a1, b, zb + 1.1), W(a1, bi, zb + 1.1), W(a0, bi, za + 1.1)],
+        kante = 0.3
+        m.quad('beton', [W(a0, b, za - dicke), W(a1, b, zb - dicke), W(a1, b, zb + kante), W(a0, b, za + kante)],
+               [(0, 0), ((a1 - a0) / 4, 0), ((a1 - a0) / 4, 0.4), (0, 0.4)], N(0, sgn, 0))
+        m.quad('beton', [W(a0, bi, za), W(a1, bi, zb), W(a1, bi, zb + kante), W(a0, bi, za + kante)],
+               [(0, 0), ((a1 - a0) / 4, 0), ((a1 - a0) / 4, 0.1), (0, 0.1)], N(0, -sgn, 0))
+        m.quad('beton', [W(a0, b, za + kante), W(a1, b, zb + kante), W(a1, bi, zb + kante), W(a0, bi, za + kante)],
                [(0, 0), ((a1 - a0) / 4, 0), ((a1 - a0) / 4, 0.1), (0, 0.1)], N(0, 0, 1))
         bm = (b + bi) / 2
-        for z0 in (1.6, 2.1):
-            m.quad('gelaender', [W(a0, bm, za + z0), W(a1, bm, zb + z0), W(a1, bm, zb + z0 + 0.06), W(a0, bm, za + z0 + 0.06)],
-                   [(0, 0), (1, 0), (1, 1), (0, 1)], N(0, sgn, 0), beidseitig=True)
-        for a in np.arange(a0 + 1.0, a1, 2.0):
-            q = W(a, bm, 0)
-            zz = z_bei(a) - 0.05
-            kasten(m, 'gelaender', q[0] - 0.04, q[0] + 0.04, q[1] - 0.04, q[1] + 0.04, zz + 1.1 - o[2], zz + 2.16 - o[2])
+        stabgelaender(m, W(a0, bm, 0), W(a1, bm, 0), za + kante - o[2], zb + kante - o[2], 1.0, a0)
     # Widerlager: Waende von der Sohle bis unter die Platte, zur Bahn hin Klinker
     a1, zb = a1_voll, zb_alt
     for a, sgn, z in ((a0, 1, za), (a1, -1, zb)):
@@ -716,10 +726,20 @@ def texturen(omsi, ziel):
     dg.rectangle([0, 60, 63, 63], fill=(150, 155, 160, 255))
     gl.save(os.path.join(ziel, TEX['glas']))
     Image.new('RGB', (8, 8), (150, 82, 110)).save(os.path.join(ziel, TEX['gelaender']))
+    # Stabgelaender (1 m x 1 m je Textur): Holm oben, Gurt unten, senkrechte Staebe alle 12,5 cm, sonst durchsichtig
+    st = np.zeros((128, 128, 4), np.uint8)
+    farbe = (156, 88, 112, 255)
+    st[0:7, :] = farbe
+    st[118:124, :] = farbe
+    st[:, [x for x in range(128) if x % 16 in (7, 8)]] = farbe
+    Image.fromarray(st, 'RGBA').save(os.path.join(ziel, TEX['stab']))
     # Bodendecker im Pflanzstreifen
     p = (rng.normal(0, 18, (128, 128, 3)) + (70, 105, 55)).clip(0, 255).astype(np.uint8)
     Image.fromarray(p).save(os.path.join(ziel, TEX['pflanzen']))
     shutil.copy(os.path.join(marcel, 'str_asphdrk.bmp'), os.path.join(ziel, TEX['asphalt']))
+    # Gehweg-Asphalt: etwas heller als die Fahrbahn
+    g = np.asarray(Image.open(os.path.join(marcel, 'str_asphdrk.bmp')).convert('RGB'), float) * 1.18 + 8
+    Image.fromarray(g.clip(0, 255).astype(np.uint8)).save(os.path.join(ziel, TEX['gehweg_asphalt']))
     for t in ('str_gehweg02.bmp', 'str_side1.bmp', 'str_betonplatten.bmp'):
         shutil.copy(os.path.join(marcel, t), os.path.join(ziel, t))
     Image.new('RGB', (8, 8), (235, 235, 230)).save(os.path.join(ziel, TEX['weiss']))

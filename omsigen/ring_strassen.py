@@ -36,7 +36,7 @@ LUDWIG = {
 def teil(art, breite, richtung='vor', belag=None):
     t = dict(art=art, breite=round(breite, 3), richtung=richtung)
     t['belag'] = belag or {'fahrspur': 'asphalt', 'busspur': 'asphalt', 'radfahrstreifen': 'rot', 'parkstreifen': 'asphalt',
-                           'gehweg': 'platten'}[art]
+                           'gehweg': 'asphalt'}[art]          # Gehwege am Ring/an der Ludwigsallee: Asphalt (OSM, Fotos)
     return t
 
 

@@ -43,8 +43,10 @@ RAND = {2: ('y', -254.55), 5: ('y', -278.2)}       # Ende der Markierungen der A
 # Ampelmasten: Arm -> (rechts der Zufahrt, links der Zufahrt)
 MASTEN = {0: ((1063.6, -274.6), (1063.6, -265.9)), 1: ((1070.9, -253.4), (1084.8, -256.9)),
           3: ((1110.6, -254.7), (1104.6, -267.15)), 4: ((1098.0, -281.0), (1085.2, -275.3))}
-GEHWEG_ZONEN = [box(1049.9, -261.6, 1072.6, -244.0), box(1096.0, -256.6, 1120.1, -244.0),
-                box(1049.9, -290.0, 1071.6, -272.9), box(1096.2, -294.0, 1120.1, -273.3)]
+# Gehwege an den Ecken: entlang der Ludwigsallee und um die Ecke bis an die Rampenwaende (dort enden sie an der
+# Aussenwand der Rampe, sonderbau_ring.im_knoten)
+GEHWEG_ZONEN = [box(1049.9, -261.6, 1072.6, -252.0), box(1096.0, -256.6, 1120.1, -240.0),
+                box(1049.9, -281.0, 1071.6, -272.9), box(1096.2, -281.0, 1120.1, -273.3)]
 BRUESTUNG_ZONEN = [0, 2]                           # Ecken ueber dem Bahneinschnitt (NW, SW)
 GEHWEG_BREITE = 2.6
 
@@ -289,7 +291,7 @@ def art(h_rein, h_raus):
 # ------------------------------------------------------------------ Bauen
 def bauen(achse, K, strassen, arme_roh, gel, verbindungen, phasen, pfeile, rampen_namen):
     """-> dict(mesh, pfade, regeln, ampel, signale, flaechen, z, ursprung, ...)"""
-    from .sonderbau_ring import Mesh, kasten
+    from .sonderbau_ring import Mesh, kasten, stabgelaender
     arme = [Arm(i, a) for i, a in enumerate(arme_roh)]
     zf = hoehenflaeche(arme)
     T = trog(achse, K)
@@ -305,9 +307,9 @@ def bauen(achse, K, strassen, arme_roh, gel, verbindungen, phasen, pfeile, rampe
         t0, t1 = st['versatz'] + teile[0][1], st['versatz'] + teile[-1][2]
         # bis an die Trennwand (der Trennstreifen zwischen Wand und Spur gehoert zur Flaeche)
         if t_mitte > 0:
-            t0 = min(t0, float(K['ring_w'].t([s_ende])[0]) + 0.25)
+            t0 = min(t0, float(K['ring_w'].t([s_ende])[0]))
         else:
-            t1 = max(t1, float(K['ring_o'].t([s_ende])[0]) - 0.25)
+            t1 = max(t1, float(K['ring_o'].t([s_ende])[0]))
         s_innen = 131.0
         rampen[a.name] = (s_ende, s_innen, t0, t1)
     F = flaechen(achse, arme, T, rampen)
@@ -322,8 +324,10 @@ def bauen(achse, K, strassen, arme_roh, gel, verbindungen, phasen, pfeile, rampe
             m.dreieck(key, P, [(x / uv_m, y / uv_m) for x, y in c], (0, 0, 1))
 
     flaeche('asphalt', F['fahrbahn'], ASPH_H, 4.0)
-    flaeche('gehweg', F['gehweg'], WALK_H, 2.0)
-    flaeche('gehweg', F['inseln'], WALK_H, 2.0)
+    insel_o = F['inseln'].intersection(box(INSEL_O[0][0] - 1.5, INSEL_O[0][1], INSEL_O[1][0], INSEL_O[1][1]))
+    flaeche('gehweg_asphalt', F['gehweg'], WALK_H, 4.0)
+    flaeche('gehweg_asphalt', F['inseln'].difference(insel_o), WALK_H, 4.0)
+    flaeche('pflanzen', insel_o, WALK_H + 0.03, 2.0)
     # Bordsteine: wo Gehweg/Insel an die Fahrbahn stoesst
     fb = F['fahrbahn'].buffer(0.05)
     for erhoeht in _polys(unary_union([F['gehweg'], F['inseln']])):
@@ -364,10 +368,12 @@ def bauen(achse, K, strassen, arme_roh, gel, verbindungen, phasen, pfeile, rampe
             # nur der Halbkreis (Trogende), nicht die geraden Trogwaende
             if insel.contains(mitte) and abs(mitte.distance(Point(T[name]['mitte'])) - T[name]['r']) < 0.3:
                 linien.append((a_, b_, 'trog'))
+    u_lauf = 0.0
     for a_, b_, wo in linien:
         L = math.dist(a_, b_)
         if L < 1e-3:
             continue
+        u_lauf += L
         za, zb = float(zf(*a_)) + WALK_H, float(zf(*b_)) + WALK_H
         n = np.array([b_[1] - a_[1], a_[0] - b_[0]]) / L
         # Normale nach aussen (weg vom Gehweg/von der Insel)
@@ -380,25 +386,15 @@ def bauen(achse, K, strassen, arme_roh, gel, verbindungen, phasen, pfeile, rampe
             unten_a, unten_b = min(ga, za) - 0.5, min(gb, zb) - 0.5
         else:
             unten_a, unten_b = za - 1.2, zb - 1.2                     # Trogrand: bis unter die Deckenkante
-        hoch = 0.9 if wo == 'aussen' else 0.2                          # Trogrand: niedrige Kante, darauf das Gelaender
+        hoch = 0.25                                                     # niedrige Betonkante, darauf das Stabgelaender
+        u0 = u_lauf - L
         m.quad('beton', [A(a_, 0.25, unten_a), A(b_, 0.25, unten_b), A(b_, 0.25, zb + hoch), A(a_, 0.25, za + hoch)],
-               [(0, 0), (L / 4, 0), (L / 4, 0.4), (0, 0.4)], (n[0], n[1], 0))
+               [(u0 / 4, unten_a / 4), (u_lauf / 4, unten_b / 4), (u_lauf / 4, (zb + hoch) / 4), (u0 / 4, (za + hoch) / 4)], (n[0], n[1], 0))
         m.quad('beton', [A(b_, 0.0, zb), A(a_, 0.0, za), A(a_, 0.0, za + hoch), A(b_, 0.0, zb + hoch)],
                [(0, 0), (L / 4, 0), (L / 4, 0.2), (0, 0.2)], (-n[0], -n[1], 0))
         m.quad('beton', [A(a_, 0.0, za + hoch), A(b_, 0.0, zb + hoch), A(b_, 0.25, zb + hoch), A(a_, 0.25, za + hoch)],
                [(0, 0), (L / 4, 0), (L / 4, 0.06), (0, 0.06)], (0, 0, 1))
-        # Pfosten alle 2 m, zwei Holme
-        for k in range(int(L // 2.0) + 1):
-            f = (k * 2.0 + 0.5) / L if L > 0.6 else 0.5
-            if f > 1:
-                break
-            q = (a_[0] + (b_[0] - a_[0]) * f, a_[1] + (b_[1] - a_[1]) * f)
-            zq = za + (zb - za) * f + hoch
-            c = A(q, 0.12, 0)
-            kasten(m, 'gelaender', c[0] - 0.03, c[0] + 0.03, c[1] - 0.03, c[1] + 0.03, zq, zq + (0.5 if wo == 'aussen' else 0.9))
-        for z0 in ((0.45, 0.1) if wo == 'aussen' else (0.85, 0.45)):
-            m.quad('gelaender', [A(a_, 0.12, za + hoch + z0), A(b_, 0.12, zb + hoch + z0), A(b_, 0.12, zb + hoch + z0 + 0.05), A(a_, 0.12, za + hoch + z0 + 0.05)],
-                   [(0, 0), (1, 0), (1, 1), (0, 1)], (n[0], n[1], 0), beidseitig=True)
+        stabgelaender(m, A(a_, 0.12, 0), A(b_, 0.12, 0), za + hoch, zb + hoch, 1.0, u0)
     # ---------------------------------------------------------- Markierungen (2 cm ueber der Fahrbahn)
     weiss, rot, sperr, beton = [], [], [], []
     for a in arme:
