@@ -28,6 +28,7 @@ mod netz;
 mod orte;
 mod protokoll;
 mod querschnitt;
+mod sonderbau;
 mod speichern;
 mod spuren;
 mod strasse;
