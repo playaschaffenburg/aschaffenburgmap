@@ -2154,8 +2154,9 @@ fn einbahn_knoepfe(ui: &mut egui::Ui, stand: Option<netz::Einbahn>) -> Option<ne
         }
     });
     if ui.selectable_label(stand == Some(netz::Einbahn::Gesperrt), "\u{26D4} fuer KI-Verkehr sperren")
-        .on_hover_text("alle Fahrspuren und die Kreuzungspfade hinein bekommen [rule] no_cars").clicked() {
-        wahl = Some(netz::Einbahn::Gesperrt);
+        .on_hover_text("alle Fahrspuren und die Kreuzungspfade hinein bekommen [rule] no_cars; nochmal klicken gibt frei").clicked() {
+        // zweiter Klick auf die aktive Sperre gibt wieder frei
+        wahl = Some(if stand == Some(netz::Einbahn::Gesperrt) { netz::Einbahn::Beide } else { netz::Einbahn::Gesperrt });
     }
     if stand.is_none() {
         ui.label(egui::RichText::new("Spuren teilweise gesperrt (Regeln der Karte)").small().weak());

@@ -709,3 +709,42 @@ mod sperren_tests {
         assert_eq!(a.kopien("Grundorf").len(), 0);
     }
 }
+
+#[cfg(test)]
+mod sperren_nutzer {
+    use super::*;
+    use crate::netz::Einbahn;
+
+    /// nur in der Sitzung: Spline OMSI_SPLINE der Karte OMSI_KARTE sperren und freigeben - die Kreuzungen an seinen Enden
+    /// bleiben, ihre Pfade hinein werden gesperrt und wieder frei
+    #[test]
+    #[ignore]
+    fn spline_der_nutzerkarte_sperren() {
+        let _sperre = crate::bearbeiten::tests::sperre();
+        let (Ok(karte), Ok(id)) = (std::env::var("OMSI_KARTE"), std::env::var("OMSI_SPLINE")) else { return };
+        let id: i64 = id.parse().unwrap();
+        let root = Path::new(crate::bearbeiten::tests::OMSI);
+        let (mut v, _) = Viewer::open(&openomsi_game::viewer::instance(), None, root, &root.join("maps").join(&karte).join("global.cfg")).unwrap();
+        v.tiles_around(DVec3::new(450.0, 300.0, 0.0), 3).unwrap();
+        let mut a = Aendern::neu(&v);
+        a.aktualisieren(&v);
+        let s = a.spline(id).expect("Spline").clone();
+        let objekte = |v: &Viewer| -> usize { v.objects().len() };
+        let zahl = (objekte(&v), a.kreuzungsobjekt_bei(&v, s.kurve.start.truncate()).map(|k| k.arme.len()), a.kreuzungsobjekt_bei(&v, s.kurve.end_point().truncate()).map(|k| k.arme.len()));
+        println!("vorher: {zahl:?}");
+        let gesperrt = |v: &Viewer| v.lanes.lanes.iter().filter(|l| l.no_cars).count();
+        let g0 = gesperrt(&v);
+        a.auswahl = vec![id];
+        a.einbahn(&mut v, Einbahn::Gesperrt).unwrap();
+        a.aktualisieren(&v);
+        let nach = (objekte(&v), a.kreuzungsobjekt_bei(&v, s.kurve.start.truncate()).map(|k| k.arme.len()), a.kreuzungsobjekt_bei(&v, s.kurve.end_point().truncate()).map(|k| k.arme.len()));
+        println!("gesperrt: {nach:?}, no_cars {} -> {}", g0, gesperrt(&v));
+        assert_eq!(nach, zahl, "Kreuzungen/Objekte veraendert");
+        assert!(gesperrt(&v) > g0);
+        a.einbahn(&mut v, Einbahn::Beide).unwrap();
+        a.aktualisieren(&v);
+        println!("frei: no_cars {}", gesperrt(&v));
+        assert_eq!(gesperrt(&v), g0, "nicht wieder frei");
+        drop(a);
+    }
+}
