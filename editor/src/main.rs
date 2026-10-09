@@ -236,6 +236,8 @@ struct App {
     spur_modus: bool,
     spur_ziel: Option<spuren::Ziel>,
     spur_zufahrt: Option<usize>,
+    /// Pipette im Platzieren-Modus: der naechste Klick auf ein Objekt im Bild uebernimmt es
+    pipette: bool,
 }
 
 /// was im Werkzeug "Kreuzungen" unter der Maus liegt
@@ -286,6 +288,10 @@ enum UiAktion {
     Spuren(spuren::Aenderung),
     /// Abbiegespuren einer eigenen Kreuzung wieder wie vorgeschlagen
     SpurenZurueck(u32),
+    /// Objekt zum Platzieren uebernehmen (Pipette): .sco, Drehung
+    Uebernehmen(std::path::PathBuf, f64),
+    /// Pipette an/aus (wechselt ins Platzieren)
+    Pipette,
     SplineLoeschen,
     StrassenModus(strasse::Modus),
     EigeneAendern(strasse::KantenAenderung),
@@ -374,6 +380,7 @@ impl App {
             spur_modus: false,
             spur_ziel: None,
             spur_zufahrt: None,
+            pipette: false,
         }
     }
 
@@ -940,6 +947,9 @@ impl App {
                             Wahl::Karte(id) => ui.label(format!("ID {}   Kachel {} {}", id, (o.pos.x / 300.0).floor(), (o.pos.y / 300.0).floor())),
                             Wahl::Neu(_) => ui.label(format!("neu   Kachel {} {}  (ID beim Speichern)", (o.pos.x / 300.0).floor(), (o.pos.y / 300.0).floor())),
                         };
+                        if ui.button("Pipette: zum Platzieren uebernehmen").on_hover_text("wechselt ins Platzieren mit diesem Objekt und seiner Drehung (Taste I: Pipette)").clicked() {
+                            aktionen.push(UiAktion::Uebernehmen(o.sco.clone(), o.richtung));
+                        }
                         ui.separator();
                         let mut p = o.pos;
                         let alt_h = o.richtung.rem_euclid(360.0);
@@ -989,7 +999,12 @@ impl App {
             if self.bearb.werkzeug == Werkzeug::Platzieren {
                 egui::Panel::right("katalog").default_size(360.0).show(ctx, |ui| {
                     ui.heading("Objekte platzieren");
-                    ui.label(egui::RichText::new("Pipette: Klick (mit gewaehltem Objekt Strg+Klick) auf ein Objekt im Bild uebernimmt es samt Drehung.").small().weak());
+                    ui.horizontal(|ui| {
+                        if ui.selectable_label(self.pipette, "\u{1F58C} Pipette (I)").on_hover_text("naechster Klick auf ein Objekt im Bild uebernimmt es samt Drehung").clicked() {
+                            aktionen.push(UiAktion::Pipette);
+                        }
+                        ui.label(egui::RichText::new(if self.pipette { "Klick auf ein Objekt im Bild" } else { "oder Strg+Klick auf ein Objekt" }).small().weak());
+                    });
                     let Some(kat) = self.katalog.as_ref() else {
                         ui.label("Objektkatalog wird eingelesen ...");
                         return;
@@ -1884,6 +1899,35 @@ impl App {
                     }
                 }
             }
+            UiAktion::Pipette => {
+                if self.bearb.werkzeug != Werkzeug::Platzieren {
+                    self.ausfuehren(UiAktion::Werkzeug(Werkzeug::Platzieren));
+                    self.pipette = true;
+                } else {
+                    self.pipette = !self.pipette;
+                }
+                if self.pipette {
+                    self.meldung = "Pipette: Klick auf ein Objekt im Bild uebernimmt es zum Platzieren (Esc bricht ab)".into();
+                }
+            }
+            UiAktion::Uebernehmen(sco, richtung) => {
+                let rel = self.viewer.as_ref().map(|v| bearbeiten::relativ(&v.root, &sco)).unwrap_or_default();
+                let datei = sco.file_stem().map(|x| x.to_string_lossy().to_string()).unwrap_or_default();
+                if self.bearb.werkzeug != Werkzeug::Platzieren {
+                    self.ausfuehren(UiAktion::Werkzeug(Werkzeug::Platzieren));
+                }
+                // im Katalog zeigen: Suche auf die Datei, Filter aus
+                self.katalog_suche = datei.to_lowercase();
+                self.katalog_ordner = None;
+                self.katalog_gruppe = None;
+                self.katalog_herkunft = None;
+                self.katalog_editor = None;
+                self.bearb.platzier_richtung = richtung.rem_euclid(360.0);
+                self.bearb.unter_maus = None;
+                self.pipette = false;
+                self.ausfuehren(UiAktion::Platzier(Some(rel.clone())));
+                self.meldung = format!("uebernommen: {datei} ({rel}) - Klick setzt es; Pipette (I) oder Strg+Klick nimmt ein anderes");
+            }
             UiAktion::SpurenZurueck(k) => {
                 if let Some(v) = self.viewer.as_mut() {
                     self.meldung = self.strasse.spuren_zuruecksetzen(v, k);
@@ -1925,6 +1969,7 @@ impl App {
                     self.bearb.unter_maus = None;
                 }
                 if w != Werkzeug::Platzieren {
+                    self.pipette = false;
                     self.platzier = None;
                     if let Some(v) = self.viewer.as_mut() {
                         self.bearb.geist_weg(v);
@@ -2188,6 +2233,12 @@ impl App {
                 self.kreuzung_wahl = None;
                 None
             }
+            KeyCode::KeyI if !self.strg => Some(UiAktion::Pipette),
+            KeyCode::Escape if self.pipette => {
+                self.pipette = false;
+                self.meldung = "Pipette aus".into();
+                None
+            }
             KeyCode::KeyH if !self.strg => {
                 self.hilfe.an = !self.hilfe.an;
                 self.meldung = if self.hilfe.an { "Hilfsansicht: Pfade und unsichtbare Objekte".into() } else { "Hilfsansicht aus".into() };
@@ -2282,7 +2333,6 @@ impl App {
     }
 }
 
-/// Maler fuer Markierungen ueber dem 3D-Bild, unter den Panels
 /// Knoepfe fuer die Fahrtrichtungen der KI (Einbahn) -> gewaehlte Art
 fn einbahn_knoepfe(ui: &mut egui::Ui, stand: Option<netz::Einbahn>) -> Option<netz::Einbahn> {
     let mut wahl = None;
@@ -2306,8 +2356,11 @@ fn einbahn_knoepfe(ui: &mut egui::Ui, stand: Option<netz::Einbahn>) -> Option<ne
     wahl
 }
 
+/// Maler fuer Markierungen ueber dem 3D-Bild: auf die freie Bildflaeche zwischen den Leisten zugeschnitten (sonst
+/// liefen Linien wie die der Pfad-Ansicht ueber Werkzeugleiste und Seitenleisten)
 fn ui_maler(ui: &egui::Ui) -> egui::Painter {
-    ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Background, egui::Id::new("auswahl")))
+    let frei = ui.available_rect_before_wrap();
+    ui.ctx().layer_painter(egui::LayerId::new(egui::Order::Background, egui::Id::new("auswahl"))).with_clip_rect(frei)
 }
 
 impl App {
@@ -2688,7 +2741,7 @@ impl ApplicationHandler for App {
                     self.boden_unter_maus = treffer(o, d, |x, y| self.boden(x, y), 6000.0);
                     // Pipette: ohne gewaehltes Objekt oder mit Strg zeigt der Platzieren-Modus das Objekt unter der Maus
                     if self.bearb.werkzeug == Werkzeug::Platzieren {
-                        self.bearb.unter_maus = if !egui_will && (self.platzier.is_none() || self.strg) {
+                        self.bearb.unter_maus = if !egui_will && (self.platzier.is_none() || self.strg || self.pipette) {
                             self.viewer.as_ref().and_then(|v| self.bearb.suchen(v, &self.kam, p, bw, bh))
                         } else {
                             None
@@ -2868,7 +2921,7 @@ impl ApplicationHandler for App {
                         }
                     }
                     // Pipette: Objekt unter der Maus zum Platzieren uebernehmen
-                    let pipette = if button == MouseButton::Left && self.bearb.werkzeug == Werkzeug::Platzieren && (self.platzier.is_none() || self.strg) {
+                    let pipette = if button == MouseButton::Left && self.bearb.werkzeug == Werkzeug::Platzieren && (self.platzier.is_none() || self.strg || self.pipette) {
                         let (bw, bh) = self.bildgroesse();
                         match (self.viewer.as_ref(), self.maus) {
                             (Some(v), Some(m)) => self.bearb.suchen(v, &self.kam, m, bw, bh).and_then(|w| self.bearb.objekte(v).into_iter().find(|o| o.wahl == w)),
@@ -2878,18 +2931,7 @@ impl ApplicationHandler for App {
                         None
                     };
                     if let Some(o) = pipette {
-                        let rel = self.viewer.as_ref().map(|v| bearbeiten::relativ(&v.root, &o.sco)).unwrap_or_default();
-                        let datei = o.sco.file_stem().map(|x| x.to_string_lossy().to_string()).unwrap_or_default();
-                        // im Katalog zeigen: Suche auf die Datei, Filter aus
-                        self.katalog_suche = datei.to_lowercase();
-                        self.katalog_ordner = None;
-                        self.katalog_gruppe = None;
-                        self.katalog_herkunft = None;
-                        self.katalog_editor = None;
-                        self.bearb.platzier_richtung = o.richtung.rem_euclid(360.0);
-                        self.bearb.unter_maus = None;
-                        self.ausfuehren(UiAktion::Platzier(Some(rel.clone())));
-                        self.meldung = format!("uebernommen: {datei} ({rel}) - Klick setzt es, Strg+Klick nimmt ein anderes");
+                        self.ausfuehren(UiAktion::Uebernehmen(o.sco.clone(), o.richtung));
                     } else if button == MouseButton::Left && self.bearb.werkzeug == Werkzeug::Platzieren {
                         if let (Some(rel), Some(g), Some(v)) = (self.platzier.clone(), self.boden_unter_maus, self.viewer.as_mut()) {
                             self.meldung = self.bearb.platzieren(v, &rel, g).unwrap_or_else(|| format!("{rel} laesst sich nicht laden"));

@@ -59,8 +59,9 @@ Ordner, `[groups]`, dazu Suche über Name, Datei, Gruppe und Herkunft. Objekt an
 der Maus –, Klick in die Welt setzt es (beliebig oft), `,` `.` dreht (15°, Umschalt 1°), Esc beendet. Neue Objekte
 lassen sich danach wie alle anderen bearbeiten.
 
-**Pipette:** im Platzieren-Modus übernimmt ein Klick auf ein Objekt im Bild dessen Typ samt Drehung (ist schon ein
-Objekt gewählt: Strg+Klick); der Katalog springt auf den Eintrag.
+**Pipette:** Knopf „Pipette (I)“ im Platzieren-Katalog bzw. Taste I aus jedem Werkzeug (wechselt ins Platzieren):
+der nächste Klick auf ein Objekt im Bild übernimmt es samt Drehung, der Katalog springt auf den Eintrag (Esc bricht
+ab). Im Platzieren auch Strg+Klick; im Werkzeug „Objekte“ übernimmt „Pipette: zum Platzieren übernehmen“ das gewählte.
 
 Vorschaubilder: jedes Objekt wird einmal allein mit openOMSI gerendert und als PNG in
 `%LOCALAPPDATA%\omsi-editor\vorschau` gespeichert; erzeugt werden nur die gerade sichtbaren, höchstens ~8 ms je Bild.
