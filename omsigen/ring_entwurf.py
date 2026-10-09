@@ -17,6 +17,7 @@ from .sonderbau_entwurf import Gelaende, achse_anpassen, gradiente_anpassen, ver
 from . import sonderbau_ring as sr
 
 AUSSCHNITT = (1000, 1170, -460, -100)        # x0, x1, y0, y1 (Kartenkoordinaten)
+Y_ENDE_SUED = -426.0                         # ab hier liegt das naechste Bauwerk ueber dem Ring
 DECKE = (-282.0, -251.0)                     # y-Bereich, in dem das DGM die Decke/Kreuzung zeigt (nicht messen)
 SEITEN = {'w': 1, 'o': -1}                   # Achse Nord -> Sued: rechts (t > 0) = West
 
@@ -53,8 +54,26 @@ def querprofil(ts, h, vz):
         return out
     zt = float(np.median(h[weiter]))
     if zt - zf < 0.8:
-        return out                                     # keine Wand: Rampe muendet auf Ring-Hoehe
-    out['ring'] = _kreuzung(ts, h, (zf + zt) / 2, i0, vz)
+        # keine Trennwand (Rampe auf Ring-Hoehe): Aussenkante = Rand der ganzen ebenen Flaeche (Mauer zum hoeheren
+        # Gelaende); auf flachem Gelaende nicht messbar
+        if zt - zf > 1.5 or abs(t1) > 25:
+            return out
+        k = int(np.argmin(np.abs(ts - t1)))
+        while 0 <= k < len(ts) and h[k] < zf + 0.6:
+            k += vz
+        if not 0 <= k < len(ts) or abs(ts[k]) > 25:
+            return out
+        jen = (vz * (ts - ts[k]) >= 1.5) & (vz * (ts - ts[k]) <= 4.0)
+        if jen.any() and np.median(h[jen]) - zf > 1.5:
+            out['rampe_aussen'] = _kreuzung(ts, h, (zf + float(np.median(h[jen]))) / 2, i0, vz)
+            out['zg'] = float(np.median(h[jen]))
+        return out
+    kante = _kreuzung(ts, h, (zf + zt) / 2, i0, vz)
+    if kante is not None and abs(kante) > 7.5:
+        # weit draussen: keine Trennwand, sondern die Aussenmauer der hier schon vereinten Fahrbahn
+        out['rampe_aussen'], out['zg'] = kante, zt
+        return out
+    out['ring'] = kante
     out['zr'] = zt
     # Rampe: Ebene zt; nach aussen, bis die Hoehe um mehr als 0,6 m abweicht (Aussenwand oder Boeschung)
     j = int(np.argmin(np.abs(ts - (t1 + vz * 2.0))))
@@ -137,7 +156,8 @@ def entwerfen(gel, osm, E0, N0, log=print):
             for f in np.linspace(0, 1, max(2, int(math.dist(p, q) / 2)), endpoint=False):
                 pt = p + (q - p) * f
                 sp, tp = a1.projektion([pt])[0]
-                if (ende == 'Nord' and st_m[:, 0].min() - 45 < sp < st_m[:, 0].min() - 3) or (ende == 'Sued' and st_m[:, 0].max() + 3 < sp < st_m[:, 0].max() + 45):
+                # Sueden: bis kurz vor das naechste Bauwerk ueber dem Ring (y ~ -430)
+                if (ende == 'Nord' and st_m[:, 0].min() - 45 < sp < st_m[:, 0].min() - 3) or (ende == 'Sued' and st_m[:, 0].max() + 3 < sp < st_m[:, 0].max() + 80 and pt[1] > Y_ENDE_SUED):
                     d = q - p
                     n = np.array([d[1], -d[0]]) / np.hypot(*d)          # rechts der OSM-Richtung (Nord -> Sued)
                     enden.append(pt - n * versatz)
@@ -165,7 +185,18 @@ def entwerfen(gel, osm, E0, N0, log=print):
         v = kanten.get(f'ring_{seite}')
         ok = ~np.isnan(z) & (np.abs(feld(seite, 'ring') - v.t(S)) < 0.6 if v is not None else ~np.isnan(z))
         if ok.sum() > 20:
-            hoehen[f'rampe_{seite}'], _ = ohne_ausreisser(S[ok], z[ok], gradiente_anpassen, lambda g, x: g.z(x), 0.4)
+            g, _ = ohne_ausreisser(S[ok], z[ok], gradiente_anpassen, lambda g, x: g.z(x), 0.4)
+            # Enden mit unmoeglicher Steigung (> 10 %: dort wurde Gelaende statt Rampe gemessen) abschneiden
+            for _ in range(3):
+                n = g.neigungen()
+                if abs(n[0]) > 0.10:
+                    ok &= S > g.k[1]
+                elif abs(n[-1]) > 0.10:
+                    ok &= S < g.k[-2]
+                else:
+                    break
+                g, _ = ohne_ausreisser(S[ok], z[ok], gradiente_anpassen, lambda g, x: g.z(x), 0.4)
+            hoehen[f'rampe_{seite}'] = g
     for k, v in kanten.items():
         log(f'{k}: ' + ', '.join(f'{a:.0f}-{b:.0f} m: {t:+.2f}' for a, b, t in v.a))
     for k, g in hoehen.items():

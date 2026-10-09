@@ -142,14 +142,18 @@ def aus_entwurf(entwurf, dgm, E0, N0, nn0, schritt=SCHRITT):
     achse = achse_aus_json(entwurf['achse'])
     K = {k: versatz_aus_json(v) for k, v in entwurf['kanten'].items()}
     G = {k: gradiente_aus_json(v) for k, v in entwurf['hoehen'].items()}
-    # Bereich: wo es Ringwaende gibt
-    von = min(min(a for a, _, _ in K[k].a) for k in ('ring_w', 'ring_o'))
-    bis = max(max(b for _, b, _ in K[k].a) for k in ('ring_w', 'ring_o'))
-    S = np.arange(von, bis + 1e-6, schritt)
+    # Bereich: die ganze Achse - ueber die gemessenen Waende hinaus, bis die Rampen eingemuendet sind und der Ring
+    # weiterlaeuft (die Waende enden von selbst, wo Rampe und Gelaende auf Ring-Hoehe liegen)
+    S = np.arange(0.0, achse.laenge + 1e-6, schritt)
     A = achse.punkte(S)
     zr = G['ring'].z(S)
     # Kanten: Entwurf t > 0 = rechts von Nord -> Sued = West; hier quer nach Osten -> Vorzeichen drehen
-    tq = {k: -v.t(S) for k, v in K.items()}
+    tq = {}
+    for k, v in K.items():
+        t = -v.t(S)
+        ok = ~np.isnan(t)
+        # vor/hinter der Messung: letzter Abstand bleibt (Kante laeuft parallel weiter)
+        tq[k] = np.interp(S, S[ok], t[ok]) if ok.any() else t
     zw = {sd: weich_max(np.where((S >= G[f'rampe_{sd}'].k[0] - 30) & (S <= G[f'rampe_{sd}'].k[-1] + 30), G[f'rampe_{sd}'].z(S), -99), zr) for sd in ('w', 'o')}
     roh = []
     for i, s in enumerate(S):
@@ -514,11 +518,14 @@ class Kartengelaende:
         return h00 + fy * (h01 - h00) + fx * (h11 - h01)
 
 
-def deckel(roh, karte, o, breite=7.0):
-    """Deckel neben dem Bauwerk: vom Rand (hinter der Aussenwand auf Gelaendehoehe) 7 m nach aussen bis auf das
+HINTER_MAUER = 5.5        # abgesenktes Gelaende hinter Aussenmauern (eine Rasterzelle + Rand)
+
+
+def deckel(roh, karte, o, breite=12.0):
+    """Deckel neben dem Bauwerk: vom Rand (hinter der Aussenwand auf Gelaendehoehe) 12 m nach aussen bis auf das
     unveraenderte Gelaende - verdecken die Schraege des abgesenkten 5-m-Gelaenderasters (wie bauwerke.rs)"""
     m = Mesh()
-    teile = 4
+    teile = 6
     for seite in ('w', 'o'):
         vz = -1 if seite == 'w' else 1
         reihen = []
@@ -564,6 +571,12 @@ def gelaende(roh):
                     t = float(np.dot(v, e['quer']))
                     pr = profil(e)
                     lo, hi = pr[0][0], pr[2][1]
+                    # hinter Aussenmauern eine Rasterzelle mehr: die Schraege zum unveraenderten Gelaende liegt dann
+                    # hinter der Mauer unter dem Deckel statt davor auf der Fahrbahn
+                    if aussen(e, 'w') is not None:
+                        lo -= HINTER_MAUER
+                    if aussen(e, 'o') is not None:
+                        hi += HINTER_MAUER
                     if lo - 0.3 <= t <= hi + 0.3:
                         out.append([kx, ky, spalte, zeile, round(min(z for _, _, z in pr) - 0.8, 3)])
     return out

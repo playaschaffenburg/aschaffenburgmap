@@ -23,8 +23,8 @@ DOP40 und DGM1 Bayern (CC BY 4.0).
 
 Etappe 1 aus Rohmessungen war krumm (OSM-Achse mit Knicken, Kanten springen im 1-m-DGM). Deshalb erst ein Entwurf wie
 im Straßenbau (`omsigen/sonderbau_entwurf.py`, `python -m omsigen.ring_entwurf … --aus sonderbau/ring/entwurf`):
-- Achse aus Geraden und Bögen durch die gemessene Mitte der Ring-Fahrbahn: Gerade 24,6 m, Bogen R 508 m (rechts)
-  203,6 m, Gerade 52,4 m; mittlere Abweichung 0,14 m.
+- Achse aus Geraden und Bögen durch die gemessene Mitte der Ring-Fahrbahn (bis kurz vor das nächste Bauwerk bei y ≈ −430): Bogen R 513 m (rechts) 229 m, Gerade 66 m;
+  mittlere Abweichung 0,15 m.
 - Kanten in festem Abstand zur Achse (Ringwände ±4,55–4,70 m, Rampen außen 12,45–13,40 m), Übergänge S-förmig.
 - Gradienten mit Ausrundung: Ring +1,3 % / −0,7 % / +0,8 %; Rampen +7,6 % / +4,3 % → Kuppe → −3,5 % / −7,0 %.
 - Prüfbilder: `entwurf/grundriss*.png` (über dem Luftbild), `entwurf/laengsschnitt.png`; Werte in `entwurf/entwurf.json`.

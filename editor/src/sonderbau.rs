@@ -72,7 +72,7 @@ mod tests {
         let mut ae = crate::aendern::Aendern::neu(&v);
         // bisherige Strassen an der Stelle weg (nur in der Sitzung), damit das Bild das Bauwerk zeigt
         ae.aktualisieren(&v);
-        let im_bereich = |p: DVec2| (1035.0..1125.0).contains(&p.x) && (-420.0..-135.0).contains(&p.y);
+        let im_bereich = |p: DVec2| (1035.0..1125.0).contains(&p.x) && (-428.0..-130.0).contains(&p.y);
         ae.auswahl = ae.kacheln.values().flatten().filter(|s| {
             s.punkte().iter().any(|(q, _)| im_bereich(q.truncate()))
         }).map(|s| s.id).collect();
@@ -126,6 +126,8 @@ mod tests {
                 (DVec3::new(1093.0, -225.0, 11.5), 180.0, -5.0, 18.0, "rampe_ost"),
                 (DVec3::new(1072.0, -230.0, 11.5), 180.0, -5.0, 18.0, "rampe_west"),
                 (DVec3::new(1084.0, -265.0, 6.0), 200.0, -40.0, 120.0, "oben"),
+                (DVec3::new(1068.0, -390.0, 6.0), 200.0, -35.0, 70.0, "sued_ende"),
+                (DVec3::new(1070.0, -385.0, 6.5), 10.0, -4.0, 30.0, "sued_einfahrt"),
                 (DVec3::new(1056.0, -266.0, 6.0), 0.0, -12.0, 35.0, "bahnbruecke"),
             ];
             for (ziel, gier, neigung, abstand, name) in ansichten {
