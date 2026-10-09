@@ -1,7 +1,7 @@
 From 6a28afa52f391b1e21dd812a7f86f94221f673a7 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 16:01:32 +0200
-Subject: [PATCH 01/18] editor-api: oeffentliche Viewer-Schnittstelle, OpenXR
+Subject: [PATCH 01/19] editor-api: oeffentliche Viewer-Schnittstelle, OpenXR
  zur Laufzeit laden
 
 ---
@@ -210,7 +210,7 @@ index 0000000..f57565c
 From cc51e3c693d2333dc4ee49c47f6e37c20ab516e8 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 16:22:56 +0200
-Subject: [PATCH 02/18] editor-api: Hintergrund-Streaming und Kartenwechsel mit
+Subject: [PATCH 02/19] editor-api: Hintergrund-Streaming und Kartenwechsel mit
  demselben Renderer
 
 ---
@@ -316,7 +316,7 @@ index f57565c..ebd8833 100644
 From 596e460251b086f739871a8134343aea3f22e5e0 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 16:35:56 +0200
-Subject: [PATCH 03/18] editor-api: Objekte bearbeiten und Kacheln schreiben
+Subject: [PATCH 03/19] editor-api: Objekte bearbeiten und Kacheln schreiben
  ueber den Viewer
 
 ---
@@ -391,7 +391,7 @@ index ebd8833..e926a15 100644
 From 0cb9086cbb9faad1472cd454cb3fd12000216701 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 16:54:59 +0200
-Subject: [PATCH 04/18] editor-api: freie Objekte setzen, naechste freie ID,
+Subject: [PATCH 04/19] editor-api: freie Objekte setzen, naechste freie ID,
  Kacheldatei
 
 ---
@@ -448,7 +448,7 @@ index e926a15..61f58bb 100644
 From 237ec37d6957dab1787c4d67d58d7803945fd3f5 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 17:10:18 +0200
-Subject: [PATCH 05/18] editor-api: Objektausmasse und Vorschaubilder
+Subject: [PATCH 05/19] editor-api: Objektausmasse und Vorschaubilder
 
 ---
  crates/omsi-app/src/viewer.rs | 34 ++++++++++++++++++++++++++++++++++
@@ -504,7 +504,7 @@ index 61f58bb..e92c3f2 100644
 From 9988917031be8d360dab043f72364f777791de76 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 17:24:46 +0200
-Subject: [PATCH 06/18] editor-api: Splines frei zeichnen (Live-Vorschau),
+Subject: [PATCH 06/19] editor-api: Splines frei zeichnen (Live-Vorschau),
  Spuren einer .sli
 
 ---
@@ -614,7 +614,7 @@ index e92c3f2..d50c032 100644
 From d35054e68c9b423943fb69c23c58cdc2d8efbd2b Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 17:43:57 +0200
-Subject: [PATCH 07/18] editor-api: Vorschaubild fuer Strassen-Splines
+Subject: [PATCH 07/19] editor-api: Vorschaubild fuer Strassen-Splines
 
 ---
  crates/omsi-app/src/viewer.rs | 23 +++++++++++++++++++++++
@@ -659,7 +659,7 @@ index d50c032..95495df 100644
 From 75a2e1b33f1c31ba93373732ec3a2bea0cca2a96 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 17:59:02 +0200
-Subject: [PATCH 08/18] editor-api: Spurnetz der geladenen Kacheln, freie
+Subject: [PATCH 08/19] editor-api: Spurnetz der geladenen Kacheln, freie
  Spline-Enden
 
 ---
@@ -767,7 +767,7 @@ index 95495df..39d3a19 100644
 From 1f9802294094922bdb9a50fdec716db6f2ac445b Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 18:19:59 +0200
-Subject: [PATCH 09/18] editor-api: Sitzungsebene fuer geaenderte Kacheln,
+Subject: [PATCH 09/19] editor-api: Sitzungsebene fuer geaenderte Kacheln,
  Kacheln neu laden
 
 ---
@@ -865,7 +865,7 @@ index 39d3a19..0dab235 100644
 From 19d1a75a1fe8c3035a4da58ecacc0944c1bf59e0 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 18:36:54 +0200
-Subject: [PATCH 10/18] editor-api: Kacheln neu laden auch beim Streaming
+Subject: [PATCH 10/19] editor-api: Kacheln neu laden auch beim Streaming
  (Pfade, Zwischenspeicher, Spuren)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -942,7 +942,7 @@ index 0dab235..27eeea0 100644
 From 46577556082be58a6a5e4121521161d75fbadc0d Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 23:21:40 +0200
-Subject: [PATCH 11/18] editor-api: offene Objektarme, LaneKind,
+Subject: [PATCH 11/19] editor-api: offene Objektarme, LaneKind,
  Streaming-Neuladen ohne Wettlauf
 
 - object_free_lane_ends: Spuren von Objekten, die nirgends hinfuehren
@@ -1118,7 +1118,7 @@ index 27eeea0..7b984af 100644
 From e464c56366b8b4204e87f95e7e179faff2f40004 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 7 Oct 2026 08:09:46 +0200
-Subject: [PATCH 12/18] editor-api: Objekte mit absoluter Hoehe bearbeitbar
+Subject: [PATCH 12/19] editor-api: Objekte mit absoluter Hoehe bearbeitbar
  (behalten beim Ziehen ihre Hoehe)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -1204,7 +1204,7 @@ index 421cd69..6943b4c 100644
 From e4ef9c5f97dcc8ad0333c44feb3e7c41c2144674 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 7 Oct 2026 08:25:56 +0200
-Subject: [PATCH 13/18] editor-api: Baeume der Karte im Objekt-Editor
+Subject: [PATCH 13/19] editor-api: Baeume der Karte im Objekt-Editor
  (verschieben, drehen, loeschen)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -1273,7 +1273,7 @@ index 6943b4c..791651b 100644
 From fe94f6cce870569c558992a177d3782813cebb6b Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 7 Oct 2026 16:53:35 +0200
-Subject: [PATCH 14/18] editor-api: unsichtbare Objekte der Karte fuer die
+Subject: [PATCH 14/19] editor-api: unsichtbare Objekte der Karte fuer die
  Hilfsansicht des Editors
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -1373,7 +1373,7 @@ index 7b984af..69d6350 100644
 From 66d3999a4dca9b37c1683f4c64e4e7ce7a825675 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 7 Oct 2026 17:12:14 +0200
-Subject: [PATCH 15/18] editor-api: unsichtbare Objekte im Objekt-Editor
+Subject: [PATCH 15/19] editor-api: unsichtbare Objekte im Objekt-Editor
  bearbeitbar
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -1426,7 +1426,7 @@ index 69d6350..d671655 100644
 From 273bc3a4ed2140bf0a6bbeabebaeccb5bb552dd7 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Fri, 9 Oct 2026 16:17:24 +0200
-Subject: [PATCH 16/18] editor-api: Kachelliste zur Laufzeit aendern (Kacheln
+Subject: [PATCH 16/19] editor-api: Kachelliste zur Laufzeit aendern (Kacheln
  hinzufuegen/wegnehmen)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -1580,7 +1580,7 @@ index d671655..79ec018 100644
 From 17ba41beb935bef7cc531a2a24d24a215c55932e Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Fri, 9 Oct 2026 17:33:03 +0200
-Subject: [PATCH 17/18] editor-api: Gelaende einer Kachel lesen, Live-Vorschau
+Subject: [PATCH 17/19] editor-api: Gelaende einer Kachel lesen, Live-Vorschau
  beim Formen, Oberflaechenhoehe
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -1700,7 +1700,7 @@ index 79ec018..2f82a47 100644
 From df8057ae8454fa90c9986e82d6fc73837ddf112a Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Fri, 9 Oct 2026 18:11:12 +0200
-Subject: [PATCH 18/18] editor-api: Luftbild ueber dem Gelaende je Kachel
+Subject: [PATCH 18/19] editor-api: Luftbild ueber dem Gelaende je Kachel
  (Ebene auf dem Gelaendenetz, Deckkraft)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -1864,6 +1864,98 @@ index 2f82a47..8f09dc2 100644
 +            self.world.attach_ground_images(&self.renderer, &mut self.scene);
          }
          Ok(())
+     }
+-- 
+2.55.0.windows.5
+
+
+From efc8eb0a59d6697fe1c32a08dcffe02bdbefd048 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 9 Oct 2026 18:34:47 +0200
+Subject: [PATCH 19/19] editor-api: Deckkraft des Luftbilds ueber die Maske
+ (Ebenen ignorieren die Slot-Deckkraft)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ crates/omsi-app/src/scene.rs | 35 ++++++++++++++++++++++++++++++++---
+ 1 file changed, 32 insertions(+), 3 deletions(-)
+
+diff --git a/crates/omsi-app/src/scene.rs b/crates/omsi-app/src/scene.rs
+index b5cef00..c49d2df 100644
+--- a/crates/omsi-app/src/scene.rs
++++ b/crates/omsi-app/src/scene.rs
+@@ -960,6 +960,8 @@ pub struct TileGpu {
+     /// editor-api: the instance laying the aerial picture over the ground (also among
+     /// `instances`), see `World::attach_ground_images`.
+     pub ground_image: Option<usize>,
++    /// editor-api: its mask, whose alpha is the picture's opacity
++    pub ground_image_mask: Option<TextureId>,
+ }
+ 
+ struct TexEntry {
+@@ -1660,6 +1662,27 @@ impl GpuCache {
+ /// A texture of a tile's own (its night light map, the roads' cut, a ground paint mask) for
+ /// the GPU: one level as always, compressed where the device takes blocks and the picture
+ /// stays close (`mask`: only the alpha channel is read).
++/// editor-api: the 4 x 4 mask of an aerial picture drawn `alpha` opaque. The shader sharpens
++/// a painted layer's mask (smoothstep 0.32..0.68, see `fs_main`): the alpha going in is the
++/// one that comes out as `alpha`.
++fn ground_image_mask(alpha: f32) -> Image {
++    let a = alpha.clamp(0.0, 1.0);
++    let m = if a <= 0.0 {
++        0.0
++    } else if a >= 1.0 {
++        1.0
++    } else {
++        let (mut lo, mut hi) = (0.0f32, 1.0f32);
++        for _ in 0..30 {
++            let t = 0.5 * (lo + hi);
++            if t * t * (3.0 - 2.0 * t) < a { lo = t } else { hi = t }
++        }
++        0.32 + 0.36 * 0.5 * (lo + hi)
++    };
++    let v = (m * 255.0).round() as u8;
++    Image { width: 4, height: 4, rgba: [255, 255, 255, v].repeat(16), has_alpha: true }
++}
++
+ fn tile_texture(img: Image, mask: bool) -> TextureData {
+     omsi_texture::gpu::prepare_single_level(img, mask).0
+ }
+@@ -8196,8 +8219,10 @@ impl World {
+             let (Some(mesh), None) = (tg.terrain, tg.ground_image) else { continue };
+             let tex = gpu.add_data(renderer, scene, img);
+             tg.textures.push(tex);
+-            let mask = gpu.add_data(renderer, scene, &tile_texture(Image::solid([255; 4]), true));
++            // (a painted layer's slot alpha is not used - the mask's alpha is: the opacity lives there)
++            let mask = gpu.add_data(renderer, scene, &tile_texture(ground_image_mask(alpha), false));
+             tg.textures.push(mask);
++            tg.ground_image_mask = Some(mask);
+             let m = renderer.add_terrain_layer_material(scene, Some(tex), mask, None, 1.0, None, 0.0);
+             let m = gpu.material(renderer, scene, m);
+             tg.materials.push(m);
+@@ -8208,7 +8233,7 @@ impl World {
+                 inst.ground_layer = true;
+                 inst.render_phase = RenderPhase::Terrain;
+             }
+-            renderer.set_params(scene, i, &[alpha], alpha > 0.0, &[[0.0; 2]]);
++            renderer.set_params(scene, i, &[1.0], alpha > 0.0, &[[0.0; 2]]);
+             tg.instances.push(i);
+             tg.ground_image = Some(i);
+         }
+@@ -8218,9 +8243,13 @@ impl World {
+     pub fn set_ground_image_alpha(&self, renderer: &Renderer, scene: &mut Scene, alpha: f32) {
+         let alpha = alpha.clamp(0.0, 1.0);
+         *self.ground_image_alpha.lock() = alpha;
++        let mask = ground_image_mask(alpha);
+         for state in self.tile_state.lock().values() {
+             if let Some(i) = state.gpu.ground_image {
+-                renderer.set_params(scene, i, &[alpha], alpha > 0.0, &[[0.0; 2]]);
++                renderer.set_params(scene, i, &[1.0], alpha > 0.0, &[[0.0; 2]]);
++            }
++            if let Some(m) = state.gpu.ground_image_mask {
++                renderer.update_texture(scene, m, &mask);
+             }
+         }
      }
 -- 
 2.55.0.windows.5

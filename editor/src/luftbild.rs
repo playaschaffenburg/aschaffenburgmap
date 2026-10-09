@@ -98,3 +98,41 @@ impl Luftbild {
         })));
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use glam::DVec3;
+
+    /// nur in der Sitzung: Karte OMSI_KARTE (mit Ort) bei OMSI_X/OMSI_Y mit Luftbild von oben (OMSI_BILD)
+    #[test]
+    #[ignore]
+    fn nutzerkarte_luftbild() {
+        let Ok(karte) = std::env::var("OMSI_KARTE") else { return };
+        let zahl = |k: &str| std::env::var(k).ok().and_then(|v| v.parse::<f64>().ok()).unwrap_or(150.0);
+        let (x, y) = (zahl("OMSI_X"), zahl("OMSI_Y"));
+        let root = std::path::Path::new(crate::bearbeiten::tests::OMSI);
+        let ordner = root.join("maps").join(&karte);
+        let b = Bezug::lesen(&ordner).expect("Karte ohne Ort");
+        let (mut v, _) = Viewer::open(&openomsi_game::viewer::instance(), None, root, &ordner.join("global.cfg")).unwrap();
+        v.tiles_around(DVec3::new(x, y, 0.0), 1).unwrap();
+        let kacheln = v.loaded_tile_keys();
+        let (daten, _) = geo::kacheln(&b, &kacheln, false, true).unwrap();
+        for d in daten {
+            if let Some(p) = d.luftbild {
+                let img = image::open(&p).unwrap().to_rgba8();
+                let (w, h) = img.dimensions();
+                v.set_ground_image(d.kachel.0, d.kachel.1, Some(Viewer::ground_image_data(omsi_texture::Image { width: w, height: h, rgba: img.into_raw(), has_alpha: false })));
+            }
+        }
+        v.set_ground_image_alpha(1.0);
+        let z = v.terrain_height(x, y).unwrap_or(0.0);
+        for (name, abstand) in [("oben", 330.0), ("nah", 60.0)] {
+            let kam = crate::kamera::Kamera { ziel: DVec3::new(x, y, z), gier: 0.0, neigung: -89.9, abstand, fov: 50.0 };
+            let px = v.render_image(1280, 800, &kam.camera()).unwrap();
+            if let Some(bild) = std::env::var_os("OMSI_BILD") {
+                image::save_buffer(std::path::PathBuf::from(&bild).with_extension(format!("{name}.png")), &px, 1280, 800, image::ColorType::Rgba8).unwrap();
+            }
+        }
+    }
+}
