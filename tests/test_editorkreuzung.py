@@ -109,3 +109,16 @@ def test_kreisverkehr_zu_klein(tmp_path):
     a = kreisel_auftrag(tmp_path, r=5.0, breite=7.0)
     with pytest.raises(ValueError):
         editorkreuzung.bauen(a, SplineDB())
+
+
+def test_gesperrter_arm(tmp_path):
+    a = auftrag(tmp_path)
+    a['arme'][2]['gesperrt'] = True
+    erg = editorkreuzung.bauen(a, SplineDB())
+    frei = editorkreuzung.bauen(auftrag(tmp_path), SplineDB())
+    assert frei['no_cars'] == []
+    # in den Nebenarm fuehren eine Rechts- und eine Linksabbiegespur
+    assert len(erg['no_cars']) >= 2 and all(0 <= p < erg['pfade'] for p in erg['no_cars'])
+    k = kreisel_auftrag(tmp_path)
+    k['arme'][1]['gesperrt'] = True
+    assert len(editorkreuzung.bauen(k, SplineDB())['no_cars']) >= 1

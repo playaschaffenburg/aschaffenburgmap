@@ -1263,7 +1263,7 @@ impl App {
                                 let pfade: Vec<(u8, u8)> = p.iter().map(|x| (x.0, x.4)).collect();
                                 let mut g: Vec<usize> = s.gesperrt.iter().copied().filter(|i| pfade.get(*i).is_some_and(|x| x.0 == 0)).collect();
                                 g.sort_unstable();
-                                [netz::Einbahn::Beide, netz::Einbahn::Vor, netz::Einbahn::Zurueck].into_iter().find(|a| a.gesperrt(&pfade, s.gespiegelt) == g)
+                                [netz::Einbahn::Beide, netz::Einbahn::Vor, netz::Einbahn::Zurueck, netz::Einbahn::Gesperrt].into_iter().find(|a| a.gesperrt(&pfade, s.gespiegelt) == g)
                             });
                             if let Some(art) = einbahn_knoepfe(ui, stand.flatten()) {
                                 aktionen.push(UiAktion::SplineEinbahn(art));
@@ -2153,6 +2153,10 @@ fn einbahn_knoepfe(ui: &mut egui::Ui, stand: Option<netz::Einbahn>) -> Option<ne
             }
         }
     });
+    if ui.selectable_label(stand == Some(netz::Einbahn::Gesperrt), "\u{26D4} fuer KI-Verkehr sperren")
+        .on_hover_text("alle Fahrspuren und die Kreuzungspfade hinein bekommen [rule] no_cars").clicked() {
+        wahl = Some(netz::Einbahn::Gesperrt);
+    }
     if stand.is_none() {
         ui.label(egui::RichText::new("Spuren teilweise gesperrt (Regeln der Karte)").small().weak());
     }

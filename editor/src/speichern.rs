@@ -367,6 +367,9 @@ pub fn vorbereiten(v: &Viewer, b: &Bearbeiten, netz: &crate::netz::Netz, netz_kr
             "[object]".to_string(), "0".into(), g.rel.clone(), id.to_string(),
             zahl(pos.x - tx as f64 * groesse), zahl(pos.y - ty as f64 * groesse), zahl(pos.z), "0".into(), "0".into(), "0".into(), "0".into(),
         ];
+        for pfad in &g.no_cars {
+            felder.extend(["".to_string(), "[rule]".into(), pfad.to_string(), "no_cars".into(), "0".into(), "0".into()]);
+        }
         for (pfad, wert) in &g.rules {
             felder.extend(["".to_string(), "[rule]".into(), pfad.to_string(), "priority".into(), wert.to_string(), "0".into()]);
         }

@@ -137,12 +137,15 @@ def bauen(arms, mitte, r, breite, sdb):
         if len(ereignisse) > 1 and (w1 - w2) % 360 < 2:
             raise ValueError('Zufahrten zu dicht beieinander - Kreisverkehr groesser waehlen')
     moves, rules, idx = [], [], 0
+    no_cars = []
 
-    def neu(els, blinker, prio):
+    def neu(els, blinker, prio, gesperrt=False):
         nonlocal idx
         moves.append((els, blinker))
         if prio is not None:
             rules.extend((idx + j, prio) for j in range(len(els)))
+        if gesperrt:
+            no_cars.extend(idx + j for j in range(len(els)))
         idx += len(els)
     n = len(ereignisse)
     for i in range(n):
@@ -163,7 +166,7 @@ def bauen(arms, mitte, r, breite, sdb):
             els = connect(X, (w - 90) % 360, l['p'], l['h'], None)
             if not _ok(els, X, l['p']):
                 raise ValueError('Ausfahrt laesst sich nicht legen')
-            neu(els, kreuzung.BLINKER['rechts'], None)
+            neu(els, kreuzung.BLINKER['rechts'], None, bool(arms[k].get('gesperrt')))
 
     # Gehwegpfade aussen herum, von Arm zu Arm (im Uhrzeigersinn)
     walks = []
@@ -187,7 +190,7 @@ def bauen(arms, mitte, r, breite, sdb):
         if _ok(e1, p, P1) and _ok(e3, P2, q):
             walks.append(e1 + _bogen(rw, phi_a, phi_b, 1) + e3)
     return dict(origin=O, asphalt=asphalt, side=side, insel=insel, kerbs=kerbs, moves=moves, rules=rules,
-                walks=walks, ri=ri, ro=ro)
+                walks=walks, ri=ri, ro=ro, no_cars=no_cars)
 
 
 def mesh(K):

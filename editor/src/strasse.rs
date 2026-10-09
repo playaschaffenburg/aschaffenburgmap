@@ -1084,14 +1084,14 @@ impl Strassenbau {
             let mut info = Vec::new(); // (halbe Breite, vorhandene Strasse, Ring)
             for arm in self.netz.arme(k) {
                 if let Some(ka) = &arm.karte {
-                    arme.push(kreuzung::Arm { pos: ka.pos, richtung: ka.richtung, sli: ka.sli.clone(), weg: ka.weg, rolle: kreuzung::Rolle::Gleich });
+                    arme.push(kreuzung::Arm { pos: ka.pos, richtung: ka.richtung, sli: ka.sli.clone(), weg: ka.weg, rolle: kreuzung::Rolle::Gleich, gesperrt: false });
                     info.push((ka.halb, true, false));
                     continue;
                 }
                 let Some(e) = self.netz.kante(arm.kante) else { continue };
                 // Lage und Richtung am Ende der gekuerzten Kante: Platte und Abbiegespuren schliessen genau dort an
                 let Some((pos, richtung)) = self.netz.arm_ende(&arm) else { continue };
-                arme.push(kreuzung::Arm { pos, richtung, sli: e.sli.clone(), weg: arm.weg, rolle: kreuzung::Rolle::Gleich });
+                arme.push(kreuzung::Arm { pos, richtung, sli: e.sli.clone(), weg: arm.weg, rolle: kreuzung::Rolle::Gleich, gesperrt: e.einbahn == netz::Einbahn::Gesperrt });
                 info.push((self.netz.breiten.get(&e.sli).copied().unwrap_or(5.0), false, e.ring));
             }
             let kreisel = self.netz.knoten(k).and_then(|x| x.kreisel).map(|kr| (self.netz.knoten(k).unwrap().pos.truncate(), kr));
@@ -1107,7 +1107,7 @@ impl Strassenbau {
                 a.rolle = r;
             }
             let ampel = regel.as_ref().is_some_and(|r| r.ampel) && kreisel.is_none();
-            let mut signatur: String = arme.iter().map(|a| format!("{:.2},{:.2},{:.2},{:.3},{},{},{:?};", a.pos.x, a.pos.y, a.pos.z, a.richtung, a.sli, a.weg, a.rolle)).collect();
+            let mut signatur: String = arme.iter().map(|a| format!("{:.2},{:.2},{:.2},{:.3},{},{},{:?};", a.pos.x, a.pos.y, a.pos.z, a.richtung, a.sli, a.weg, a.rolle)).chain(arme.iter().map(|a| if a.gesperrt { "x".to_string() } else { String::new() })).collect();
             if ampel {
                 signatur.push_str("Ampel");
             }
@@ -1170,7 +1170,7 @@ impl Strassenbau {
     /// Kreuzungsobjekte des Netzes fuers Speichern: (.sco, Lage, Vorfahrtregeln, Ampeln)
     pub fn gesetzte_kreuzungen(&self) -> Vec<kreuzung::Gesetzt> {
         self.objekte.values().map(|o| kreuzung::Gesetzt { rel: o.objekt.rel.clone(), pos: o.objekt.ursprung.extend(o.hoehe),
-                                                         rules: o.objekt.rules.clone(), signale: o.objekt.signale.clone() }).collect()
+                                                         rules: o.objekt.rules.clone(), no_cars: o.objekt.no_cars.clone(), signale: o.objekt.signale.clone() }).collect()
     }
 
     // ------------------------------------------------------------ Werkzeug "Kreuzungen": Vorfahrt und Ampel

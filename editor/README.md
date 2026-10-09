@@ -164,7 +164,10 @@ Querschnitt (Raster mit Vorschaubildern; Warnung, wenn die Fahrspuren nicht mehr
 Fahrzeugpfade der Gegenrichtung bekommen `[rule] <Pfad> no_cars 0 0` (wie die Standardkarten; openOMSI/OMSI lassen die
 KI dort weder einsetzen noch abbiegen, der Spieler darf). Pfeile am gewählten Spline zeigen die Splinerichtung; mit H
 erscheinen gesperrte Spuren rot. Andere Regeln der Karte (Verkehrsdichte usw.) bleiben. Gilt auch für eigene Straßen
-(beim Speichern geschrieben).
+(beim Speichern geschrieben). **„⛔ für KI-Verkehr sperren“** sperrt alle Fahrspuren der gewählten Straße und
+die Pfade der Kreuzungen, die (laut Spurnetz) in sie hineinführen – an vorhandenen Kreuzungsobjekten als `[rule]`
+hinter dem `[object]`, an eigenen Kreuzungen und Kreisverkehren erzeugt omsigen die Regeln mit. „beide“ gibt alles
+wieder frei.
 Technik: die geänderte Kachel wird in einen Sitzungsordner geschrieben, den openOMSI vor der
 Installation liest, und neu geladen – sofort sichtbar, die Originalkarte bleibt unverändert; beim Speichern als
 neue Karte kommen diese Kacheln mit.

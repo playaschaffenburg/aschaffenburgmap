@@ -10,13 +10,14 @@ Auftrag (Weltkoordinaten in Metern: x Ost, y Nord; Richtungen im Uhrzeigersinn a
      "arme": [{"pos": [x, y], "h": Richtung von der Kreuzung weg, "sli": Spline des Arms,
                "away": true wenn die Splinerichtung von der Kreuzung weg zeigt, "rolle": "haupt"/"neben"/"gleich"}],
      "ampel": true fuer eine Ampelkreuzung (Phasenplan wie omsigen ampel.py),
+     ein Arm mit "gesperrt": true ist fuer die KI gesperrt (die Pfade in ihn hinein bekommen no_cars),
      "kreisel": {"mitte": [x, y], "r": Radius der Ringspur, "breite": Breite der Ringfahrbahn} fuer einen
                 Kreisverkehr als ein Objekt (kreisel.py; die Arme sind seine Zufahrten, ab einer)}
 Ergebnis:
     {"rel": .sco relativ zu OMSI, "ursprung": [x, y], "rules": [[Pfad, Prioritaet], ...], "pfade": n,
      "spuren": Abbiegespuren, "fehlgeschlagen": n, "dreiecke": n,
      "signale": [{"art": "signal"/"mast"/"oben", "datei", "x", "y", "hoehe", "rot", "gruppe", "eltern", "anhang"}],
-     "phasen": [Phase je Arm], "umlauf": s}
+     "phasen": [Phase je Arm], "umlauf": s, "no_cars": [Pfad, ...]}
 oder {"fehler": Text}."""
 import json, os, shutil, sys
 from . import ampel, kreisel, kreuzung, vorfahrt
@@ -41,7 +42,8 @@ def _schreiben(auftrag, name, sco, x):
 
 def kreisel_bauen(auftrag, sdb):
     k = auftrag['kreisel']
-    arms = [dict(pos=tuple(a['pos']), h=float(a['h']) % 360, spl=a['sli'], away=bool(a['away'])) for a in auftrag['arme']]
+    arms = [dict(pos=tuple(a['pos']), h=float(a['h']) % 360, spl=a['sli'], away=bool(a['away']), gesperrt=bool(a.get('gesperrt')))
+            for a in auftrag['arme']]
     K = kreisel.bauen(arms, k['mitte'], float(k['r']), float(k['breite']), sdb)
     name = auftrag['name']
     x, dreiecke = kreisel.x_file(K)
@@ -49,7 +51,8 @@ def kreisel_bauen(auftrag, sdb):
     pfade = sum(len(m[0]) for m in K['moves'])
     return dict(rel=auftrag['rel_ordner'].rstrip('\\') + '\\' + name + '.sco', ursprung=list(K['origin']),
                 rules=K['rules'], pfade=pfade + sum(len(w) for w in K['walks']), spuren=len(K['moves']),
-                fehlgeschlagen=0, bewegungen={}, dreiecke=dreiecke, signale=[], phasen=[], umlauf=None)
+                fehlgeschlagen=0, bewegungen={}, dreiecke=dreiecke, signale=[], phasen=[], umlauf=None,
+                no_cars=K['no_cars'])
 
 
 def bauen(auftrag, sdb=None):
@@ -76,6 +79,7 @@ def bauen(auftrag, sdb=None):
     n_haupt = rollen.count(vorfahrt.HAUPT)
     plan = ampel.plane(arms, rollen) if auftrag.get('ampel') else None
     moves, rules, idx = [], [], 0
+    no_cars = []
     for c in ketten:
         els = [[e[0] - O[0], e[1] - O[1]] + list(e[2:5]) for e in c['els']]
         gruppe = plan['phase'][c['arms'][0]] if (plan and c.get('arms')) else None
@@ -85,6 +89,8 @@ def bauen(auftrag, sdb=None):
             pr = vorfahrt.priority(rollen[ia], rollen[ib], c.get('mv'), n_haupt)
             if pr is not None:
                 rules += [(idx + j, pr) for j in range(len(els))]
+            if arme[ib].get('gesperrt'):
+                no_cars += [idx + j for j in range(len(els))]
         idx += len(els)
     V, F = kreuzung.mesh(J)
     name = auftrag['name']
@@ -96,7 +102,7 @@ def bauen(auftrag, sdb=None):
                 signale=[dict(art=g['art'], datei=g['datei'], x=g.get('x'), y=g.get('z'), hoehe=g.get('hoehe', 0.0),
                               rot=g['rot'], gruppe=g['gruppe'], eltern=g.get('eltern'), anhang=g.get('anhang'))
                          for g in (ampel.signale(arms, plan, sdb) if plan else [])],
-                phasen=plan['phase'] if plan else [], umlauf=plan['umlauf'] if plan else None)
+                phasen=plan['phase'] if plan else [], umlauf=plan['umlauf'] if plan else None, no_cars=no_cars)
 
 
 def main():

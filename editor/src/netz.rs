@@ -325,6 +325,8 @@ pub enum Einbahn {
     Beide,
     Vor,
     Zurueck,
+    /// fuer die KI ganz gesperrt (auch die Pfade der Kreuzungen hinein)
+    Gesperrt,
 }
 
 impl Einbahn {
@@ -332,7 +334,13 @@ impl Einbahn {
     /// 2 beide Splinerichtungen); `gespiegelt`: der Spline ist gespiegelt (seine Pfade laufen andersherum)
     pub fn gesperrt(self, pfade: &[(u8, u8)], gespiegelt: bool) -> Vec<usize> {
         pfade.iter().enumerate().filter_map(|(i, &(art, r))| {
-            if art != 0 || r > 1 {
+            if art != 0 {
+                return None;
+            }
+            if self == Einbahn::Gesperrt {
+                return Some(i);
+            }
+            if r > 1 {
                 return None;
             }
             let gegen = (r == 1) != gespiegelt;
@@ -340,6 +348,7 @@ impl Einbahn {
                 Einbahn::Beide => None,
                 Einbahn::Vor => gegen.then_some(i),
                 Einbahn::Zurueck => (!gegen).then_some(i),
+                Einbahn::Gesperrt => Some(i),
             }
         }).collect()
     }
@@ -349,6 +358,7 @@ impl Einbahn {
             Einbahn::Beide => "beide Richtungen",
             Einbahn::Vor => "Einbahn in Pfeilrichtung",
             Einbahn::Zurueck => "Einbahn gegen den Pfeil",
+            Einbahn::Gesperrt => "fuer KI-Verkehr gesperrt",
         }
     }
 }

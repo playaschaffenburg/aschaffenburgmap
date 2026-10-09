@@ -76,11 +76,15 @@ pub struct Arm {
     /// zeigt die Splinerichtung (bei gespiegelten Splines die umgekehrte) von der Kreuzung weg?
     pub weg: bool,
     pub rolle: Rolle,
+    /// fuer die KI gesperrt: die Pfade der Kreuzung in diesen Arm bekommen no_cars
+    pub gesperrt: bool,
 }
 
 /// was omsigen gebaut hat
 #[derive(Clone, Debug)]
 pub struct Objekt {
+    /// Pfade in gesperrte Arme ([rule] no_cars)
+    pub no_cars: Vec<usize>,
     pub rel: String,
     pub ursprung: DVec2,
     pub rules: Vec<(usize, i32)>,
@@ -114,6 +118,8 @@ pub struct Gesetzt {
     pub rel: String,
     pub pos: DVec3,
     pub rules: Vec<(usize, i32)>,
+    /// Pfade mit [rule] no_cars (in gesperrte Arme)
+    pub no_cars: Vec<usize>,
     pub signale: Vec<Signal>,
 }
 
@@ -913,7 +919,7 @@ pub fn erzeugen_mit(root: &Path, ordner: &Path, rel_ordner: &str, name: &str, ar
         "ampel": ampel,
         "kreisel": kreisel.map(|(m, k)| serde_json::json!({"mitte": [m.x, m.y], "r": k.r, "breite": k.breite})),
         "arme": arme.iter().map(|a| serde_json::json!({
-            "pos": [a.pos.x, a.pos.y], "h": a.richtung, "sli": a.sli, "away": a.weg, "rolle": a.rolle.text(),
+            "pos": [a.pos.x, a.pos.y], "h": a.richtung, "sli": a.sli, "away": a.weg, "rolle": a.rolle.text(), "gesperrt": a.gesperrt,
         })).collect::<Vec<_>>(),
     });
     let python = std::env::var("OMSIGEN_PYTHON").unwrap_or_else(|_| "python".into());
@@ -938,6 +944,7 @@ pub fn erzeugen_mit(root: &Path, ordner: &Path, rel_ordner: &str, name: &str, ar
     let zahl = |k: &str| erg.get(k).and_then(|x| x.as_u64()).unwrap_or(0) as usize;
     let u = erg["ursprung"].as_array().context("omsigen: kein Ursprung")?;
     Ok(Objekt {
+        no_cars: erg["no_cars"].as_array().map(|l| l.iter().filter_map(|x| x.as_u64().map(|x| x as usize)).collect()).unwrap_or_default(),
         rel: erg["rel"].as_str().context("omsigen: keine Datei")?.to_string(),
         ursprung: DVec2::new(u[0].as_f64().unwrap_or(0.0), u[1].as_f64().unwrap_or(0.0)),
         rules: erg["rules"].as_array().map(|r| r.iter().filter_map(|x| Some((x[0].as_u64()? as usize, x[1].as_i64()? as i32))).collect()).unwrap_or_default(),
@@ -985,7 +992,7 @@ pub(crate) mod tests {
         }
         let d = std::env::temp_dir().join(format!("omsi-editor-kreuzung-{}", std::process::id()));
         let sli = "Splines\\Marcel\\str_2spur_8m_altonaer1.sli".to_string();
-        let arm = |x: f64, y: f64, h: f64, weg: bool, rolle| Arm { pos: DVec3::new(x, y, 0.0), richtung: h, sli: sli.clone(), weg, rolle };
+        let arm = |x: f64, y: f64, h: f64, weg: bool, rolle| Arm { pos: DVec3::new(x, y, 0.0), richtung: h, sli: sli.clone(), weg, rolle, gesperrt: false };
         let arme = [arm(0.0, -12.0, 180.0, false, Rolle::Haupt), arm(0.0, 12.0, 0.0, true, Rolle::Haupt), arm(12.0, 0.0, 90.0, true, Rolle::Neben)];
         let o = erzeugen(root, &d, "Sceneryobjects\\Aschaffenburg_KI\\Test", "K_E0001", &arme, false).unwrap();
         assert_eq!(o.rel, "Sceneryobjects\\Aschaffenburg_KI\\Test\\K_E0001.sco");
@@ -1446,7 +1453,7 @@ pub(crate) mod tests {
     #[test]
     fn vorfahrt_vermuten() {
         use crate::strasse::rollen_vermuten;
-        let arm = |h: f64, sli: &str| Arm { pos: DVec3::ZERO, richtung: h, sli: sli.into(), weg: true, rolle: Rolle::Gleich };
+        let arm = |h: f64, sli: &str| Arm { pos: DVec3::ZERO, richtung: h, sli: sli.into(), weg: true, rolle: Rolle::Gleich, gesperrt: false };
         // T: durchgehende Strasse hat Vorfahrt
         let t = [arm(0.0, "a"), arm(180.0, "a"), arm(90.0, "b")];
         assert_eq!(rollen_vermuten(&t, &[(5.0, false, false); 3]), vec![Rolle::Haupt, Rolle::Haupt, Rolle::Neben]);

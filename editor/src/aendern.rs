@@ -264,51 +264,69 @@ impl Aendern {
     }
 
     /// Fahrtrichtungen der gewaehlten Splines fuer die KI setzen: die Fahrzeugpfade der gesperrten Richtung bekommen
-    /// [rule] no_cars, die der anderen verlieren ihre no_cars-Regeln (Optik und Querschnitt bleiben) -> Anzahl Splines
+    /// [rule] no_cars, die der anderen verlieren ihre no_cars-Regeln (Optik und Querschnitt bleiben). Die Pfade der
+    /// Kreuzungsobjekte, die (laut Spurnetz) in diese Splines fuehren, folgen: gesperrt, wenn alle Spuren, in die sie
+    /// fuehren, gesperrt sind. Ein Rueckgaengig-Schritt -> Anzahl Splines
     pub fn einbahn(&mut self, v: &mut Viewer, art: crate::netz::Einbahn) -> Result<usize> {
         let ids = self.auswahl.clone();
-        // je Spline: Fahrzeugpfade und welche davon gesperrt werden
-        let mut plan: HashMap<i64, (Vec<usize>, Vec<usize>)> = HashMap::new();
+        // je Spline (Kachel, Fahrzeugpfade, gesperrte)
+        let mut splines: HashMap<i64, ((i32, i32), Vec<usize>, Vec<usize>)> = HashMap::new();
         for id in &ids {
             let Some(s) = self.spline(*id) else { continue };
             let Some((pfade, _)) = v.spline_lanes(&s.sli) else { continue };
             let pfade: Vec<(u8, u8)> = pfade.iter().map(|x| (x.0, x.4)).collect();
             let fahrzeug: Vec<usize> = pfade.iter().enumerate().filter(|(_, x)| x.0 == 0).map(|(i, _)| i).collect();
-            plan.insert(*id, (fahrzeug, art.gesperrt(&pfade, s.gespiegelt)));
+            splines.insert(*id, (s.kachel, fahrzeug, art.gesperrt(&pfade, s.gespiegelt)));
         }
-        let ids: Vec<i64> = plan.keys().copied().collect();
-        self.umschreiben(v, &ids, move |z, i| {
-            let Some(id) = z.get(i + 3).and_then(|x| x.trim().parse::<i64>().ok()) else { return false };
-            let Some((fahrzeug, sperren)) = plan.get(&id) else { return false };
-            // Ende des Eintrags mit seinen Zusaetzen (Regeln ...) bis zum naechsten Eintrag
-            let ende = eintrag_ende(z, i);
-            let mut j = ende;
-            while j < z.len() && !crate::kreuzung::ist_eintrag(&z[j]) {
-                j += 1;
+        // Kreuzungspfade hinein: (Kachel, Objekt) -> (Pfad, gesperrt)
+        let net = &v.lanes;
+        let ist_sli = |i: usize| net.lanes[i].name.to_ascii_lowercase().ends_with(".sli");
+        let mut objekte: HashMap<((i32, i32), i64), Vec<(usize, bool)>> = HashMap::new();
+        for (j, l) in net.lanes.iter().enumerate() {
+            let Some(k) = l.key else { continue };
+            if !ist_sli(j) || !splines.contains_key(&k.id) {
+                continue;
             }
-            // vorhandene no_cars-Regeln der Fahrzeugpfade weg
-            let mut k = ende;
-            while k < j {
-                if z[k].trim().eq_ignore_ascii_case("[rule]") && k + 2 < j && z[k + 2].trim().eq_ignore_ascii_case("no_cars")
-                    && z[k + 1].trim().parse::<usize>().is_ok_and(|p| fahrzeug.contains(&p)) {
-                    let mut e = k + 5;
-                    if e < z.len() && z[e].trim().is_empty() {
-                        e += 1;
-                    }
-                    let e = e.min(j);
-                    z.drain(k..e);
-                    j -= e - k;
-                } else {
-                    k += 1;
+            for &i in net.prev.get(j).map(|x| x.as_slice()).unwrap_or(&[]) {
+                let Some(ko) = net.lanes[i].key else { continue };
+                if ist_sli(i) || net.lanes[i].kind != l.kind {
+                    continue;
+                }
+                // gesperrt, wenn alle Folgespuren gesperrte Pfade der gewaehlten Splines sind
+                let alle = net.lanes[i].next.iter().all(|&n| net.lanes[n].key.is_some_and(|kn| {
+                    ist_sli(n) && splines.get(&kn.id).is_some_and(|(_, _, g)| g.contains(&(kn.path as usize)))
+                }));
+                let e = objekte.entry((ko.tile, ko.id)).or_default();
+                if !e.iter().any(|x| x.0 == ko.path as usize) {
+                    e.push((ko.path as usize, alle));
                 }
             }
-            let mut neu = Vec::new();
-            for p in sperren {
-                neu.extend(["[rule]".to_string(), p.to_string(), "no_cars".into(), "0".into(), "0".into(), String::new()]);
+        }
+        let mut kacheln: Vec<(i32, i32)> = splines.values().map(|x| x.0).chain(objekte.keys().map(|x| x.0)).collect();
+        kacheln.sort();
+        kacheln.dedup();
+        log::info!("KI-Fahrtrichtung ({}): {} Spline(s), Kreuzungspfade hinein {:?}", art.text(), splines.len(), objekte);
+        let n = splines.len();
+        self.kacheln_aendern(v, &kacheln, |k, z| {
+            for (id, (kachel, fahrzeug, sperren)) in &splines {
+                if *kachel != k {
+                    continue;
+                }
+                let i = eintrag_finden(z, *id).with_context(|| format!("Spline {id} nicht in seiner Kachel"))?;
+                regeln_no_cars(z, eintrag_ende(z, i), fahrzeug, sperren);
             }
-            z.splice(ende..ende, neu);
-            true
-        })
+            for ((kachel, oid), pfade) in &objekte {
+                if *kachel != k {
+                    continue;
+                }
+                let Some(i) = (0..z.len()).find(|&i| z[i].trim().eq_ignore_ascii_case("[object]") && z.get(i + 3).and_then(|x| x.trim().parse::<i64>().ok()) == Some(*oid)) else { continue };
+                let betroffen: Vec<usize> = pfade.iter().map(|x| x.0).collect();
+                let sperren: Vec<usize> = pfade.iter().filter(|x| x.1).map(|x| x.0).collect();
+                regeln_no_cars(z, i + 1, &betroffen, &sperren);
+            }
+            Ok(1)
+        })?;
+        Ok(n)
     }
 
     fn spuren_warnung(&mut self, v: &Viewer, ids: &[i64], sli: &str) -> Option<String> {
@@ -407,6 +425,39 @@ pub(crate) fn eintrag_finden(zeilen: &[String], id: i64) -> Option<usize> {
         let w = zeilen[i].trim().to_ascii_lowercase();
         (w == "[spline]" || w == "[spline_h]") && zeilen.get(i + 3).and_then(|z| z.trim().parse::<i64>().ok()) == Some(id)
     })
+}
+
+/// no_cars-Regeln eines Eintrags (Spline oder Objekt) ab Zeile `ab` bis zum naechsten Eintrag: die der Pfade `betroffen`
+/// weg, fuer `sperren` neue (am Ende des Eintrags, vor Leerzeilen - nie zwischen seine Felder)
+fn regeln_no_cars(z: &mut Vec<String>, ab: usize, betroffen: &[usize], sperren: &[usize]) {
+    let mut j = ab;
+    while j < z.len() && !crate::kreuzung::ist_eintrag(&z[j]) {
+        j += 1;
+    }
+    let mut k = ab;
+    while k < j {
+        if z[k].trim().eq_ignore_ascii_case("[rule]") && k + 4 < z.len() && z[k + 2].trim().eq_ignore_ascii_case("no_cars")
+            && z[k + 1].trim().parse::<usize>().is_ok_and(|p| betroffen.contains(&p)) {
+            let mut e = k + 5;
+            if e < j && z[e].trim().is_empty() {
+                e += 1;
+            }
+            let e = e.min(j);
+            z.drain(k..e);
+            j -= e - k;
+        } else {
+            k += 1;
+        }
+    }
+    let mut ende = j;
+    while ende > ab && z[ende - 1].trim().is_empty() {
+        ende -= 1;
+    }
+    let mut neu = Vec::new();
+    for p in sperren {
+        neu.extend([String::new(), "[rule]".to_string(), p.to_string(), "no_cars".into(), "0".into(), "0".into()]);
+    }
+    z.splice(ende..ende, neu);
 }
 
 /// erste Zeile nach dem Spline-Eintrag ab `i` (mit einer `mirror`-Zeile)
@@ -590,6 +641,71 @@ mod einbahn_tests {
         for _ in 0..3 {
             a.rueckgaengig(&mut v).unwrap();
         }
+        assert_eq!(a.kopien("Grundorf").len(), 0);
+    }
+}
+
+#[cfg(test)]
+mod sperren_tests {
+    use super::*;
+    use crate::netz::Einbahn;
+    use openomsi_game::viewer::LaneKind;
+
+    /// Grundorf: eine Strasse an einer Kreuzung fuer die KI sperren - ihre Fahrspuren und die Pfade der Kreuzung hinein
+    /// haben danach no_cars, die anderen Pfade der Kreuzung nicht; "beide" gibt alles wieder frei
+    #[test]
+    #[ignore]
+    fn strasse_fuer_ki_sperren() {
+        let _sperre = crate::bearbeiten::tests::sperre();
+        let mut v = crate::bearbeiten::tests::grundorf();
+        v.tiles_around(DVec3::new(150.0, 150.0, 0.0), 8).unwrap();
+        let mut a = Aendern::neu(&v);
+        a.aktualisieren(&v);
+        let sli = |v: &Viewer, i: usize| v.lanes.lanes[i].name.to_ascii_lowercase().ends_with(".sli");
+        // Spline, in dessen Spuren Pfade eines Objekts fuehren
+        let (id, objekt) = (0..v.lanes.lanes.len()).find_map(|j| {
+            let l = &v.lanes.lanes[j];
+            let k = l.key?;
+            if !sli(&v, j) || l.kind != LaneKind::Street || a.spline(k.id).is_none() {
+                return None;
+            }
+            v.lanes.prev.get(j)?.iter().find(|&&i| !sli(&v, i) && v.lanes.lanes[i].key.is_some()).map(|&i| (k.id, v.lanes.lanes[i].key.unwrap().id))
+        }).expect("Strasse an einer Kreuzung");
+        println!("Spline {id}, Kreuzung {objekt}");
+        // (Spuren des Splines gesperrt, Pfade des Objekts hinein gesperrt, andere Pfade des Objekts gesperrt)
+        let stand = |v: &Viewer| {
+            let mut spuren = vec![];
+            let mut hinein = vec![];
+            let mut andere = vec![];
+            for (j, l) in v.lanes.lanes.iter().enumerate() {
+                let Some(k) = l.key else { continue };
+                if l.kind != LaneKind::Street {
+                    continue;
+                }
+                if k.id == id && sli(v, j) {
+                    spuren.push(l.no_cars);
+                } else if k.id == objekt && !sli(v, j) {
+                    let rein = l.next.iter().any(|&n| v.lanes.lanes[n].key.is_some_and(|x| x.id == id));
+                    if rein { hinein.push(l.no_cars) } else { andere.push(l.no_cars) }
+                }
+            }
+            (spuren, hinein, andere)
+        };
+        let (s0, h0, o0) = stand(&v);
+        assert!(!s0.is_empty() && !h0.is_empty() && s0.iter().chain(&h0).all(|x| !x), "{s0:?} {h0:?}");
+        a.auswahl = vec![id];
+        a.einbahn(&mut v, Einbahn::Gesperrt).unwrap();
+        a.aktualisieren(&v);
+        let (s1, h1, o1) = stand(&v);
+        println!("gesperrt: Spuren {s1:?}, hinein {h1:?}, andere {o1:?}");
+        assert!(s1.iter().all(|x| *x) && h1.iter().all(|x| *x), "nicht alles gesperrt");
+        assert_eq!(o1, o0, "andere Pfade der Kreuzung veraendert");
+        a.einbahn(&mut v, Einbahn::Beide).unwrap();
+        a.aktualisieren(&v);
+        let (s2, h2, _) = stand(&v);
+        assert!(s2.iter().chain(&h2).all(|x| !x), "nicht wieder frei: {s2:?} {h2:?}");
+        a.rueckgaengig(&mut v).unwrap();
+        a.rueckgaengig(&mut v).unwrap();
         assert_eq!(a.kopien("Grundorf").len(), 0);
     }
 }
