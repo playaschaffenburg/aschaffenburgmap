@@ -165,6 +165,15 @@ Gleise, lila unsichtbare Straßen (`[onlyeditor]`-Splines) – und die Objekte, 
 wählen, verschieben, drehen, kopieren und löschen; im Platzieren-Katalog zeigt der Filter **Art → Editor-Objekte**
 nur sie (z. B. `Generic\entrypoint_bus.sco`, Haltestellen-Marken, Schallquellen).
 
+**World Editor (Knopf oben) → Kacheln bearbeiten:** im Bild sind die Kacheln der Karte weiß umrandet, freie Plätze
+am Rand mit „+“ grün. Klick auf ein „+“ legt dort eine 300-m-Kachel an: leere Kacheldatei, Gelände (`.terrain`), das
+an den Rändern genau an die Nachbarkacheln anschließt und dazwischen nach Abstand gemittelt ist, Lichtkarte aus der
+OMSI-Vorlage – im Sitzungsordner. Klick auf eine Kachel wählt sie, „Kachel löschen“ bzw. Entf nimmt sie nach Rückfrage
+(Inhalt, Warnung bei Fahrwegen `TTData/*.ttr`) aus der Karte. Neue Kacheln kommen ans Ende der `[map]`-Liste; beim
+Speichern wird die Liste neu geschrieben und die Kachelnummern der Einsetzpunkte (global.cfg) und von
+`TTData/Busstops.cfg` umgerechnet (Einträge auf gelöschten Kacheln fallen weg). Jeder Schritt ist im gemeinsamen
+Rückgängig. Technik: openOMSI `Viewer::set_map_tiles` (Kachelliste zur Laufzeit).
+
 **Rückgängig/Wiederholen** (Strg+Z / Strg+Y) gilt über alle Werkzeuge: der jeweils letzte Schritt, egal in welchem
 Werkzeug man gerade ist (eine gebaute Straße samt Kreuzungen und aufgeschnittenen Straßen ist ein Schritt).
 

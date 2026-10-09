@@ -25,6 +25,7 @@ mod speichern;
 mod spuren;
 mod strasse;
 mod vorschau;
+mod welt;
 
 use anyhow::{Context, Result};
 use glam::DVec3;
@@ -170,7 +171,7 @@ struct App {
     /// Stapel der Werkzeuge (Objekte, Strassen, Aendern) beim letzten Blick
     verlauf: Vec<Quelle>,
     verlauf_redo: Vec<Quelle>,
-    stapel: (usize, usize, usize),
+    stapel: (usize, usize, usize, usize),
     /// Bericht der vorigen Sitzung, einmal in der Statuszeile melden
     bericht_melden: Option<Option<PathBuf>>,
     /// Testlauf: Strasse, an der spaeter eine Kreuzung gebaut wird
@@ -240,6 +241,11 @@ struct App {
     /// Strasse (Strasse bauen mit ihrem Querschnitt), Kreisverkehr
     pipette: bool,
     pip_ziel: Option<PipZiel>,
+    /// World Editor: Kacheln (Rueckgaengig), gewaehlte und unter der Maus, Rueckfrage zum Loeschen
+    welt: welt::Welt,
+    welt_wahl: Option<(i32, i32)>,
+    welt_unter: Option<(i32, i32)>,
+    welt_frage: Option<(i32, i32)>,
 }
 
 /// was die Pipette unter der Maus hat
@@ -265,6 +271,7 @@ enum Quelle {
     Objekte,
     Strasse,
     Aendern,
+    Welt,
 }
 
 /// Was die Oberflaeche ausloesen will (nach dem Zeichnen ausgefuehrt)
@@ -302,6 +309,9 @@ enum UiAktion {
     Uebernehmen(std::path::PathBuf, f64),
     /// Pipette an/aus
     Pipette,
+    /// World Editor: Kachel anfuegen / wegnehmen
+    KachelNeu((i32, i32)),
+    KachelLoeschen((i32, i32)),
     /// Strasse bauen mit diesem Querschnitt (Pipette)
     StrasseUebernehmen(String),
     SplineLoeschen,
@@ -346,7 +356,7 @@ impl App {
             kreuzung_maus: None,
             verlauf: vec![],
             verlauf_redo: vec![],
-            stapel: (0, 0, 0),
+            stapel: (0, 0, 0, 0),
             pruefung: None,
             gestartet: Instant::now(),
             bilder: 0,
@@ -394,6 +404,10 @@ impl App {
             spur_zufahrt: None,
             pipette: false,
             pip_ziel: None,
+            welt: welt::Welt::default(),
+            welt_wahl: None,
+            welt_unter: None,
+            welt_frage: None,
         }
     }
 
@@ -788,6 +802,7 @@ impl App {
             match self.speichern_job.take().unwrap().join() {
                 Ok(Ok((ziel, ueberschrieben))) => {
                     self.bearb.aenderungen = 0;
+                    self.welt.aenderungen = 0;
                     self.strasse.aenderungen = 0;
                     if let Some(a) = self.aendern.as_mut() {
                         a.aenderungen = 0;
@@ -912,7 +927,9 @@ impl App {
                             aktionen.push(UiAktion::Werkzeug(wz));
                         }
                     }
-                    ui.add_enabled(false, egui::Button::new("Gelaende"));
+                    if ui.selectable_label(self.bearb.werkzeug == Werkzeug::Welt, "World Editor").on_hover_text("Kacheln hinzufuegen/loeschen, spaeter Gelaende ...").clicked() {
+                        aktionen.push(UiAktion::Werkzeug(if self.bearb.werkzeug == Werkzeug::Welt { Werkzeug::Ansehen } else { Werkzeug::Welt }));
+                    }
                     ui.separator();
                     if ui.selectable_label(self.pipette, "\u{1F58C} Pipette (I)").on_hover_text("Klick auf ein Objekt, einen Baum, eine Strasse oder einen Kreisverkehr: wechselt ins passende Werkzeug und uebernimmt es").clicked() {
                         aktionen.push(UiAktion::Pipette);
@@ -930,7 +947,7 @@ impl App {
                         aktionen.push(UiAktion::Wiederholen);
                     }
                     ui.separator();
-                    let geaendert = self.bearb.aenderungen + self.strasse.aenderungen + self.aendern.as_ref().map(|a| a.aenderungen).unwrap_or(0) > 0;
+                    let geaendert = self.geaendert() > 0;
                     let frei = self.viewer.is_some() && self.speichern_job.is_none();
                     if ui.add_enabled(frei && geaendert, egui::Button::new(if geaendert { "Speichern *" } else { "Speichern" }))
                         .on_hover_text("Strg+S: die geoeffnete Karte ueberschreiben (die ersetzten Dateien werden vorher gesichert)").clicked() {
@@ -1185,6 +1202,51 @@ impl App {
                     ui.label("Esc: abbrechen");
                     ui.add_space(4.0);
                     ui.label(egui::RichText::new("Die Vorschau ist blau; orange: enge Kurve; rot: so nicht moeglich. Strg+Z nimmt jeden Zug zurueck.").small().weak());
+                });
+            }
+            if self.bearb.werkzeug == Werkzeug::Welt {
+                egui::Panel::right("welt").default_size(330.0).show(ctx, |ui| {
+                    ui.heading("World Editor");
+                    let _ = ui.selectable_label(true, "Kacheln bearbeiten");
+                    ui.add_enabled(false, egui::Button::new("Gelaende formen (folgt)"));
+                    ui.separator();
+                    ui.label(egui::RichText::new("Kacheln bearbeiten").strong());
+                    let n = self.viewer.as_ref().map(|v| v.map_tiles().len()).unwrap_or(0);
+                    ui.label(format!("{n} Kacheln (je 300 x 300 m)"));
+                    ui.label("Im Bild: weiss = Kacheln der Karte, + = freie Plaetze am Rand. Klick auf ein + legt dort eine neue Kachel an (Gelaende schliesst an die Nachbarn an). Klick auf eine Kachel waehlt sie.");
+                    if let (Some(k), Some(v)) = (self.welt_wahl, self.viewer.as_ref()) {
+                        if v.map_tiles().contains(&k) {
+                            ui.separator();
+                            let (o, sp) = welt::inhalt(v, k);
+                            ui.label(egui::RichText::new(format!("Kachel {} {}", k.0, k.1)).strong());
+                            ui.label(format!("{o} Objekte, {sp} Splines"));
+                            if ui.button("Kachel loeschen (Entf)").clicked() {
+                                self.welt_frage = Some(k);
+                            }
+                        }
+                    }
+                    ui.separator();
+                    ui.label(egui::RichText::new("Die Karte bleibt bis zum Speichern unveraendert. Strg+Z nimmt jede Kachel zurueck. Neue Kacheln kommen ans Ende der Kachelliste; beim Loeschen werden Einsetzpunkte und Haltestellenliste beim Speichern umnummeriert.").small().weak());
+                });
+            }
+            if let Some(k) = self.welt_frage {
+                let (o, sp) = self.viewer.as_ref().map(|v| welt::inhalt(v, k)).unwrap_or((0, 0));
+                let fahrplan = self.karte.as_ref().is_some_and(|kt| std::fs::read_dir(self.root.join("maps").join(kt).join("TTData"))
+                    .map(|r| r.flatten().any(|e| e.path().extension().is_some_and(|x| x.eq_ignore_ascii_case("ttr")))).unwrap_or(false));
+                egui::Window::new("Kachel loeschen?").collapsible(false).resizable(false).anchor(egui::Align2::CENTER_CENTER, [0.0, 0.0]).show(ctx, |ui| {
+                    ui.label(format!("Kachel {} {} mit {o} Objekten und {sp} Splines aus der Karte nehmen?", k.0, k.1));
+                    if fahrplan {
+                        ui.colored_label(egui::Color32::from_rgb(255, 150, 80), "Die Karte hat Fahrwege (TTData/*.ttr): sie nennen Kacheln ueber ihre Nummer, die sich fuer die Kacheln hinter dieser verschiebt - Fahrplaene danach pruefen.");
+                    }
+                    ui.label(egui::RichText::new("Strg+Z holt sie zurueck; die Datei bleibt im Kartenordner.").small().weak());
+                    ui.horizontal(|ui| {
+                        if ui.button("Loeschen").clicked() {
+                            aktionen.push(UiAktion::KachelLoeschen(k));
+                        }
+                        if ui.button("Abbrechen").clicked() {
+                            self.welt_frage = None;
+                        }
+                    });
                 });
             }
             if self.bearb.werkzeug == Werkzeug::Kreuzung {
@@ -1462,6 +1524,53 @@ impl App {
             }
             if let Some(o) = gewaehlt.as_ref() {
                 bearbeiten::markieren(&maler, &self.kam, o, bw, bh, egui::Color32::from_rgb(255, 60, 220), 3.0);
+            }
+            if let (Werkzeug::Welt, Some(v)) = (self.bearb.werkzeug, self.viewer.as_ref()) {
+                let ts = 300.0;
+                let kacheln: std::collections::HashSet<(i32, i32)> = v.map_tiles().into_iter().collect();
+                let ziel = self.kam.ziel;
+                let r = ((self.kam.abstand * 3.0 + 600.0) / ts).ceil() as i32;
+                let (cx, cy) = ((ziel.x / ts).floor() as i32, (ziel.y / ts).floor() as i32);
+                let hoehe = |x: f64, y: f64| v.terrain_height(x, y).unwrap_or(ziel.z) + 0.5;
+                let pt = |x: f64, y: f64| bearbeiten::projizieren(&self.kam, DVec3::new(x, y, hoehe(x, y)), bw, bh).map(|(a, b, _)| egui::pos2(a, b));
+                let rand = |k: (i32, i32)| -> Vec<egui::Pos2> {
+                    let (x0, y0) = (k.0 as f64 * ts, k.1 as f64 * ts);
+                    let ecken = [(x0, y0), (x0 + ts, y0), (x0 + ts, y0 + ts), (x0, y0 + ts), (x0, y0)];
+                    ecken.windows(2).flat_map(|w| (0..10).map(move |i| {
+                        let t = i as f64 / 10.0;
+                        (w[0].0 + (w[1].0 - w[0].0) * t, w[0].1 + (w[1].1 - w[0].1) * t)
+                    })).chain(std::iter::once((x0, y0))).filter_map(|(x, y)| pt(x, y)).collect()
+                };
+                for x in cx - r..=cx + r {
+                    for y in cy - r..=cy + r {
+                        let k = (x, y);
+                        let da = kacheln.contains(&k);
+                        let frei = !da && [(1, 0), (-1, 0), (0, 1), (0, -1)].iter().any(|d| kacheln.contains(&(x + d.0, y + d.1)));
+                        if !da && !frei {
+                            continue;
+                        }
+                        let unter = self.welt_unter == Some(k);
+                        let gewaehlt = self.welt_wahl == Some(k) && da;
+                        let farbe = if gewaehlt { egui::Color32::from_rgb(255, 60, 220) } else if da {
+                            egui::Color32::from_rgba_unmultiplied(255, 255, 255, if unter { 255 } else { 120 })
+                        } else {
+                            egui::Color32::from_rgba_unmultiplied(90, 230, 120, if unter { 255 } else { 90 })
+                        };
+                        let linie = rand(k);
+                        if linie.len() > 1 {
+                            maler.add(egui::Shape::line(linie, egui::Stroke::new(if unter || gewaehlt { 3.0 } else { 1.2 }, farbe)));
+                        }
+                        let mx = (x as f64 + 0.5) * ts;
+                        let my = (y as f64 + 0.5) * ts;
+                        if let Some(m) = pt(mx, my) {
+                            if frei {
+                                maler.text(m, egui::Align2::CENTER_CENTER, if unter { "+ Kachel anlegen" } else { "+" }, egui::FontId::proportional(if unter { 16.0 } else { 22.0 }), farbe);
+                            } else if unter || gewaehlt {
+                                maler.text(m, egui::Align2::CENTER_CENTER, format!("Kachel {x} {y}"), egui::FontId::proportional(14.0), farbe);
+                            }
+                        }
+                    }
+                }
             }
             if let (true, Some(z)) = (self.pipette, self.pip_ziel.as_ref()) {
                 let c = egui::Color32::from_rgb(255, 220, 60);
@@ -1868,7 +1977,7 @@ impl App {
     fn ausfuehren(&mut self, a: UiAktion) {
         match a {
             UiAktion::Karte(i) => {
-                if self.bearb.aenderungen + self.strasse.aenderungen + self.aendern.as_ref().map(|a| a.aenderungen).unwrap_or(0) > 0 {
+                if self.geaendert() > 0 {
                     self.verwerfen_frage = Some(i);
                 } else {
                     self.zu_laden = Some(i);
@@ -1878,6 +1987,7 @@ impl App {
             UiAktion::Verwerfen(i) => {
                 self.verwerfen_frage = None;
                 self.bearb.aenderungen = 0;
+                self.welt.aenderungen = 0;
                 self.strasse.aenderungen = 0;
                 if let Some(a) = self.aendern.as_mut() {
                     a.aenderungen = 0;
@@ -1948,6 +2058,25 @@ impl App {
                         }
                     }
                 }
+            }
+            UiAktion::KachelNeu(k) => {
+                let (Some(v), Some(karte)) = (self.viewer.as_mut(), self.karte.clone()) else { return };
+                let Some(a) = self.aendern.as_ref() else { return };
+                let ordner = a.sitzung.join("maps").join(&karte);
+                self.meldung = match self.welt.hinzufuegen(v, &self.root, &ordner, k) {
+                    Ok(m) => m,
+                    Err(e) => format!("Kachel nicht angelegt: {e:#}"),
+                };
+                self.welt_wahl = Some(k);
+            }
+            UiAktion::KachelLoeschen(k) => {
+                self.welt_frage = None;
+                let Some(v) = self.viewer.as_mut() else { return };
+                self.meldung = match self.welt.loeschen(v, k) {
+                    Ok(m) => m,
+                    Err(e) => format!("Kachel nicht weggenommen: {e:#}"),
+                };
+                self.welt_wahl = None;
             }
             UiAktion::Pipette => {
                 self.pipette = !self.pipette;
@@ -2124,7 +2253,7 @@ impl App {
                 if self.speichern_job.is_some() {
                     return;
                 }
-                if self.bearb.aenderungen + self.strasse.aenderungen + self.aendern.as_ref().map(|a| a.aenderungen).unwrap_or(0) == 0 {
+                if self.geaendert() == 0 {
                     self.meldung = "nichts zu speichern".into();
                 } else if speichern::eigene_karte(&self.root, &k) {
                     self.ausfuehren(UiAktion::Ueberschreiben);
@@ -2138,7 +2267,8 @@ impl App {
                 let kopien = self.aendern.as_ref().map(|a| a.kopien(&karte)).unwrap_or_default();
                 let kreuzungen = self.aendern.as_ref().map(|a| a.kreuzungs_ordner());
                 match speichern::vorbereiten(v, &self.bearb, &self.strasse.netz, &self.strasse.gesetzte_kreuzungen(), &kopien, kreuzungen, &karte) {
-                    Ok(paket) => {
+                    Ok(mut paket) => {
+                        paket.kacheln = self.welt.speicherliste(v);
                         let root = self.root.clone();
                         self.meldung = format!("speichere {karte} ({} geaenderte Dateien) ...", paket.dateien.len());
                         protokoll::aktion(&format!("Speichern: {karte} ueberschreiben"));
@@ -2153,7 +2283,8 @@ impl App {
                 let kopien = self.aendern.as_ref().map(|a| a.kopien(&alt)).unwrap_or_default();
                 let kreuzungen = self.aendern.as_ref().map(|a| a.kreuzungs_ordner());
                 match speichern::vorbereiten(v, &self.bearb, &self.strasse.netz, &self.strasse.gesetzte_kreuzungen(), &kopien, kreuzungen, &alt) {
-                    Ok(paket) => {
+                    Ok(mut paket) => {
+                        paket.kacheln = self.welt.speicherliste(v);
                         let root = self.root.clone();
                         self.meldung = format!("speichere {neu} ({} geaenderte Dateien, {} neue Objekte, {} neue Splines) ...", paket.dateien.len(), paket.neue_objekte, paket.neue_splines);
                         self.speichern_job = Some(std::thread::spawn(move || speichern::karte_anlegen(&root, &alt, &neu, &paket).map(|p| (p, false))));
@@ -2170,7 +2301,7 @@ impl App {
     /// Strassen - zu seinem Schritt)
     fn verlauf_pruefen(&mut self) {
         let jetzt = self.stapel_jetzt();
-        let (b0, s0, a0) = self.stapel;
+        let (b0, s0, a0, w0) = self.stapel;
         let mut neu = false;
         if jetzt.1 > s0 {
             for _ in s0..jetzt.1 {
@@ -2189,14 +2320,26 @@ impl App {
             }
             neu = true;
         }
+        if jetzt.3 > w0 {
+            for _ in w0..jetzt.3 {
+                self.verlauf.push(Quelle::Welt);
+            }
+            neu = true;
+        }
         if neu {
             self.verlauf_redo.clear();
         }
         self.stapel = jetzt;
     }
 
-    fn stapel_jetzt(&self) -> (usize, usize, usize) {
-        (self.bearb.undo_len(), self.strasse.undo_len(), self.aendern.as_ref().map(|a| a.undo_len()).unwrap_or(0))
+    fn stapel_jetzt(&self) -> (usize, usize, usize, usize) {
+        (self.bearb.undo_len(), self.strasse.undo_len(), self.aendern.as_ref().map(|a| a.undo_len()).unwrap_or(0), self.welt.undo_len())
+    }
+
+    /// Aenderungen seit dem Oeffnen (alle Werkzeuge)
+    fn geaendert(&self) -> usize {
+        let aendern = self.aendern.as_ref().map(|a| a.aenderungen).unwrap_or(0);
+        self.welt.aenderungen + self.strasse.aenderungen + self.bearb.aenderungen + aendern
     }
 
     /// letzten Schritt (welches Werkzeug auch immer) zuruecknehmen bzw. wiederholen
@@ -2221,12 +2364,19 @@ impl App {
                 }
                 None => false,
             },
+            Quelle::Welt => match if zurueck { self.welt.rueckgaengig(v) } else { self.welt.wiederholen(v) } {
+                Ok(b) => b,
+                Err(e) => {
+                    self.meldung = format!("{} fehlgeschlagen: {e:#}", if zurueck { "Rueckgaengig" } else { "Wiederholen" });
+                    false
+                }
+            },
         };
         if ok {
             if zurueck { self.verlauf_redo.push(q) } else { self.verlauf.push(q) }
             if q != Quelle::Objekte {
                 self.meldung = format!("{} ({})", if zurueck { "rueckgaengig" } else { "wiederholt" },
-                                       match q { Quelle::Strasse => "Strasse bauen", Quelle::Aendern => "Aendern", Quelle::Objekte => "Objekte" });
+                                       match q { Quelle::Strasse => "Strasse bauen", Quelle::Aendern => "Aendern", Quelle::Objekte => "Objekte", Quelle::Welt => "Kacheln" });
             }
         }
         self.anschluesse.vergessen();
@@ -2324,6 +2474,9 @@ impl App {
         self.knoten = knoten::Knotenwerkzeug::default();
         self.spur_ziel = None;
         self.spur_zufahrt = None;
+        self.welt = welt::Welt::default();
+        self.welt_wahl = None;
+        self.welt_frage = None;
         if let Some(v) = self.viewer.as_mut() {
             self.hilfe.leeren(v);
         }
@@ -2351,6 +2504,10 @@ impl App {
                 None
             }
             KeyCode::KeyI if !self.strg => Some(UiAktion::Pipette),
+            KeyCode::Delete if self.bearb.werkzeug == Werkzeug::Welt && self.welt_wahl.is_some() => {
+                self.welt_frage = self.welt_wahl;
+                None
+            }
             KeyCode::Escape if self.pipette => {
                 self.pipette = false;
                 self.meldung = "Pipette aus".into();
@@ -2859,6 +3016,9 @@ impl ApplicationHandler for App {
                     if self.pipette && !egui_will {
                         self.pip_ziel = self.pipette_suchen(p);
                     }
+                    if self.bearb.werkzeug == Werkzeug::Welt {
+                        self.welt_unter = if egui_will { None } else { self.boden_unter_maus.map(|g| ((g.x / 300.0).floor() as i32, (g.y / 300.0).floor() as i32)) };
+                    }
                     // Pipette im Platzieren: ohne gewaehltes Objekt oder mit Strg zeigt es das Objekt unter der Maus
                     if self.bearb.werkzeug == Werkzeug::Platzieren {
                         self.bearb.unter_maus = if !egui_will && !self.pipette && (self.platzier.is_none() || self.strg) {
@@ -2936,6 +3096,18 @@ impl ApplicationHandler for App {
                     }
                     if button == MouseButton::Right {
                         self.rechts_start = self.maus;
+                    }
+                    if button == MouseButton::Left && self.bearb.werkzeug == Werkzeug::Welt {
+                        if let (Some(k), Some(v)) = (self.welt_unter, self.viewer.as_ref()) {
+                            let kacheln = v.map_tiles();
+                            if kacheln.contains(&k) {
+                                self.welt_wahl = Some(k);
+                            } else if [(1, 0), (-1, 0), (0, 1), (0, -1)].iter().any(|d| kacheln.contains(&(k.0 + d.0, k.1 + d.1))) {
+                                self.ausfuehren(UiAktion::KachelNeu(k));
+                            } else {
+                                self.welt_wahl = None;
+                            }
+                        }
                     }
                     if button == MouseButton::Left && self.bearb.werkzeug == Werkzeug::Kreuzung && self.spur_modus {
                         let (bw, bh) = self.bildgroesse();

@@ -236,6 +236,13 @@ pub fn karte_ueberschreiben(root: &Path, karte: &str, paket: &Paket) -> Result<P
     if let Some(id) = paket.naechste_id {
         global_setzen(&ziel.join("global.cfg"), &[("[NextIDCode]", id.to_string())])?;
     }
+    if let Some((alt, neu)) = &paket.kacheln {
+        let bs = ziel.join("TTData").join("Busstops.cfg");
+        if bs.is_file() {
+            std::fs::copy(&bs, sicherung.join("Busstops.cfg"))?;
+        }
+        kachelliste_setzen(&ziel, alt, neu)?;
+    }
     // Objekte aus Ordnern anderer Karten in den eigenen (die Karte haengt danach von keiner anderen ab); die Kacheln,
     // die das umschreibt, sind vorher gesichert (alle Kacheln mit solchen Verweisen)
     for d in kacheldateien(root, karte) {
@@ -315,6 +322,8 @@ pub struct Paket {
     /// Kreuzungsobjekte der Sitzung: (Ordner, Name unter Sceneryobjects/Aschaffenburg_KI) - kommen in den Ordner
     /// der neuen Karte
     pub kreuzungen: Option<(PathBuf, String)>,
+    /// Kacheln hinzugefuegt/weggenommen (World Editor): (Liste beim Oeffnen, neue Liste) - [map] von global.cfg
+    pub kacheln: Option<(crate::welt::Liste, crate::welt::Liste)>,
 }
 
 /// ein Eintrag fuer eine Kachel: neues Objekt oder neuer Spline (in Zeilen, ohne Zeilenende)
@@ -454,7 +463,7 @@ pub fn vorbereiten(v: &Viewer, b: &Bearbeiten, netz: &crate::netz::Netz, netz_kr
     }
     // nur, wenn es Kreuzungen gibt
     let kreuzungen = kreuzungen.filter(|(d, _)| std::fs::read_dir(d).map(|r| r.flatten().any(|e| e.path().extension().is_some_and(|x| x == "sco"))).unwrap_or(false));
-    Ok(Paket { dateien, naechste_id: (id > start).then_some(id), neue_objekte, neue_splines, staging, kreuzungen })
+    Ok(Paket { dateien, naechste_id: (id > start).then_some(id), neue_objekte, neue_splines, staging, kreuzungen, kacheln: None })
 }
 
 /// alles in einem Schritt (Tests)
@@ -525,6 +534,9 @@ pub fn karte_anlegen(root: &Path, alt: &str, neu: &str, paket: &Paket) -> Result
         werte.push(("[NextIDCode]", id.to_string()));
     }
     global_setzen(&ziel.join("global.cfg"), &werte)?;
+    if let Some((alt, neu)) = &paket.kacheln {
+        kachelliste_setzen(&ziel, alt, neu)?;
+    }
     // Kreuzungsobjekte der Ausgangskarte (und anderer) in den Ordner der neuen Karte: sie haengt danach von keiner
     // anderen Karte ab (Loeschen oder Umbenennen der alten laesst sie unberuehrt)
     objekte_einsammeln(root, neu)?;
@@ -543,6 +555,89 @@ fn ordner_kopieren(von: &Path, nach: &Path) -> Result<()> {
         } else {
             std::fs::copy(&p, nach.join(e.file_name()))?;
         }
+    }
+    Ok(())
+}
+
+/// Kachelliste der Karte im Ordner `karte` setzen (World Editor): die `[map]`-Eintraege von global.cfg neu (in der
+/// Reihenfolge von `neu`), die Kachelnummern der Einsetzpunkte (global.cfg) und von TTData/Busstops.cfg von der
+/// alten auf die neue Liste umgerechnet - Eintraege auf weggenommenen Kacheln fallen weg
+pub fn kachelliste_setzen(karte: &Path, alt: &[(i32, i32, String)], neu: &[(i32, i32, String)]) -> Result<()> {
+    let nummer = |i: usize| -> Option<usize> {
+        let (x, y, _) = alt.get(i)?;
+        neu.iter().position(|t| t.0 == *x && t.1 == *y)
+    };
+    let global = karte.join("global.cfg");
+    let (text, utf16) = dekodieren(&std::fs::read(&global)?);
+    let eol = if text.contains("\r\n") { "\r\n" } else { "\n" };
+    let zeilen: Vec<&str> = text.split(eol).collect();
+    let mut out: Vec<String> = Vec::with_capacity(zeilen.len());
+    let mut i = 0;
+    while i < zeilen.len() {
+        let w = zeilen[i].trim().to_ascii_lowercase();
+        if w == "[map]" {
+            // [map], x, y, Datei, Leerzeile
+            i += 4;
+            if i < zeilen.len() && zeilen[i].trim().is_empty() {
+                i += 1;
+            }
+            continue;
+        }
+        if w == "[entrypoints]" {
+            let n: usize = zeilen.get(i + 1).and_then(|x| x.trim().parse().ok()).unwrap_or(0);
+            let mut saetze: Vec<Vec<String>> = Vec::new();
+            for k in 0..n {
+                let a = i + 2 + k * 12;
+                let Some(satz) = zeilen.get(a..a + 12) else { break };
+                let mut satz: Vec<String> = satz.iter().map(|x| x.to_string()).collect();
+                let Some(neu_i) = satz[10].trim().parse::<usize>().ok().and_then(nummer) else { continue };
+                satz[10] = neu_i.to_string();
+                saetze.push(satz);
+            }
+            out.push(zeilen[i].to_string());
+            out.push(saetze.len().to_string());
+            for satz in saetze {
+                out.extend(satz);
+            }
+            i += 2 + n * 12;
+            continue;
+        }
+        out.push(zeilen[i].to_string());
+        i += 1;
+    }
+    while out.last().is_some_and(|x| x.trim().is_empty()) {
+        out.pop();
+    }
+    out.push(String::new());
+    for (x, y, datei) in neu {
+        out.extend(["[map]".to_string(), x.to_string(), y.to_string(), datei.clone(), String::new()]);
+    }
+    std::fs::write(&global, kodieren(&out.join(eol), utf16))?;
+    // Haltestellen: [busstop] Name, Kachelnummer, Objekt-ID, 3 Werte
+    let bs = karte.join("TTData").join("Busstops.cfg");
+    if bs.is_file() {
+        let (text, utf16) = dekodieren(&std::fs::read(&bs)?);
+        let eol = if text.contains("\r\n") { "\r\n" } else { "\n" };
+        let zeilen: Vec<&str> = text.split(eol).collect();
+        let mut out: Vec<String> = Vec::with_capacity(zeilen.len());
+        let mut i = 0;
+        while i < zeilen.len() {
+            if zeilen[i].trim().eq_ignore_ascii_case("[busstop]") && i + 6 < zeilen.len() {
+                match zeilen[i + 2].trim().parse::<usize>().ok().and_then(nummer) {
+                    Some(n) => {
+                        out.extend([zeilen[i].to_string(), zeilen[i + 1].to_string(), n.to_string()]);
+                        i += 3;
+                    }
+                    None => {
+                        i += 7;
+                    }
+                }
+                continue;
+            }
+            out.push(zeilen[i].to_string());
+            i += 1;
+        }
+        std::fs::write(&bs, kodieren(&out.join(eol), utf16))?;
     }
     Ok(())
 }

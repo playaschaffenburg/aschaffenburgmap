@@ -1,7 +1,7 @@
 From 6a28afa52f391b1e21dd812a7f86f94221f673a7 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 16:01:32 +0200
-Subject: [PATCH 01/15] editor-api: oeffentliche Viewer-Schnittstelle, OpenXR
+Subject: [PATCH 01/16] editor-api: oeffentliche Viewer-Schnittstelle, OpenXR
  zur Laufzeit laden
 
 ---
@@ -210,7 +210,7 @@ index 0000000..f57565c
 From cc51e3c693d2333dc4ee49c47f6e37c20ab516e8 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 16:22:56 +0200
-Subject: [PATCH 02/15] editor-api: Hintergrund-Streaming und Kartenwechsel mit
+Subject: [PATCH 02/16] editor-api: Hintergrund-Streaming und Kartenwechsel mit
  demselben Renderer
 
 ---
@@ -316,7 +316,7 @@ index f57565c..ebd8833 100644
 From 596e460251b086f739871a8134343aea3f22e5e0 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 16:35:56 +0200
-Subject: [PATCH 03/15] editor-api: Objekte bearbeiten und Kacheln schreiben
+Subject: [PATCH 03/16] editor-api: Objekte bearbeiten und Kacheln schreiben
  ueber den Viewer
 
 ---
@@ -391,7 +391,7 @@ index ebd8833..e926a15 100644
 From 0cb9086cbb9faad1472cd454cb3fd12000216701 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 16:54:59 +0200
-Subject: [PATCH 04/15] editor-api: freie Objekte setzen, naechste freie ID,
+Subject: [PATCH 04/16] editor-api: freie Objekte setzen, naechste freie ID,
  Kacheldatei
 
 ---
@@ -448,7 +448,7 @@ index e926a15..61f58bb 100644
 From 237ec37d6957dab1787c4d67d58d7803945fd3f5 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 17:10:18 +0200
-Subject: [PATCH 05/15] editor-api: Objektausmasse und Vorschaubilder
+Subject: [PATCH 05/16] editor-api: Objektausmasse und Vorschaubilder
 
 ---
  crates/omsi-app/src/viewer.rs | 34 ++++++++++++++++++++++++++++++++++
@@ -504,7 +504,7 @@ index 61f58bb..e92c3f2 100644
 From 9988917031be8d360dab043f72364f777791de76 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 17:24:46 +0200
-Subject: [PATCH 06/15] editor-api: Splines frei zeichnen (Live-Vorschau),
+Subject: [PATCH 06/16] editor-api: Splines frei zeichnen (Live-Vorschau),
  Spuren einer .sli
 
 ---
@@ -614,7 +614,7 @@ index e92c3f2..d50c032 100644
 From d35054e68c9b423943fb69c23c58cdc2d8efbd2b Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 17:43:57 +0200
-Subject: [PATCH 07/15] editor-api: Vorschaubild fuer Strassen-Splines
+Subject: [PATCH 07/16] editor-api: Vorschaubild fuer Strassen-Splines
 
 ---
  crates/omsi-app/src/viewer.rs | 23 +++++++++++++++++++++++
@@ -659,7 +659,7 @@ index d50c032..95495df 100644
 From 75a2e1b33f1c31ba93373732ec3a2bea0cca2a96 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 17:59:02 +0200
-Subject: [PATCH 08/15] editor-api: Spurnetz der geladenen Kacheln, freie
+Subject: [PATCH 08/16] editor-api: Spurnetz der geladenen Kacheln, freie
  Spline-Enden
 
 ---
@@ -767,7 +767,7 @@ index 95495df..39d3a19 100644
 From 1f9802294094922bdb9a50fdec716db6f2ac445b Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 18:19:59 +0200
-Subject: [PATCH 09/15] editor-api: Sitzungsebene fuer geaenderte Kacheln,
+Subject: [PATCH 09/16] editor-api: Sitzungsebene fuer geaenderte Kacheln,
  Kacheln neu laden
 
 ---
@@ -865,7 +865,7 @@ index 39d3a19..0dab235 100644
 From 19d1a75a1fe8c3035a4da58ecacc0944c1bf59e0 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 18:36:54 +0200
-Subject: [PATCH 10/15] editor-api: Kacheln neu laden auch beim Streaming
+Subject: [PATCH 10/16] editor-api: Kacheln neu laden auch beim Streaming
  (Pfade, Zwischenspeicher, Spuren)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -942,7 +942,7 @@ index 0dab235..27eeea0 100644
 From 46577556082be58a6a5e4121521161d75fbadc0d Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Tue, 6 Oct 2026 23:21:40 +0200
-Subject: [PATCH 11/15] editor-api: offene Objektarme, LaneKind,
+Subject: [PATCH 11/16] editor-api: offene Objektarme, LaneKind,
  Streaming-Neuladen ohne Wettlauf
 
 - object_free_lane_ends: Spuren von Objekten, die nirgends hinfuehren
@@ -1118,7 +1118,7 @@ index 27eeea0..7b984af 100644
 From e464c56366b8b4204e87f95e7e179faff2f40004 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 7 Oct 2026 08:09:46 +0200
-Subject: [PATCH 12/15] editor-api: Objekte mit absoluter Hoehe bearbeitbar
+Subject: [PATCH 12/16] editor-api: Objekte mit absoluter Hoehe bearbeitbar
  (behalten beim Ziehen ihre Hoehe)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -1204,7 +1204,7 @@ index 421cd69..6943b4c 100644
 From e4ef9c5f97dcc8ad0333c44feb3e7c41c2144674 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 7 Oct 2026 08:25:56 +0200
-Subject: [PATCH 13/15] editor-api: Baeume der Karte im Objekt-Editor
+Subject: [PATCH 13/16] editor-api: Baeume der Karte im Objekt-Editor
  (verschieben, drehen, loeschen)
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -1273,7 +1273,7 @@ index 6943b4c..791651b 100644
 From fe94f6cce870569c558992a177d3782813cebb6b Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 7 Oct 2026 16:53:35 +0200
-Subject: [PATCH 14/15] editor-api: unsichtbare Objekte der Karte fuer die
+Subject: [PATCH 14/16] editor-api: unsichtbare Objekte der Karte fuer die
  Hilfsansicht des Editors
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -1373,7 +1373,7 @@ index 7b984af..69d6350 100644
 From 66d3999a4dca9b37c1683f4c64e4e7ce7a825675 Mon Sep 17 00:00:00 2001
 From: Claude <noreply@anthropic.com>
 Date: Wed, 7 Oct 2026 17:12:14 +0200
-Subject: [PATCH 15/15] editor-api: unsichtbare Objekte im Objekt-Editor
+Subject: [PATCH 15/16] editor-api: unsichtbare Objekte im Objekt-Editor
  bearbeitbar
 
 Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
@@ -1419,6 +1419,160 @@ index 69d6350..d671655 100644
      }
  
      /// Objects of the loaded tiles: (id, where it stands now (edits included), heading in
+-- 
+2.55.0.windows.5
+
+
+From 273bc3a4ed2140bf0a6bbeabebaeccb5bb552dd7 Mon Sep 17 00:00:00 2001
+From: Claude <noreply@anthropic.com>
+Date: Fri, 9 Oct 2026 16:17:24 +0200
+Subject: [PATCH 16/16] editor-api: Kachelliste zur Laufzeit aendern (Kacheln
+ hinzufuegen/wegnehmen)
+
+Co-Authored-By: Claude Opus 5.5 <noreply@anthropic.com>
+---
+ crates/omsi-app/src/scene.rs  | 30 ++++++++++++++++++++++++------
+ crates/omsi-app/src/tiles.rs  |  9 +++++++++
+ crates/omsi-app/src/viewer.rs | 24 +++++++++++++++++++++++-
+ 3 files changed, 56 insertions(+), 7 deletions(-)
+
+diff --git a/crates/omsi-app/src/scene.rs b/crates/omsi-app/src/scene.rs
+index aea3fa4..fb0c157 100644
+--- a/crates/omsi-app/src/scene.rs
++++ b/crates/omsi-app/src/scene.rs
+@@ -1966,6 +1966,8 @@ mod surf_map_tests {
+ pub struct World {
+     pub root: PathBuf,
+     pub global: GlobalCfg,
++    /// editor-api: the tile list as the editor left it (tiles added or taken away); `None` = global.cfg's
++    tile_override: Mutex<Option<Vec<omsi_map::MapTileRef>>>,
+     pub map_dir: PathBuf,
+     /// Indexed parked car lists of the map, loaded when a parking space uses one.
+     parklist: Mutex<HashMap<usize, Vec<String>>>,
+@@ -2968,6 +2970,7 @@ impl World {
+             missing: Mutex::new(Default::default()),
+             staged: Mutex::new(HashMap::new()),
+             layout: Mutex::new(None),
++            tile_override: Mutex::new(None),
+             sound_cfgs: Mutex::new(HashMap::new()),
+             timetable_boards: Mutex::new(StopBoards::default()),
+             calendar: std::sync::OnceLock::new(),
+@@ -3439,14 +3442,29 @@ impl World {
+     /// Every tile of global.cfg's `[map]` list whose file exists, with its index in that list
+     /// (repeaters and timetable tracks name a tile by that index).
+     pub fn map_tiles(&self) -> Vec<(usize, i32, i32, PathBuf)> {
+-        self.global
+-            .tiles
++        self.tile_refs()
+             .iter()
+             .map(|t| (t.index, t.x, t.y, omsi_cfg::resolve_path(&self.map_dir, &t.file)))
+             .filter(|t| omsi_cfg::vfs::is_file(&t.3))
+             .collect()
+     }
+ 
++    /// editor-api: the map's tile list (global.cfg's `[map]`, or as the editor changed it)
++    pub fn tile_refs(&self) -> Vec<omsi_map::MapTileRef> {
++        match self.tile_override.lock().as_ref() {
++            Some(t) => t.clone(),
++            None => self.global.tiles.clone(),
++        }
++    }
++
++    /// editor-api: tiles added or taken away - the new list (index = place in it); the map index and the layout
++    /// are made anew
++    pub fn set_tiles(&self, tiles: Vec<omsi_map::MapTileRef>) {
++        *self.tile_override.lock() = Some(tiles);
++        *self.index.lock() = None;
++        *self.layout.lock() = None;
++    }
++
+     /// The map has tile `key` (listed in global.cfg, and its file exists).
+     pub fn has_tile(&self, key: (i32, i32)) -> bool {
+         self.layout().paths.contains_key(&key)
+@@ -3458,8 +3476,7 @@ impl World {
+         center: Option<(i32, i32)>,
+         radius: Option<i32>,
+     ) -> Vec<(i32, i32, PathBuf)> {
+-        self.global
+-            .tiles
++        self.tile_refs()
+             .iter()
+             .filter(|t| match (center, radius) {
+                 (Some((cx, cy)), Some(r)) => (t.x - cx).abs() <= r && (t.y - cy).abs() <= r,
+@@ -5366,7 +5383,7 @@ impl World {
+         // anything. (Novi Sad's light maps are older than its tiles: read from them, a road
+         // lay dark under the lamps put up along it since, #951.)
+         let file_light_map = || {
+-            self.global.tiles.iter().find(|t| t.x == tx && t.y == ty).and_then(|t| {
++            self.tile_refs().iter().find(|t| t.x == tx && t.y == ty).and_then(|t| {
+                 let p = omsi_cfg::resolve_path(&self.map_dir, &format!("{}.LM.bmp", t.file));
+                 if omsi_cfg::vfs::is_file(&p) {
+                     omsi_texture::decode_file(&p).ok()
+@@ -8093,7 +8110,8 @@ impl World {
+ 
+     /// The file tile (tx, ty) is read from, and the map folder's place relative to `root`.
+     pub fn tile_source(&self, tx: i32, ty: i32) -> Option<PathBuf> {
+-        let t = self.global.tiles.iter().find(|t| t.x == tx && t.y == ty)?;
++        let refs = self.tile_refs();
++        let t = refs.iter().find(|t| t.x == tx && t.y == ty)?;
+         Some(omsi_cfg::resolve_path(&self.map_dir, &t.file))
+     }
+ 
+diff --git a/crates/omsi-app/src/tiles.rs b/crates/omsi-app/src/tiles.rs
+index c39e453..7e7649d 100644
+--- a/crates/omsi-app/src/tiles.rs
++++ b/crates/omsi-app/src/tiles.rs
+@@ -979,6 +979,15 @@ impl Streamer {
+         }
+     }
+ 
++    /// editor-api: the world's tile list changed (tiles added or taken away): take it over
++    pub(crate) fn set_tiles(&mut self) {
++        self.tiles = self.world.select_tiles(None, None);
++        self.tile_lookup.clear();
++        for (i, t) in self.tiles.iter().enumerate() {
++            self.tile_lookup.entry((t.0, t.1)).or_default().push(i);
++        }
++    }
++
+     /// editor-api: nothing in flight, nothing waiting for upload
+     pub(crate) fn idle(&self) -> bool {
+         !self.inflight && self.queue.is_empty() && self.requested.is_empty()
+diff --git a/crates/omsi-app/src/viewer.rs b/crates/omsi-app/src/viewer.rs
+index d671655..79ec018 100644
+--- a/crates/omsi-app/src/viewer.rs
++++ b/crates/omsi-app/src/viewer.rs
+@@ -93,7 +93,29 @@ impl Viewer {
+ 
+     /// The map's tiles (x, y).
+     pub fn map_tiles(&self) -> Vec<(i32, i32)> {
+-        self.world.global.tiles.iter().map(|t| (t.x, t.y)).collect()
++        self.world.tile_refs().iter().map(|t| (t.x, t.y)).collect()
++    }
++
++    /// The map's tile list in `[map]` order: (x, y, file relative to the map folder).
++    pub fn map_tile_refs(&self) -> Vec<(i32, i32, String)> {
++        self.world.tile_refs().into_iter().map(|t| (t.x, t.y, t.file)).collect()
++    }
++
++    /// editor-api: give the map this tile list (tiles added - their files written beforehand, e.g. into the
++    /// session overlay - or taken away): tiles that went are unloaded, new ones come with the next loads.
++    pub fn set_map_tiles(&mut self, tiles: &[(i32, i32, String)]) -> Result<()> {
++        let alt: HashSet<(i32, i32)> = self.world.tile_refs().iter().map(|t| (t.x, t.y)).collect();
++        let neu: HashSet<(i32, i32)> = tiles.iter().map(|t| (t.0, t.1)).collect();
++        omsi_cfg::content_changed();
++        self.world.set_tiles(tiles.iter().enumerate().map(|(i, t)| omsi_map::MapTileRef { x: t.0, y: t.1, file: t.2.clone(), index: i }).collect());
++        let geaendert: Vec<(i32, i32)> = alt.symmetric_difference(&neu).copied().collect();
++        if let Some(s) = self.streamer.as_mut() {
++            s.set_tiles();
++        }
++        if !geaendert.is_empty() {
++            self.reload_tiles(&geaendert)?;
++        }
++        Ok(())
+     }
+ 
+     /// Load the tiles within `radius` tiles of `center` that are not loaded yet; tiles
 -- 
 2.55.0.windows.5
 

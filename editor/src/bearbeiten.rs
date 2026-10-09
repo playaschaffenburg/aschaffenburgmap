@@ -24,6 +24,8 @@ pub enum Werkzeug {
     Kreuzung,
     /// Verlauf von Strassen und Kreuzungen an Knoten ziehen
     Knoten,
+    /// World Editor (Kacheln bearbeiten, spaeter Gelaende ...)
+    Welt,
 }
 
 /// Was gewaehlt ist: ein Objekt der Karte (id) oder ein neues (Index in `neue`)
