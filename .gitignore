@@ -4,3 +4,4 @@ __pycache__/
 build/
 vorschau*.png
 .pytest_cache/
+mapillary_token.txt
