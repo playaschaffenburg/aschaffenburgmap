@@ -313,10 +313,15 @@ mod tests {
                 (DVec3::new(1080.0, -266.0, 12.0), 95.0, -6.0, 45.0, "kreuzung_west"),
                 (DVec3::new(1075.0, -262.0, 12.0), 180.0, -8.0, 35.0, "kreuzung_rampe"),
                 (DVec3::new(1057.0, -269.5, 10.5), 90.0, -75.0, 16.0, "zufahrt_west"),
+                (DVec3::new(1063.0, -269.0, 12.0), 90.0, -2.0, 14.0, "fahrer_west"),
+                (DVec3::new(1111.0, -261.0, 13.0), 270.0, -2.0, 14.0, "fahrer_ost"),
+                (DVec3::new(1076.0, -252.0, 11.5), 175.0, -2.0, 14.0, "fahrer_rampe_west"),
+                (DVec3::new(1093.0, -282.0, 11.5), 355.0, -2.0, 14.0, "fahrer_rampe_ost"),
                 (DVec3::new(1085.0, -252.0, 10.5), 180.0, -55.0, 22.0, "insel_nord"),
                 (DVec3::new(1110.0, -261.0, 11.5), 270.0, -75.0, 16.0, "zufahrt_ost"),
                 (DVec3::new(1070.0, -385.0, 6.5), 10.0, -4.0, 30.0, "sued_einfahrt"),
                 (DVec3::new(1056.0, -266.0, 6.0), 0.0, -12.0, 35.0, "bahnbruecke"),
+                (DVec3::new(1060.0, -268.0, 5.2), 2.0, -3.0, 32.0, "bahntunnel"),
             ];
             for (ziel, gier, neigung, abstand, name) in ansichten {
                 let kam = crate::kamera::Kamera { ziel, gier, neigung, abstand, fov: 60.0 };

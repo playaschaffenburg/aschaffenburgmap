@@ -49,6 +49,11 @@ GEHWEG_ZONEN = [box(1049.9, -261.6, 1072.6, -252.0), box(1096.0, -256.6, 1120.1,
                 box(1049.9, -281.0, 1071.6, -272.9), box(1096.2, -281.0, 1120.1, -273.3)]
 BRUESTUNG_ZONEN = [0, 2]                           # Ecken ueber dem Bahneinschnitt (NW, SW)
 GEHWEG_BREITE = 2.6
+KLEINMAST = 'Sceneryobjects\\Verkehrszeichen_MC\\Mast_Ampel_klein_1.sco'   # kleiner Ampelmast (wie in Neuendorf)
+AUSLEGER = (0, 3)                                  # Zufahrten mit Auslegermast rechts (mehrspurige Ludwigsallee)
+# Bahn unter der Ludwigsallee (DGM1: Gleise bei x 1057..1064 auf ~3,4 m): Tunnel zwischen zwei Klinkerwaenden
+BAHN_X = (1054.0, 1066.0)
+BAHN_SOHLE = 3.3
 
 
 def raender(q, nur_fahrbahn=False):
@@ -188,7 +193,8 @@ def flaechen(achse, arme, T, rampen):
                            Point(INSEL_O[0][0], (INSEL_O[0][1] + INSEL_O[1][1]) / 2).buffer((INSEL_O[1][1] - INSEL_O[0][1]) / 2, 24)])
     offen = unary_union([T['nord']['offen'], T['sued']['offen']])
     insel_w = box(INSEL_W[0][0], INSEL_W[0][1], INSEL_W[1][0], INSEL_W[1][1])
-    inseln = unary_union([Polygon(INSEL_N), Polygon(INSEL_S), insel_o, insel_w]).difference(offen)
+    rund = lambda p: p.buffer(-1.0, join_style='round').buffer(1.0, join_style='round')
+    inseln = unary_union([rund(Polygon(INSEL_N)), rund(Polygon(INSEL_S)), insel_o, insel_w]).difference(offen)
     fahrbahn = fahrbahn.difference(offen).difference(inseln)
     gehweg = fahrbahn.buffer(GEHWEG_BREITE, 32).difference(fahrbahn).difference(offen).difference(inseln)
     gehweg = unary_union([gehweg.intersection(z) for z in GEHWEG_ZONEN])
@@ -326,7 +332,7 @@ def bauen(achse, K, strassen, arme_roh, gel, verbindungen, phasen, pfeile, rampe
     flaeche('asphalt', F['fahrbahn'], ASPH_H, 4.0)
     insel_o = F['inseln'].intersection(box(INSEL_O[0][0] - 1.5, INSEL_O[0][1], INSEL_O[1][0], INSEL_O[1][1]))
     flaeche('gehweg_asphalt', F['gehweg'], WALK_H, 4.0)
-    flaeche('gehweg_asphalt', F['inseln'].difference(insel_o), WALK_H, 4.0)
+    flaeche('insel_beton', F['inseln'].difference(insel_o), WALK_H, 3.0)
     flaeche('pflanzen', insel_o, WALK_H + 0.03, 2.0)
     # Bordsteine: wo Gehweg/Insel an die Fahrbahn stoesst
     fb = F['fahrbahn'].buffer(0.05)
@@ -384,6 +390,8 @@ def bauen(achse, K, strassen, arme_roh, gel, verbindungen, phasen, pfeile, rampe
         if wo == 'aussen':
             ga, gb = (float(gel.h(np.array([q[0] + n[0]]), np.array([q[1] + n[1]]))[0]) for q in (a_, b_))
             unten_a, unten_b = min(ga, za) - 0.5, min(gb, zb) - 0.5
+            if BAHN_X[0] - 0.3 <= (a_[0] + b_[0]) / 2 <= BAHN_X[1] + 0.3:
+                unten_a, unten_b = za - 1.45, zb - 1.45              # Stirnseite des Bahntunnels
         else:
             unten_a, unten_b = za - 1.2, zb - 1.2                     # Trogrand: bis unter die Deckenkante
         hoch = 0.25                                                     # niedrige Betonkante, darauf das Stabgelaender
@@ -395,6 +403,37 @@ def bauen(achse, K, strassen, arme_roh, gel, verbindungen, phasen, pfeile, rampe
         m.quad('beton', [A(a_, 0.0, za + hoch), A(b_, 0.0, zb + hoch), A(b_, 0.25, zb + hoch), A(a_, 0.25, za + hoch)],
                [(0, 0), (L / 4, 0), (L / 4, 0.06), (0, 0.06)], (0, 0, 1))
         stabgelaender(m, A(a_, 0.12, 0), A(b_, 0.12, 0), za + hoch, zb + hoch, 1.0, u0)
+    # ---------------------------------------------------------- Bahntunnel unter der Kreuzung
+    fp = unary_union([F['fahrbahn'], F['gehweg'], F['inseln']]).buffer(0.01)
+    tunnel = fp.intersection(box(BAHN_X[0], -320.0, BAHN_X[1], -200.0))
+    tunnel_y = (tunnel.bounds[1], tunnel.bounds[3]) if not tunnel.is_empty else None
+    for c in fein_dreiecke(tunnel, 3.0):
+        m.dreieck('decke', [(x - O[0], y - O[1], float(zf(x, y)) - 1.2) for x, y in c], [(x / 4, y / 4) for x, y in c], (0, 0, -1))
+    if tunnel_y:
+        for wx, nx in ((BAHN_X[0], 1.0), (BAHN_X[1], -1.0)):
+            ys = np.arange(tunnel_y[0], tunnel_y[1] + 0.01, 2.0)
+            ys = np.append(ys, tunnel_y[1]) if ys[-1] < tunnel_y[1] - 0.05 else ys
+            for y0, y1 in zip(ys[:-1], ys[1:]):
+                z0, z1 = float(zf(wx, y0)) - 1.2, float(zf(wx, y1)) - 1.2
+                m.quad('klinker', [(wx - O[0], y0 - O[1], BAHN_SOHLE - 0.5), (wx - O[0], y1 - O[1], BAHN_SOHLE - 0.5),
+                                   (wx - O[0], y1 - O[1], z1), (wx - O[0], y0 - O[1], z0)],
+                       [(y0 / 2, BAHN_SOHLE / 1), (y1 / 2, BAHN_SOHLE), (y1 / 2, z1), (y0 / 2, z0)], (nx, 0, 0))
+        # Stirnseiten: wo die Deckenkante den Gleisbereich quert, von der Decke bis zur Oberflaeche
+        for p in _polys(tunnel):
+            c = list(p.exterior.coords)
+            for a_, b_ in zip(c[:-1], c[1:]):
+                if abs(a_[0] - b_[0]) < 0.05 and min(abs(a_[0] - BAHN_X[0]), abs(a_[0] - BAHN_X[1])) < 0.05:
+                    continue                                   # an den Waenden
+                L = math.dist(a_, b_)
+                if L < 0.05:
+                    continue
+                n = np.array([b_[1] - a_[1], a_[0] - b_[0]]) / L
+                if tunnel.contains(Point((a_[0] + b_[0]) / 2 + n[0] * 0.2, (a_[1] + b_[1]) / 2 + n[1] * 0.2)):
+                    n = -n
+                za, zb = float(zf(*a_)), float(zf(*b_))
+                m.quad('beton', [(a_[0] - O[0], a_[1] - O[1], za - 1.45), (b_[0] - O[0], b_[1] - O[1], zb - 1.45),
+                                 (b_[0] - O[0], b_[1] - O[1], zb + WALK_H), (a_[0] - O[0], a_[1] - O[1], za + WALK_H)],
+                       [(0, 0), (L / 4, 0), (L / 4, 0.4), (0, 0.4)], (n[0], n[1], 0))
     # ---------------------------------------------------------- Markierungen (2 cm ueber der Fahrbahn)
     weiss, rot, sperr, beton = [], [], [], []
     for a in arme:
@@ -529,14 +568,17 @@ def bauen(achse, K, strassen, arme_roh, gel, verbindungen, phasen, pfeile, rampe
             signale.append(dict(art='signal', datei=ampel.SIGNAL, x=float(p[0]), y=float(p[1]), hoehe=ampel.SIGNAL_HOEHE, rot=rot_, gruppe=g,
                                 z_boden=boden))
             mp = p - ampel.MAST_VERSATZ * dv
-            signale.append(dict(art='mast', datei=ampel.MAST, x=float(mp[0]), y=float(mp[1]), hoehe=ampel.MAST_HOEHE, rot=(rot_ + 180) % 360,
+            ausleger = wo == 'rechts' and ia in AUSLEGER
+            # Auslegermast (Arm ueber die Spuren, Signal oben) rechts an der Ludwigsallee, sonst kleiner Mast
+            signale.append(dict(art='mast', datei=ampel.MAST if ausleger else KLEINMAST, x=float(mp[0]), y=float(mp[1]),
+                                hoehe=ampel.MAST_HOEHE if ausleger else 0.2, rot=(rot_ + 180) % 360 if ausleger else rot_,
                                 gruppe=None, z_boden=float(zf(*mp)) + WALK_H))
-            if wo == 'rechts':
+            if ausleger:
                 signale.append(dict(art='oben', datei=ampel.OBEN, eltern=len(signale) - 1, anhang=0, rot=ampel.OBEN_DREHUNG, gruppe=g))
     erhoeht = unary_union([F['gehweg'], F['inseln']])
     lose = [s for s in signale if s['art'] in ('signal', 'mast') and not erhoeht.buffer(0.3).contains(Point(s['x'], s['y']))]
     return dict(mesh=m, O=O, pfade=pfade, regeln=regeln, ketten=ketten, plan=plan, signale=signale, flaechen=F, zf=zf, trog=T,
-                arme=arme, lose_signale=[(round(s_['x'], 1), round(s_['y'], 1), s_['art']) for s_ in lose])
+                arme=arme, tunnel=dict(x=BAHN_X, y=tunnel_y, sohle=BAHN_SOHLE), lose_signale=[(round(s_['x'], 1), round(s_['y'], 1), s_['art']) for s_ in lose])
 
 
 def sco_text(name, modell, k, alpha):

@@ -39,7 +39,7 @@ TEX = {'beton': 'betonwand1.bmp', 'klinker': 'AB_klinker.bmp', 'gabionen': 'AB_g
        'decke': 'AB_beton_dunkel.bmp', 'pflanzen': 'AB_bodendecker.bmp', 'asphalt': 'str_asphdrk.bmp',
        'boden': 'AB_boden.bmp', 'weiss': 'AB_weiss.bmp', 'radfurt': 'AB_radfurt.bmp', 'sperr': 'AB_sperrflaeche.tga',
        'gehweg': 'str_gehweg02.bmp', 'bord': 'str_side1.bmp', 'busbeton': 'str_betonplatten.bmp',
-       'gehweg_asphalt': 'AB_gehweg_asphalt.bmp'}
+       'gehweg_asphalt': 'AB_gehweg_asphalt.bmp', 'insel_beton': 'AB_insel_beton.bmp'}
 
 
 # ------------------------------------------------------------------ Geometrie-Helfer
@@ -495,7 +495,7 @@ def bahnbruecke(st, gel, o, z_platte=None):
         stabgelaender(m, W(a0, bm, 0), W(a1, bm, 0), za + kante - o[2], zb + kante - o[2], 1.0, a0)
     # Widerlager: Waende von der Sohle bis unter die Platte, zur Bahn hin Klinker
     a1, zb = a1_voll, zb_alt
-    for a, sgn, z in ((a0, 1, za), (a1, -1, zb)):
+    for a, sgn, z in ((a0, 1, za),) if a0 < L else ():
         m.quad('klinker', [W(a, br, sohle - 0.5), W(a, bl, sohle - 0.5), W(a, bl, z - dicke), W(a, br, z - dicke)],
                [(0, sohle), ((bl - br) / 2, sohle), ((bl - br) / 2, z - dicke), (0, z - dicke)], N(sgn, 0, 0), beidseitig=True)
     return m, z_bei((a0 + a1) / 2)
@@ -509,6 +509,22 @@ def _spuren_quer(q, arten):
         if t['art'] in arten:
             out.append((links + x, links + x + t['breite'], t['richtung']))
         x += t['breite']
+    return out
+
+
+def tunnel_gelaende(t):
+    """Gelaendepunkte im Bahntunnel unter der Kreuzung auf Gleishoehe (das DGM zeigt dort Reste der Rampe)"""
+    out = []
+    if not t or not t['y']:
+        return out
+    (x0, x1), (y0, y1) = t['x'], t['y']
+    for kx in range(int(math.floor(x0 / 300)), int(math.floor(x1 / 300)) + 1):
+        for ky in range(int(math.floor((y0 - 5) / 300)), int(math.floor((y1 + 5) / 300)) + 1):
+            for zeile in range(61):
+                for spalte in range(61):
+                    x, y = kx * 300 + spalte * 5.0, ky * 300 + zeile * 5.0
+                    if x0 + 0.5 <= x <= x1 - 0.5 and y0 - 5 <= y <= y1 + 5:
+                        out.append([kx, ky, spalte, zeile, t['sohle'] - 0.1])
     return out
 
 
@@ -737,6 +753,9 @@ def texturen(omsi, ziel):
     p = (rng.normal(0, 18, (128, 128, 3)) + (70, 105, 55)).clip(0, 255).astype(np.uint8)
     Image.fromarray(p).save(os.path.join(ziel, TEX['pflanzen']))
     shutil.copy(os.path.join(marcel, 'str_asphdrk.bmp'), os.path.join(ziel, TEX['asphalt']))
+    # Inseln an den Trogenden: heller Beton
+    ib = np.asarray(Image.open(os.path.join(marcel, 'betonwand1.bmp')).convert('RGB'), float) * 0.55 + 95
+    Image.fromarray(ib.clip(0, 255).astype(np.uint8)).save(os.path.join(ziel, TEX['insel_beton']))
     # Gehweg-Asphalt: etwas heller als die Fahrbahn
     g = np.asarray(Image.open(os.path.join(marcel, 'str_asphdrk.bmp')).convert('RGB'), float) * 1.18 + 8
     Image.fromarray(g.clip(0, 255).astype(np.uint8)).save(os.path.join(ziel, TEX['gehweg_asphalt']))
@@ -850,7 +869,7 @@ def bauen(omsi, karte, osm_pfad, entwurf_pfad, nn0, ost0, nord0, cache):
                     ost=None if e['o'] is None else [e['o'][k] for k in ('a', 'b', 'z', 'g')], decke=bool(e['unter_decke'])) for e in roh]
     platte = unary_union([F['fahrbahn'], F['gehweg'], F['inseln']])
     out = dict(karte=karte, nn0=nn0, objekte=liste, strassen=strassen, kreuzungen=[kreuzung],
-               gelaende=gelaende(roh) + platte_gelaende(platte, kz['zf']), messung=messung, quellen=['OpenStreetMap (ODbL)', 'DGM1/DOP40 Bayerische Vermessungsverwaltung (CC BY 4.0)'])
+               gelaende=gelaende(roh) + platte_gelaende(platte, kz['zf']) + tunnel_gelaende(kz['tunnel']), messung=messung, quellen=['OpenStreetMap (ODbL)', 'DGM1/DOP40 Bayerische Vermessungsverwaltung (CC BY 4.0)'])
     with open(os.path.join(ordner, 'sonderbau_ring.json'), 'w', encoding='utf-8') as f:
         json.dump(out, f, indent=1)
     return out
