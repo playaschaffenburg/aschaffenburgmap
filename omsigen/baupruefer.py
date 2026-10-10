@@ -212,7 +212,8 @@ def spline_teil(omsi, name, sli_rel, elemente):
         xs = [x for x, _ in unten]
         teil.koerper = (np.array([(p_[0], p_[1], p_[2], p_[3]) for p_ in pts]), (min(xs), max(xs)), -min(y for _, y in unten))
     for p, wo in ((pts[0], 'Anfang'), (pts[-1], 'Ende')):
-        q = np.array([welt(p, x, y) for _, pp in profile for x, y, _, _ in pp])
+        # nur massive Profilteile: Gelaender und Laermschutz-Paneele duerfen frei enden
+        q = np.array([welt(p, x, y) for tex, pp in profile if not _duenn(tex) for x, y, _, _ in pp] or [welt(p, 0.0, 0.0)])
         teil.enden.append((q, wo))
     return teil
 
@@ -362,6 +363,11 @@ def verdeckt(raum, gelaende, p, ausser=None, hoehe=0.4, koerper=True):
         if p[2] + 0.02 < z <= p[2] + hoehe:
             return True
     return False
+
+
+def _duenn(mat):
+    """duenne Flaechen ohne Koerper (Gelaender, Glas, Laermschutz)"""
+    return any(w in str(mat).lower() for w in ('stab', 'glas', 'lsw', 'gelaender'))
 
 
 def _strich(mat):

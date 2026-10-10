@@ -43,6 +43,7 @@ GROESSE = {'klinker': 2.0, 'beton': 4.0, 'gabionen': 2.0, 'pflanzen': 2.0, 'stab
 class Profil:
     def __init__(self):
         self.teile = []           # (Textur, [(x, y, u)])
+        self.umriss = []          # massive Teile als Vielecke [(x, y)] - daraus die Stirnflaechen an den Kettenenden
 
     def strecke(self, tex, a, b):
         L = math.hypot(b[0] - a[0], b[1] - a[1])
@@ -91,6 +92,7 @@ def profil(art, material, variante, laerm, r, tiefe):
         p.oben('beton', xr, xa, BRUESTUNG)
         p.flaeche('beton', xa, -0.3, BRUESTUNG, -r)
         p.beidseitig('stab', 0.0, BRUESTUNG, BRUESTUNG + GELAENDER)
+        p.umriss.append([(xr, u), (xr, BRUESTUNG), (xa, BRUESTUNG), (xa, u)])
         return p
     if art == 'trenn':
         h = DICKE_TRENN / 2
@@ -102,9 +104,11 @@ def profil(art, material, variante, laerm, r, tiefe):
             p.oben('beton', xr, xa, BRUESTUNG)
             p.flaeche('beton', xa, -0.3, BRUESTUNG, -r)
             p.beidseitig('stab', 0.0, BRUESTUNG, BRUESTUNG + GELAENDER)
+            p.umriss.append([(xr, u), (xr, BRUESTUNG), (xa, BRUESTUNG), (xa, u)])
         else:
             p.oben('beton', xr, xa, 0.0)
             p.flaeche('beton', xa, -0.3, 0.0, -r)
+            p.umriss.append([(xr, u), (xr, 0.0), (xa, 0.0), (xa, u)])
         lsw_x = None
     else:
         if m == 'gabionen':
@@ -112,6 +116,7 @@ def profil(art, material, variante, laerm, r, tiefe):
             p.flaeche('gabionen', 0.0, u, 0.0, r)
             p.oben('gabionen', 0.0, -r * d, 0.0)
             p.flaeche('gabionen', -r * d, u, 0.0, -r)
+            p.umriss.append([(0.0, u), (0.0, 0.0), (-r * d, 0.0), (-r * d, u)])
             lsw_x = -r * 0.5
         elif variante == 'stufig':
             d = 0.35
@@ -123,6 +128,7 @@ def profil(art, material, variante, laerm, r, tiefe):
             p.flaeche('beton', x1, -KAPPE, 0.0, r)
             p.oben('beton', x1, x1 - r * d, 0.0)
             p.flaeche('beton', x1 - r * d, u, 0.0, -r)
+            p.umriss.append([(0.0, u), (0.0, -STUFE), (x1, -STUFE), (x1, 0.0), (x1 - r * d, 0.0), (x1 - r * d, u)])
             lsw_x = x1 - r * 0.2
         else:
             d = 0.35
@@ -130,6 +136,7 @@ def profil(art, material, variante, laerm, r, tiefe):
             p.flaeche('beton', 0.0, -KAPPE, 0.0, r)
             p.oben('beton', 0.0, -r * d, 0.0)
             p.flaeche('beton', -r * d, u, 0.0, -r)
+            p.umriss.append([(0.0, u), (0.0, 0.0), (-r * d, 0.0), (-r * d, u)])
             lsw_x = -r * 0.2
     if lsw_x is not None and laerm in ('gruen', 'glas'):
         p.beidseitig(laerm, lsw_x, 0.0, LSW_H)
@@ -275,18 +282,23 @@ def splines(roh, platte, omsi):
     for seite in ('w', 'o'):
         r = -1 if seite == 'w' else 1
         for art, linie, krone, unten, variante in arten:
-            for nr, (bt, v, pkt) in enumerate(laeufe(roh, art, seite, linie, krone, unten, variante)):
-                tiefe = math.ceil(max(k - u for _, _, k, u in pkt) / TIEFE_RUND + 0.5) * TIEFE_RUND
+            alle = laeufe(roh, art, seite, linie, krone, unten, variante)
+            if not alle:
+                continue
+            # eine Tiefe fuer alle Stuecke dieser Wand: aneinanderstossende Stuecke haben denselben Umriss unten
+            tiefe = math.ceil(max(k - u for _, _, pkt in alle for _, _, k, u in pkt) / TIEFE_RUND + 0.5) * TIEFE_RUND
+            for nr, (bt, v, pkt) in enumerate(alle):
                 material = bt.get('material') or ('klinker' if art == 'trenn' else ('gabionen' if seite == 'w' else 'klinker'))
                 laerm = bt.get('laerm', 'keine') if art == 'aussen' else 'keine'
                 name = sli_name(art, material, v, laerm, seite, tiefe)
+                pr = profil(art, material, v, laerm, r, tiefe)
                 if name not in dateien:
-                    dateien[name] = profil(art, material, v, laerm, r, tiefe).text(
+                    dateien[name] = pr.text(
                         f'File created with omsigen (Sonderbau Ring). Wand {art} {material} {v} Laermschutz {laerm}, Tiefe {tiefe:.0f} m.')
                 P = [welt(e, t, 0)[:2] for e, t, _, _ in pkt]
                 Z = [k for _, _, k, _ in pkt]
                 out.append(dict(name=f"Wand_{art}_{seite}_{bt.get('id', 'x')}_{nr}", art='wand', bauteil=bt.get('id'),
-                                sli=f'Splines\\Aschaffenburg\\{name}.sli', elemente=kette(P, Z)))
+                                sli=f'Splines\\Aschaffenburg\\{name}.sli', elemente=kette(P, Z), umriss=pr.umriss))
     return out, dateien
 
 
@@ -314,12 +326,48 @@ def portal_splines(roh, platte, z_unten):
         rr = -1 if kreuz > 0 else 1
         tiefe = math.ceil(max(Z) - z_unten + 0.5)
         datei_ = f'AB_SB_Wand_portal_beton_{name}_{int(tiefe)}m'
-        dateien[datei_] = profil('portal', 'beton', 'bogen', 'keine', rr, tiefe).text(
+        pr = profil('portal', 'beton', 'bogen', 'keine', rr, tiefe)
+        dateien[datei_] = pr.text(
             f'File created with omsigen (Sonderbau Ring). Portal {name}: Stirn, Bruestung, Gelaender. Tiefe {tiefe:.0f} m.')
         els = kette(P, Z, knoten=2.5)
         geometrie[name] = (c, R, dd)
-        out.append(dict(name=f'Wand_portal_{name}', art='wand', bauteil=None, sli=f'Splines\\Aschaffenburg\\{datei_}.sli', elemente=els))
+        out.append(dict(name=f'Wand_portal_{name}', art='wand', bauteil=None, sli=f'Splines\\Aschaffenburg\\{datei_}.sli', elemente=els, umriss=pr.umriss))
     return out, dateien, geometrie
+
+
+def stirnflaechen(ketten, o):
+    """Stirnflaeche (Umriss des Profils, Beton, beidseitig) an jedem Kettenende, ausser wo das Ende einer Kette mit
+    demselben Profil anschliesst -> Mesh (Objektursprung o, Hoehe absolut)"""
+    import shapely
+    from shapely.geometry import Polygon
+    from .sonderbau_ring import Mesh
+    enden = []
+    for k in ketten:
+        els = k.get('elemente') or []
+        if not els or not k.get('umriss'):
+            continue
+        a = els[0]
+        x, y, h = _ende(els[-1])
+        enden.append((np.array([a['x'], a['y']]), a['z'], a['richtung'], -1, k))
+        enden.append((np.array([x, y]), els[-1]['z'] + els[-1]['dh'], h, 1, k))
+    m = Mesh()
+    for p, z, h, vz, k in enden:
+        if any(q is not k and np.linalg.norm(p - pq) < 0.05 and q['sli'] == k['sli'] for pq, _, _, _, q in enden):
+            continue
+        hr = math.radians(h)
+        rechts = np.array([math.cos(hr), -math.sin(hr)])
+        vor = np.array([math.sin(hr), math.cos(hr)]) * vz
+        for um in k['umriss']:
+            poly = Polygon(um)
+            if not poly.is_valid or poly.area < 1e-4:
+                continue
+            for tri in shapely.constrained_delaunay_triangles(poly).geoms:
+                pts = list(tri.exterior.coords)[:3]
+                w = [(p[0] + rechts[0] * px - o[0], p[1] + rechts[1] * px - o[1], z + py) for px, py in pts]
+                uv = [(px / 4, py / 4) for px, py in pts]
+                m.dreieck('beton', w, uv, (vor[0], vor[1], 0))
+                m.dreieck('beton', w, uv, (-vor[0], -vor[1], 0))
+    return m
 
 
 def halbscheibe(c, R, dd, n=48):

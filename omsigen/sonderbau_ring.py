@@ -1002,6 +1002,12 @@ def bauen(omsi, karte, osm_pfad, entwurf_pfad, nn0, ost0, nord0, cache, bauplan_
     wand_splines, wand_dateien = rw.splines(roh, kz['zf'], omsi)
     wand_splines += portal
     wand_dateien.update(portal_dateien)
+    # Stirnflaechen an den Wandenden (Splines haben keine): ein Objekt
+    e0 = wand_splines[0]['elemente'][0]
+    o_ = np.array([e0['x'], e0['y'], 0.0])
+    schreiben(ordner, rel, 'Wandenden', rw.stirnflaechen(wand_splines, o_), o_, liste)
+    for w_ in wand_splines:
+        w_.pop('umriss', None)
     rw.schreiben(omsi, wand_dateien, os.path.join(ordner, 'texture'))
     print(f'Waende: {len(wand_splines)} Spline-Ketten, {sum(len(w_["elemente"]) for w_ in wand_splines)} Elemente, '
           f'{len(wand_dateien)} Profile')
