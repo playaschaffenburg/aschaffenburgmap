@@ -365,6 +365,18 @@ Kreuzungsfläche bzw. Gelände, Vorgabe 1,5 m), Richtung/Neigung/Rollen ±8°, B
 auf/ab) blättert in derselben Fahrt; Esc oder jede Kamerabewegung beendet. Quellenangabe „Mapillary-Mitwirkende,
 CC BY-SA 4.0“ steht im Bild.
 
+**Fusswege und Raender** (Objekt-Editor, Werkzeug „Fussweg zeichnen“; Bauplan `wege`/`raender`): Fusswege abseits der
+Platte werden Splines mit Gehweg-Querschnitt (`omsigen/ring_wege.py`). Sie liegen 6 cm über dem Geländedeckel bzw.
+dem Kartengelände und auf der Platte bündig mit dem Gehweg; der Deckel wird darunter ausgespart und an den Wegrand
+angeschmiegt (keine Fugen). Breite, Belag und „Mauer mit Hecke links/rechts“ je Weg einstellbar; freie Ränder
+(Sandsteinmauer 0,7 m mit Hecke 2 m) als eigene Linie mit Stirnflächen an den Enden. Lärmschutz der Wände jetzt auch
+„Holz“ (dunkle Palisade, 3 m).
+
+**Prüfen gegen die Wirklichkeit ohne Fenster:** `python -m omsigen.luftbildvergleich --karte <Karte> --bereich x0 y0 x1 y1`
+(Draufsicht gegen DOP20 mit Raster und Linien des Sonderbaus) und `python -m omsigen.fotovergleich --karte <Karte>
+--ausrichten` (Mapillary-Fotos, Pose automatisch feinausgerichtet, Vergleichsbögen in `build/fotovergleich`). Beide
+setzen den aktuellen Bau nur in der Sitzung ein (`omsi-editor --posen liste.json --sonderbau …`).
+
 **Fläche markieren** (L): Rechteck ziehen oder Vieleck klicken, alles darin (Objekte/Bäume, Straßen-Splines, wählbar)
 mit Entf löschen – ein Rückgängig-Schritt.
 

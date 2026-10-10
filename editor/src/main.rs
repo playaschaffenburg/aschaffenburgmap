@@ -5008,8 +5008,8 @@ fn bild(root: &Path, karte: &str, png: &Path, cam: Option<&str>) -> Result<()> {
     Ok(())
 }
 
-/// Bilder ohne Fenster aus festen Kameraposen (Fotovergleich): JSON-Liste [{"datei", "x", "y", "z", "gier", "neigung",
-/// "roll", "vfov", "breite", "hoehe"}], die Karte wird einmal geladen (Kacheln um die Mitte aller Posen)
+/// Bilder ohne Fenster aus festen Kameraposen (Fotovergleich): JSON-Liste [{"datei", "x", "y", "z" oder "ueber" (m ueber
+/// der gerenderten Oberflaeche), "gier", "neigung", "roll", "vfov", "breite", "hoehe"}], die Karte wird einmal geladen (Kacheln um die Mitte aller Posen)
 fn posen_bilder(root: &Path, karte: &str, liste: &Path, sonderbau_json: Option<&Path>) -> Result<()> {
     let posen: Vec<serde_json::Value> = serde_json::from_slice(&std::fs::read(liste)?)?;
     anyhow::ensure!(!posen.is_empty(), "keine Posen");
@@ -5030,8 +5030,13 @@ fn posen_bilder(root: &Path, karte: &str, liste: &Path, sonderbau_json: Option<&
         v.tiles_around(mitte, KACHEL_RADIUS)?;
     }
     for p in &posen {
+        // "ueber": Kamera so hoch ueber der gerenderten Oberflaeche (Strassen, Objekte, Gelaende) statt fester Hoehe
+        let z = match p["ueber"].as_f64() {
+            Some(h) => v.surface_height(f(p, "x"), f(p, "y")).or_else(|| v.ground_height(f(p, "x"), f(p, "y"))).unwrap_or(0.0) + h,
+            None => f(p, "z"),
+        };
         let cam = openomsi_game::viewer::Camera {
-            position: DVec3::new(f(p, "x"), f(p, "y"), f(p, "z")),
+            position: DVec3::new(f(p, "x"), f(p, "y"), z),
             yaw: f(p, "gier") as f32, pitch: f(p, "neigung") as f32, roll: f(p, "roll") as f32, fov_deg: f(p, "vfov") as f32,
             near: 0.2, far: 9000.0,
         };

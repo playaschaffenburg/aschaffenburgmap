@@ -96,6 +96,29 @@ pub struct Gehpfad {
     pub punkte: Vec<DVec2>,
 }
 
+/// Fussweg abseits der Platte (Spline mit Gehweg-Querschnitt, omsigen/ring_wege.py)
+#[derive(Clone, Debug)]
+pub struct Weg {
+    pub id: String,
+    pub punkte: Vec<DVec2>,
+    pub breite: f64,
+    /// asphalt | platten | verbund
+    pub belag: String,
+    /// weitere Felder (rand_links, rand_rechts, quelle) unveraendert
+    pub rest: serde_json::Map<String, serde_json::Value>,
+}
+
+/// freier Rand (Sandsteinmauer mit Hecke) entlang einer Linie
+#[derive(Clone, Debug)]
+pub struct Rand {
+    pub id: String,
+    pub punkte: Vec<DVec2>,
+    pub art: String,
+    /// Seite, zu der er sich von der Linie aus erstreckt: links | rechts
+    pub seite: String,
+    pub rest: serde_json::Map<String, serde_json::Value>,
+}
+
 /// Wand des Bauwerks: Bereich entlang der Ring-Achse (Stationen von/bis) auf einer Seite
 #[derive(Clone, Debug)]
 pub struct Wand {
@@ -131,6 +154,8 @@ pub struct Bauplan {
     pub furten: Vec<Furt>,
     pub gehpfade: Vec<Gehpfad>,
     pub waende: Vec<Wand>,
+    pub wege: Vec<Weg>,
+    pub raender: Vec<Rand>,
 }
 
 fn p2(v: &serde_json::Value) -> DVec2 {
@@ -161,7 +186,7 @@ impl Bauplan {
     pub fn aus_json(j: &serde_json::Value) -> Bauplan {
         let liste = |k: &str| j[k].as_array().cloned().unwrap_or_default();
         let mut rest = j.as_object().cloned().unwrap_or_default();
-        for k in ["flaechen", "linien", "haltlinien", "symbole", "ampeln", "gelaender", "furten", "gehpfade", "waende"] {
+        for k in ["flaechen", "linien", "haltlinien", "symbole", "ampeln", "gelaender", "furten", "gehpfade", "waende", "wege", "raender"] {
             rest.remove(k);
         }
         Bauplan {
@@ -182,6 +207,17 @@ impl Bauplan {
             gelaender: liste("gelaender").iter().map(|v| Gelaender { id: s(v, "id"), punkte: pl(&v["punkte"]), unten: s(v, "unten"), flip: v["flip"].as_bool().unwrap_or(false) }).collect(),
             furten: liste("furten").iter().map(|v| Furt { id: s(v, "id"), a: p2(&v["a"]), b: p2(&v["b"]), breite: f(v, "breite", 3.0), gruppe: v["gruppe"].as_i64().unwrap_or(0) }).collect(),
             gehpfade: liste("gehpfade").iter().map(|v| Gehpfad { id: s(v, "id"), punkte: pl(&v["punkte"]) }).collect(),
+            wege: liste("wege").iter().map(|v| Weg {
+                id: s(v, "id"), punkte: pl(&v["punkte"]), breite: f(v, "breite", 2.5),
+                belag: if s(v, "belag").is_empty() { "asphalt".into() } else { s(v, "belag") },
+                rest: v.as_object().map(|o| o.iter().filter(|(k, _)| !["id", "punkte", "breite", "belag"].contains(&k.as_str())).map(|(k, x)| (k.clone(), x.clone())).collect()).unwrap_or_default(),
+            }).collect(),
+            raender: liste("raender").iter().map(|v| Rand {
+                id: s(v, "id"), punkte: pl(&v["punkte"]),
+                art: if s(v, "art").is_empty() { "mauer_hecke".into() } else { s(v, "art") },
+                seite: if s(v, "seite") == "links" { "links".into() } else { "rechts".into() },
+                rest: v.as_object().map(|o| o.iter().filter(|(k, _)| !["id", "punkte", "art", "seite"].contains(&k.as_str())).map(|(k, x)| (k.clone(), x.clone())).collect()).unwrap_or_default(),
+            }).collect(),
             waende: liste("waende").iter().map(|v| Wand {
                 id: s(v, "id"), seite: s(v, "seite"), art: s(v, "art"), von: f(v, "von", 0.0), bis: f(v, "bis", 0.0),
                 material: s(v, "material"), laerm: if s(v, "laerm").is_empty() { "keine".into() } else { s(v, "laerm") },
@@ -204,6 +240,22 @@ impl Bauplan {
         o.insert("gelaender".into(), self.gelaender.iter().map(|x| serde_json::json!({"id": x.id, "punkte": jl(&x.punkte), "unten": x.unten, "flip": x.flip})).collect());
         o.insert("furten".into(), self.furten.iter().map(|x| serde_json::json!({"id": x.id, "a": j2(x.a), "b": j2(x.b), "breite": r(x.breite), "gruppe": x.gruppe})).collect());
         o.insert("gehpfade".into(), self.gehpfade.iter().map(|x| serde_json::json!({"id": x.id, "punkte": jl(&x.punkte)})).collect());
+        o.insert("wege".into(), self.wege.iter().map(|x| {
+            let mut m = x.rest.clone();
+            m.insert("id".into(), x.id.clone().into());
+            m.insert("punkte".into(), jl(&x.punkte));
+            m.insert("breite".into(), r(x.breite).into());
+            m.insert("belag".into(), x.belag.clone().into());
+            serde_json::Value::Object(m)
+        }).collect());
+        o.insert("raender".into(), self.raender.iter().map(|x| {
+            let mut m = x.rest.clone();
+            m.insert("id".into(), x.id.clone().into());
+            m.insert("punkte".into(), jl(&x.punkte));
+            m.insert("art".into(), x.art.clone().into());
+            m.insert("seite".into(), x.seite.clone().into());
+            serde_json::Value::Object(m)
+        }).collect());
         o.insert("waende".into(), self.waende.iter().map(|x| serde_json::json!({
             "id": x.id, "seite": x.seite, "art": x.art, "von": r(x.von), "bis": r(x.bis), "material": x.material, "laerm": x.laerm,
             "versatz": r(x.versatz), "hoehe": r(x.hoehe), "stufig": x.stufig,
@@ -240,6 +292,10 @@ pub enum Wahl {
     Gehpfad(usize),
     Wand(usize),
     Strasse(usize),
+    /// Fussweg abseits der Platte
+    Weg(usize),
+    /// Rand (Mauer mit Hecke)
+    Rand(usize),
     /// Linie der Bauaufnahme
     Aufnahme(usize),
     /// Notiz der Bauaufnahme
@@ -585,6 +641,8 @@ pub enum Werkzeug {
     Linie,
     Gelaender,
     Gehpfad,
+    /// Fussweg abseits der Platte zeichnen
+    Weg,
     /// Linie der Bauaufnahme (Art in der Leiste)
     Aufnahme,
     /// Notiz der Bauaufnahme per Klick
@@ -593,7 +651,7 @@ pub enum Werkzeug {
 
 impl Werkzeug {
     fn zeichnet(self) -> bool {
-        matches!(self, Werkzeug::Flaeche | Werkzeug::Linie | Werkzeug::Gelaender | Werkzeug::Gehpfad | Werkzeug::Aufnahme | Werkzeug::Notiz)
+        matches!(self, Werkzeug::Flaeche | Werkzeug::Linie | Werkzeug::Gelaender | Werkzeug::Gehpfad | Werkzeug::Weg | Werkzeug::Aufnahme | Werkzeug::Notiz)
     }
 }
 
@@ -626,7 +684,7 @@ pub struct ObjektEditor {
     pub automatisch: bool,
     einrasten: bool,
     neue_art: usize,
-    zeige: [bool; 11],
+    zeige: [bool; 12],
     /// in der 3D-Ansicht bearbeiten (sonst nur im 2D-Plan)
     pub drei_d: bool,
     /// Flaechen in der 3D-Ansicht farbig fuellen
@@ -664,7 +722,9 @@ pub struct ObjektEditor {
     pub foto_aktiv: Option<String>,
 }
 
-const EBENEN: [&str; 11] = ["Flaechen", "Linien", "Haltlinien", "Symbole", "Ampeln", "Gelaender", "Furten", "Gehpfade", "Waende", "Strassen", "Bauaufnahme"];
+const EBENEN: [&str; 12] = ["Flaechen", "Linien", "Haltlinien", "Symbole", "Ampeln", "Gelaender", "Furten", "Gehpfade", "Waende", "Strassen", "Bauaufnahme", "Wege/Raender"];
+/// Ebene der Wege und Raender in `zeige`
+const WEGE: usize = 11;
 /// Ebene der Bauaufnahme in `zeige`
 const AUFNAHME: usize = 10;
 
@@ -702,7 +762,7 @@ impl ObjektEditor {
             kontext: Kontext::default(), wahl: None, unter: None, werkzeug: Werkzeug::Auswahl, entwurf: vec![], zug: Zug::Nichts,
             letzte: None, undo: vec![], redo: vec![], offen_aenderung: None, geaendert: false, zuletzt_geaendert: Instant::now(), job: None,
             meldung: String::new(), luftbild: None, luft_job: None, luft_alpha: 0.55, texturen: Default::default(), einsetzen: true,
-            automatisch: false, einrasten: true, neue_art: 0, zeige: [true; 11], drei_d: true, fuellen_3d: false, plan2d: false,
+            automatisch: false, einrasten: true, neue_art: 0, zeige: [true; 12], drei_d: true, fuellen_3d: false, plan2d: false,
             mitte: DVec2::new(1084.0, -265.0), m_px: 6.0, funde_zeigen: true, fund_wahl: None,
             aufnahme: Aufnahme::default(), aufnahme_pfad: PathBuf::new(), aufnahme_art: 1, abweichungen: vec![], rev: 1, abw_rev: 0,
             abgleich_zeigen: true, abw_wahl: None, bezug: None, aufnahme_vorne: true,
@@ -1170,6 +1230,8 @@ impl ObjektEditor {
             Wahl::Gelaender(i) => self.plan.gelaender.get(i).map(|x| x.punkte.clone()).unwrap_or_default(),
             Wahl::Furt(i) => self.plan.furten.get(i).map(|x| vec![x.a, x.b]).unwrap_or_default(),
             Wahl::Gehpfad(i) => self.plan.gehpfade.get(i).map(|x| x.punkte.clone()).unwrap_or_default(),
+            Wahl::Weg(i) => self.plan.wege.get(i).map(|x| x.punkte.clone()).unwrap_or_default(),
+            Wahl::Rand(i) => self.plan.raender.get(i).map(|x| x.punkte.clone()).unwrap_or_default(),
             Wahl::Wand(i) => self.plan.waende.get(i).map(|w| {
                 let l = self.wand_linie(w);
                 match (l.first(), l.last()) {
@@ -1207,6 +1269,8 @@ impl ObjektEditor {
             Wahl::Gelaender(i) => self.plan.gelaender.get_mut(i).map(|x| x.punkte.iter_mut().collect()).unwrap_or_default(),
             Wahl::Furt(i) => self.plan.furten.get_mut(i).map(|x| vec![&mut x.a, &mut x.b]).unwrap_or_default(),
             Wahl::Gehpfad(i) => self.plan.gehpfade.get_mut(i).map(|x| x.punkte.iter_mut().collect()).unwrap_or_default(),
+            Wahl::Weg(i) => self.plan.wege.get_mut(i).map(|x| x.punkte.iter_mut().collect()).unwrap_or_default(),
+            Wahl::Rand(i) => self.plan.raender.get_mut(i).map(|x| x.punkte.iter_mut().collect()).unwrap_or_default(),
             Wahl::Aufnahme(i) => self.aufnahme.linien.get_mut(i).map(|x| x.punkte.iter_mut().collect()).unwrap_or_default(),
             Wahl::Notiz(i) => self.aufnahme.notizen.get_mut(i).map(|x| vec![&mut x.pos]).unwrap_or_default(),
             Wahl::Wand(_) | Wahl::Strasse(_) => vec![],
@@ -1220,6 +1284,8 @@ impl ObjektEditor {
             Wahl::Linie(i) => self.plan.linien.get_mut(i).map(|x| (&mut x.punkte, false, 2)),
             Wahl::Gelaender(i) => self.plan.gelaender.get_mut(i).map(|x| (&mut x.punkte, false, 2)),
             Wahl::Gehpfad(i) => self.plan.gehpfade.get_mut(i).map(|x| (&mut x.punkte, false, 2)),
+            Wahl::Weg(i) => self.plan.wege.get_mut(i).map(|x| (&mut x.punkte, false, 2)),
+            Wahl::Rand(i) => self.plan.raender.get_mut(i).map(|x| (&mut x.punkte, false, 2)),
             Wahl::Aufnahme(i) => self.aufnahme.linien.get_mut(i).map(|x| {
                 let zu = aufnahme::geschlossen(&x.art);
                 (&mut x.punkte, zu, if zu { 3 } else { 2 })
@@ -1281,6 +1347,8 @@ impl ObjektEditor {
             Wahl::Gelaender(i) => drop(self.plan.gelaender.remove(i)),
             Wahl::Furt(i) => drop(self.plan.furten.remove(i)),
             Wahl::Gehpfad(i) => drop(self.plan.gehpfade.remove(i)),
+            Wahl::Weg(i) => drop(self.plan.wege.remove(i)),
+            Wahl::Rand(i) => drop(self.plan.raender.remove(i)),
             Wahl::Wand(i) => drop(self.plan.waende.remove(i)),
             Wahl::Strasse(_) => self.meldung = "Strassen lassen sich nicht loeschen (nur Querschnitt und Lage aendern)".into(),
             Wahl::Aufnahme(i) => drop(self.aufnahme.linien.remove(i)),
@@ -1306,6 +1374,8 @@ impl ObjektEditor {
             Wahl::Gelaender(i) => Wahl::Gelaender(dup!(gelaender, "gelaender", i)),
             Wahl::Furt(i) => Wahl::Furt(dup!(furten, "furt", i)),
             Wahl::Gehpfad(i) => Wahl::Gehpfad(dup!(gehpfade, "gehpfad", i)),
+            Wahl::Weg(i) => Wahl::Weg(dup!(wege, "weg", i)),
+            Wahl::Rand(i) => Wahl::Rand(dup!(raender, "rand", i)),
             Wahl::Wand(i) => {
                 let k = dup!(waende, "wand", i);
                 return Wahl::Wand(k);
@@ -1342,6 +1412,8 @@ impl ObjektEditor {
             Wahl::Gelaender(i) => self.plan.gelaender.get(i).map(|g| abstand_zug(p, &g.punkte, false).0 < tol).unwrap_or(false),
             Wahl::Furt(i) => self.plan.furten.get(i).map(|f| abstand_strecke(p, f.a, f.b) < f.breite / 2.0 + tol * 0.5).unwrap_or(false),
             Wahl::Gehpfad(i) => self.plan.gehpfade.get(i).map(|g| abstand_zug(p, &g.punkte, false).0 < tol).unwrap_or(false),
+            Wahl::Weg(i) => self.plan.wege.get(i).map(|g| abstand_zug(p, &g.punkte, false).0 < tol.max(g.breite / 2.0)).unwrap_or(false),
+            Wahl::Rand(i) => self.plan.raender.get(i).map(|g| abstand_zug(p, &g.punkte, false).0 < tol.max(0.5)).unwrap_or(false),
             Wahl::Wand(i) => self.plan.waende.get(i).map(|w| abstand_zug(p, &self.wand_linie(w), false).0 < tol.max(0.6)).unwrap_or(false),
             Wahl::Strasse(i) => self.kontext.strassen.get(i).map(|s| abstand_zug(p, &s.1, false).0 < tol.max(0.8)).unwrap_or(false),
             Wahl::Aufnahme(i) => self.aufnahme.linien.get(i).map(|l| abstand_zug(p, &l.punkte, aufnahme::geschlossen(&l.art)).0 < tol.max(0.3)).unwrap_or(false),
@@ -1352,7 +1424,7 @@ impl ObjektEditor {
     /// oberstes Bauteil unter p (Toleranz in m)
     fn treffer(&self, p: DVec2, tol: f64) -> Option<Wahl> {
         let z = &self.zeige;
-        let reihen: [(usize, Vec<Wahl>); 11] = [
+        let reihen: [(usize, Vec<Wahl>); 13] = [
             (AUFNAHME, (0..self.aufnahme.notizen.len()).map(Wahl::Notiz).collect()),
             (AUFNAHME, (0..self.aufnahme.linien.len()).map(Wahl::Aufnahme).collect()),
             (4, (0..self.plan.ampeln.len()).map(Wahl::Ampel).collect()),
@@ -1363,6 +1435,8 @@ impl ObjektEditor {
             (5, (0..self.plan.gelaender.len()).map(Wahl::Gelaender).collect()),
             (8, (0..self.plan.waende.len()).map(Wahl::Wand).collect()),
             (7, (0..self.plan.gehpfade.len()).map(Wahl::Gehpfad).collect()),
+            (WEGE, (0..self.plan.raender.len()).map(Wahl::Rand).collect()),
+            (WEGE, (0..self.plan.wege.len()).map(Wahl::Weg).collect()),
             (9, (0..self.kontext.strassen.len()).map(Wahl::Strasse).collect()),
         ];
         let reihen: Vec<&(usize, Vec<Wahl>)> = if self.aufnahme_vorne { reihen.iter().collect() } else { reihen[2..].iter().chain(reihen[..2].iter()).collect() };
@@ -1499,6 +1573,11 @@ impl ObjektEditor {
                 self.abschliessen();
                 self.meldung = format!("{} aufgenommen - naechste Linie klicken oder Esc", aufnahme::art_name(art_a));
                 return;
+            }
+            Werkzeug::Weg => {
+                let id = self.plan.neue_id("weg");
+                self.plan.wege.push(Weg { id, punkte: pts, breite: 2.5, belag: "asphalt".into(), rest: Default::default() });
+                Wahl::Weg(self.plan.wege.len() - 1)
             }
             _ => {
                 let id = self.plan.neue_id("gehpfad");
@@ -1837,7 +1916,11 @@ impl ObjektEditor {
                 };
                 p.add(egui::Shape::line(l.clone(), egui::Stroke::new(if w.art == "trenn" { 3.0 } else { 4.0 }, farbe)));
                 if w.laerm != "keine" {
-                    let c = if w.laerm == "glas" { egui::Color32::from_rgb(140, 220, 255) } else { egui::Color32::from_rgb(60, 170, 110) };
+                    let c = match w.laerm.as_str() {
+                        "glas" => egui::Color32::from_rgb(140, 220, 255),
+                        "holz" => egui::Color32::from_rgb(150, 100, 60),
+                        _ => egui::Color32::from_rgb(60, 170, 110),
+                    };
                     p.extend(egui::Shape::dashed_line(&l, egui::Stroke::new(2.0, c), 6.0, 4.0));
                 }
             }
@@ -1901,6 +1984,19 @@ impl ObjektEditor {
         if self.zeige[5] {
             for g in &self.plan.gelaender {
                 p.add(egui::Shape::line(zug(&g.punkte), egui::Stroke::new(3.0, egui::Color32::from_rgb(220, 110, 160))));
+            }
+        }
+        if self.zeige[WEGE] {
+            // Wege: Band in Wegbreite (grau, Rand hell), Raender: Mauer sandfarben mit Heckenseite gruen
+            for w in &self.plan.wege {
+                let pts = zug(&w.punkte);
+                p.add(egui::Shape::line(pts.clone(), egui::Stroke::new(breite_px(w.breite), egui::Color32::from_rgba_unmultiplied(150, 150, 150, 120))));
+                p.add(egui::Shape::line(pts, egui::Stroke::new(1.5, egui::Color32::from_rgb(220, 220, 210))));
+            }
+            for rd in &self.plan.raender {
+                let pts = zug(&rd.punkte);
+                p.add(egui::Shape::line(pts.clone(), egui::Stroke::new(3.0, egui::Color32::from_rgb(200, 170, 120))));
+                p.extend(egui::Shape::dashed_line(&pts, egui::Stroke::new(2.0, egui::Color32::from_rgb(70, 120, 60)), 5.0, 4.0));
             }
         }
         if self.zeige[7] {
@@ -2194,6 +2290,7 @@ impl ObjektEditor {
                 (Werkzeug::Linie, "\u{2571} Linie zeichnen", "Punkte klicken; Doppelklick oder Enter beendet"),
                 (Werkzeug::Gelaender, "Gelaender zeichnen", "Punkte klicken; Doppelklick oder Enter beendet"),
                 (Werkzeug::Gehpfad, "Gehpfad zeichnen", "Punkte klicken; Doppelklick oder Enter beendet"),
+                (Werkzeug::Weg, "Fussweg zeichnen", "Fussweg abseits der Platte (folgt dem Gelaende): Mittellinie klicken; Doppelklick oder Enter beendet"),
             ] {
                 if ui.selectable_label(self.werkzeug == w, t).on_hover_text(tip).clicked() {
                     self.werkzeug = w;
@@ -2325,7 +2422,7 @@ impl ObjektEditor {
         let mut dup = false;
         let titel = match w {
             Wahl::Flaeche(_) => "Flaeche", Wahl::Linie(_) => "Linie", Wahl::Halt(_) => "Haltlinie", Wahl::Symbol(_) => "Symbol",
-            Wahl::Ampel(_) => "Ampel", Wahl::Gelaender(_) => "Gelaender", Wahl::Furt(_) => "Fussgaengerfurt", Wahl::Gehpfad(_) => "Gehpfad",
+            Wahl::Ampel(_) => "Ampel", Wahl::Gelaender(_) => "Gelaender", Wahl::Furt(_) => "Fussgaengerfurt", Wahl::Gehpfad(_) => "Gehpfad", Wahl::Weg(_) => "Fussweg", Wahl::Rand(_) => "Rand (Mauer mit Hecke)",
             Wahl::Wand(_) => "Wand", Wahl::Strasse(_) => "Strasse", Wahl::Aufnahme(_) => "Bauaufnahme", Wahl::Notiz(_) => "Notiz",
         };
         ui.horizontal_wrapped(|ui| {
@@ -2517,6 +2614,37 @@ impl ObjektEditor {
             Wahl::Gehpfad(_) => {
                 ui.label(egui::RichText::new("Fussgaengerpfad").small().weak());
             }
+            Wahl::Weg(i) => {
+                let Some(w) = self.plan.wege.get_mut(i) else { return None };
+                ae |= ui.add(egui::DragValue::new(&mut w.breite).speed(0.05).range(0.8..=8.0).prefix("Breite ").suffix(" m")).changed();
+                ui.horizontal(|ui| {
+                    for (k, n) in [("asphalt", "Asphalt"), ("platten", "Platten"), ("verbund", "Pflaster")] {
+                        ae |= ui.selectable_value(&mut w.belag, k.to_string(), n).changed();
+                    }
+                });
+                for seite in ["links", "rechts"] {
+                    let k = format!("rand_{seite}");
+                    let mut an = w.rest.contains_key(&k);
+                    if ui.checkbox(&mut an, format!("Mauer mit Hecke {seite}")).changed() {
+                        if an {
+                            w.rest.insert(k, serde_json::json!({"art": "mauer_hecke"}));
+                        } else {
+                            w.rest.remove(&k);
+                        }
+                        ae = true;
+                    }
+                }
+                ui.label(egui::RichText::new("Liegt auf dem Gelaende, auf der Platte buendig mit dem Gehweg; Anwenden baut neu.").small().weak());
+            }
+            Wahl::Rand(i) => {
+                let Some(rd) = self.plan.raender.get_mut(i) else { return None };
+                ui.horizontal(|ui| {
+                    ui.label("Hecke");
+                    ae |= ui.selectable_value(&mut rd.seite, "links".to_string(), "links der Linie").changed();
+                    ae |= ui.selectable_value(&mut rd.seite, "rechts".to_string(), "rechts der Linie").changed();
+                });
+                ui.label(egui::RichText::new("Sandsteinmauer 0,7 m, dahinter Hecke 2 m").small().weak());
+            }
             Wahl::Wand(i) => {
                 let Some(wd) = self.plan.waende.get_mut(i) else { return None };
                 ui.horizontal(|ui| {
@@ -2536,7 +2664,7 @@ impl ObjektEditor {
                 if wd.art == "aussen" {
                     ui.horizontal(|ui| {
                         ui.label("Laermschutz");
-                        for (k, n) in [("keine", "keiner"), ("gruen", "gruen"), ("glas", "Glas")] {
+                        for (k, n) in [("keine", "keiner"), ("gruen", "gruen"), ("glas", "Glas"), ("holz", "Holz")] {
                             ae |= ui.selectable_value(&mut wd.laerm, k.to_string(), n).changed();
                         }
                     });
@@ -2670,6 +2798,8 @@ impl ObjektEditor {
             gruppe(ui, "Gelaender", p.gelaender.iter().enumerate().map(|(i, x)| (Wahl::Gelaender(i), format!("{} ({})", x.id, x.unten))).collect(), self.wahl);
             gruppe(ui, "Furten", p.furten.iter().enumerate().map(|(i, x)| (Wahl::Furt(i), x.id.clone())).collect(), self.wahl);
             gruppe(ui, "Gehpfade", p.gehpfade.iter().enumerate().map(|(i, x)| (Wahl::Gehpfad(i), x.id.clone())).collect(), self.wahl);
+            gruppe(ui, "Fusswege", p.wege.iter().enumerate().map(|(i, x)| (Wahl::Weg(i), format!("{} ({:.1} m)", x.id, x.breite))).collect(), self.wahl);
+            gruppe(ui, "Raender", p.raender.iter().enumerate().map(|(i, x)| (Wahl::Rand(i), x.id.clone())).collect(), self.wahl);
             let a = &self.aufnahme;
             gruppe(ui, "Bauaufnahme", a.linien.iter().enumerate().map(|(i, x)| (Wahl::Aufnahme(i), format!("{} ({})", aufnahme::art_name(&x.art), x.id))).collect(), self.wahl);
             gruppe(ui, "Notizen", a.notizen.iter().enumerate().map(|(i, x)| (Wahl::Notiz(i), if x.text.is_empty() { x.id.clone() } else { x.text.lines().next().unwrap_or("").chars().take(40).collect() })).collect(), self.wahl);
@@ -2876,6 +3006,32 @@ mod tests {
         ed.loslassen();
         assert!((ed.plan.flaechen[0].punkte[0].x - 10.0).abs() < 1e-9);
         assert!((ed.plan.flaechen[0].textur.dx + 0.5).abs() < 1e-9, "{}", ed.plan.flaechen[0].textur.dx);
+    }
+
+    #[test]
+    fn wege_und_raender_hin_und_zurueck() {
+        let j = serde_json::json!({
+            "wege": [{"id": "w1", "punkte": [[0, 0], [10, 2]], "breite": 3.8, "belag": "asphalt", "quelle": "DOP20",
+                      "rand_links": {"art": "mauer_hecke", "von": 0.8, "bis": 70}}],
+            "raender": [{"id": "r1", "punkte": [[1, 1], [5, 1]], "art": "mauer_hecke", "seite": "rechts", "quelle": "Foto"}],
+        });
+        let b = Bauplan::aus_json(&j);
+        assert_eq!(b.wege.len(), 1);
+        assert_eq!(b.wege[0].breite, 3.8);
+        assert_eq!(b.raender[0].seite, "rechts");
+        let k = b.json();
+        // unbekannte Felder (Rand, Quelle) bleiben erhalten
+        assert_eq!(k["wege"][0]["rand_links"]["bis"], 70);
+        assert_eq!(k["wege"][0]["quelle"], "DOP20");
+        assert_eq!(k["raender"][0]["quelle"], "Foto");
+        // Weg zeichnen
+        let mut ed = editor();
+        ed.werkzeug = Werkzeug::Weg;
+        ed.klicken(DVec2::new(30.0, 0.0), 0.3, true);
+        ed.klicken(DVec2::new(30.0, -20.0), 0.3, true);
+        ed.taste(egui::Key::Enter, false, false);
+        assert_eq!(ed.plan.wege.len(), 1);
+        assert_eq!(ed.wahl, Some(Wahl::Weg(0)));
     }
 
     #[test]

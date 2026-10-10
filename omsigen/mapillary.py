@@ -197,8 +197,22 @@ def fotos(ost0, nord0, zone, bereich, cache=None):
     x0, y0, x1, y1 = bereich
     la0, lo0 = from_utm(ost0 + x0, nord0 + y0, zone)
     la1, lo1 = from_utm(ost0 + x1, nord0 + y1, zone)
-    out = []
-    for b in bilder((min(lo0, lo1), min(la0, la1), max(lo0, lo1), max(la0, la1)), cache):
+    # in Kacheln von hoechstens ~60 m abfragen: bei grossen Ausschnitten liefert die API nicht alle Bilder
+    out, gesehen = [], set()
+    nx = max(1, math.ceil((x1 - x0) / 60.0))
+    ny = max(1, math.ceil((y1 - y0) / 60.0))
+    roh = []
+    for i in range(nx):
+        for j in range(ny):
+            ax, bx = x0 + (x1 - x0) * i / nx, x0 + (x1 - x0) * (i + 1) / nx
+            ay, by = y0 + (y1 - y0) * j / ny, y0 + (y1 - y0) * (j + 1) / ny
+            la_a, lo_a = from_utm(ost0 + ax, nord0 + ay, zone)
+            la_b, lo_b = from_utm(ost0 + bx, nord0 + by, zone)
+            for b in bilder((min(lo_a, lo_b), min(la_a, la_b), max(lo_a, lo_b), max(la_a, la_b)), cache):
+                if b['id'] not in gesehen:
+                    gesehen.add(b['id'])
+                    roh.append(b)
+    for b in roh:
         if b.get('camera_type') != 'perspective' or not b.get('camera_parameters') or b.get('is_pano'):
             continue
         p = pose(b, ost0, nord0, zone)

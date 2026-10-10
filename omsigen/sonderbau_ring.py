@@ -41,7 +41,8 @@ TEX = {'beton': 'betonwand1.bmp', 'klinker': 'AB_klinker.bmp', 'gabionen': 'AB_g
        'decke': 'AB_beton_dunkel.bmp', 'pflanzen': 'AB_bodendecker.bmp', 'asphalt': 'str_asphdrk.bmp',
        'boden': 'AB_boden.bmp', 'weiss': 'AB_weiss.bmp', 'radfurt': 'AB_radfurt.bmp', 'sperr': 'AB_sperrflaeche.bmp',
        'gehweg': 'str_gehweg02.bmp', 'bord': 'str_side1.bmp', 'busbeton': 'str_betonplatten.bmp',
-       'gehweg_asphalt': 'AB_gehweg_asphalt.bmp', 'insel_beton': 'AB_insel_beton.bmp'}
+       'gehweg_asphalt': 'AB_gehweg_asphalt.bmp', 'insel_beton': 'AB_insel_beton.bmp', 'sandstein': 'AB_sandstein.bmp',
+       'hecke': 'AB_hecke.bmp'}
 
 
 # ------------------------------------------------------------------ Geometrie-Helfer
@@ -933,7 +934,7 @@ def plattenrand(platte, zf, karte, o, ausser, gehweg, breite=9.0, schritt=2.0, f
     return m
 
 
-def abdeckung(teile, weg, schliessen=0.3, zelle=2.5):
+def abdeckung(teile, weg, schliessen=0.3, zelle=2.5, anpassen=None):
     """mehrere Deckel-Meshes (je (Mesh, Ursprung)) zu einer Flaeche: Grundriss = Vereinigung der Dreiecke, Spalten
     bis 2*`schliessen` m geschlossen, ohne `weg`; neu trianguliert, Hoehe aus den urspruenglichen Dreiecken (hoechste,
     sonst die naechste) -> (Mesh, Ursprung)"""
@@ -979,6 +980,8 @@ def abdeckung(teile, weg, schliessen=0.3, zelle=2.5):
             k = (round(x, 4), round(y, 4))
             if k not in cache:
                 cache[k] = z_bei(x, y) + 0.0
+                if anpassen is not None:
+                    cache[k] = anpassen(x, y, cache[k])
             w.append((x - o[0], y - o[1], cache[k]))
         out.dreieck('boden', w, [(x / 5, y / 5) for x, y in t], (0, 0, 1))
     return out, o
@@ -1075,6 +1078,29 @@ def texturen(omsi, ziel):
         lg[:, x] = (62, 112, 92) if x % 8 >= 2 else (44, 86, 70)
     lg[60:64, :] = (40, 70, 58)
     Image.fromarray((lg + rng.normal(0, 3, lg.shape)).clip(0, 255).astype(np.uint8)).save(os.path.join(ziel, TEX['lsw_gruen']))
+    # Sandstein (Mauer am Weg): gelbbraune Quader in Lagen
+    ss = np.zeros((128, 128, 3))
+    for y in range(128):
+        for x in range(128):
+            lage = y // 32
+            fuge = (y % 32 < 2) or ((x + (lage % 2) * 40) % 80 < 2)
+            ss[y, x] = (95, 85, 70) if fuge else (190, 165, 120)
+    Image.fromarray((ss + rng.normal(0, 9, ss.shape)).clip(0, 255).astype(np.uint8)).save(os.path.join(ziel, 'AB_sandstein.bmp'))
+    # Hecke: dunkles Laubgruen, fleckig
+    hk = np.zeros((128, 128, 3)) + (52, 78, 40)
+    for _ in range(900):
+        cx, cy, r_ = rng.integers(0, 128), rng.integers(0, 128), rng.integers(2, 6)
+        hk[max(0, cy - r_):cy + r_, max(0, cx - r_):cx + r_] = (rng.integers(30, 80), rng.integers(60, 115), rng.integers(25, 55))
+    Image.fromarray((hk + rng.normal(0, 6, hk.shape)).clip(0, 255).astype(np.uint8)).save(os.path.join(ziel, 'AB_hecke.bmp'))
+    # Holz-Laermschutzwand: dunkelbraune Palisade aus senkrechten Rundhoelzern (Fotos Rampe Ost-Sued)
+    lh = np.zeros((128, 128, 3))
+    for y in range(128):
+        # Spline-Textur: u laeuft ueber das Profil (senkrecht), v entlang der Wand - die Rundhoelzer stehen senkrecht,
+        # wechseln also entlang v (Bildzeilen)
+        t = (y % 16) / 16.0
+        hell = 0.55 + 0.45 * math.sin(math.pi * t)            # Rundholz: Mitte heller, Fugen dunkel
+        lh[y, :] = (np.array([78, 58, 44]) * hell)
+    Image.fromarray((lh + rng.normal(0, 4, lh.shape)).clip(0, 255).astype(np.uint8)).save(os.path.join(ziel, 'AB_lsw_holz.bmp'))
     # Glas: leicht blaeulich, durchsichtig (Alpha), Rahmen oben/unten
     gl = Image.new('RGBA', (64, 64), (200, 225, 235, 70))
     dg = ImageDraw.Draw(gl)
@@ -1287,9 +1313,33 @@ def bauen(omsi, karte, osm_pfad, entwurf_pfad, nn0, ost0, nord0, cache, bauplan_
     rand_frei = unary_union(jenseits_ + ([bahn_frei] if bahn_frei is not None else []))
     deckel_teile.append((plattenrand(platte_, kz['zf'], karte_gel, o_r, unary_union(ausnahmen),
                                      unary_union([F['gehweg'], F['inseln']]), frei=rand_frei), o_r))
-    # Deckel und Plattenrand als EINE Gelaendeflaeche (keine Fugen und Doppelflaechen zwischen den Stuecken)
-    weg_ = unary_union([platte_.buffer(-0.3)] + ([bahn_frei] if bahn_frei is not None else []))
-    abd, o_a = abdeckung(deckel_teile, weg_)
+    # Fusswege abseits der Platte (Bauplan 'wege', ring_wege): auf Deckel/Gelaende, auf der Platte buendig mit dem Gehweg
+    from . import ring_wege as rwg
+    from shapely.geometry import Point as _Pt
+    h_deckel = rwg.hoehe_aus(deckel_teile, karte_gel)
+    walk_h = rk.WALK_H
+
+    def h_weg(x, y):
+        if platte_.contains(_Pt(x, y)):
+            return float(kz['zf'](x, y)) + walk_h + 0.005 - rwg.WEG_UEBER
+        return h_deckel(x, y)
+    wege = rwg.splines(bp.get('wege', []), h_weg)
+    if wege:
+        print(f"Wege: {len(wege)} ({', '.join(w_['name'] for w_ in wege)})")
+    rand_ketten, rand_dateien = rwg.raender(bp.get('wege', []), bp.get('raender', []), wege, h_weg)
+    if rand_ketten:
+        rw.schreiben(omsi, rand_dateien, os.path.join(ordner, 'texture'))
+        print(f"Raender: {len(rand_ketten)} ({', '.join(k_['name'] for k_ in rand_ketten)})")
+        e0 = rand_ketten[0]['elemente'][0]
+        o_ = np.array([e0['x'], e0['y'], 0.0])
+        schreiben(ordner, rel, 'Randenden', rwg.rand_enden(rand_ketten, o_), o_, liste)
+        for k_ in rand_ketten:
+            k_.pop('teile_umriss', None)
+    # Deckel und Plattenrand als EINE Gelaendeflaeche (keine Fugen und Doppelflaechen zwischen den Stuecken), unter
+    # den Wegen ausgespart
+    weg_ = unary_union([platte_.buffer(-0.3), rwg.grundriss(wege, rwg.UNTER_WEG).difference(platte_)]
+                       + ([bahn_frei] if bahn_frei is not None else []))
+    abd, o_a = abdeckung(deckel_teile, weg_, anpassen=rwg.anschmiegen(wege) if wege else None)
     schreiben(ordner, rel, 'Gelaendedeckel', abd, o_a, liste)
     messung = [dict(s=e['s'], x=float(e['p'][0]), y=float(e['p'][1]), ring=[float(e['ra']), float(e['rb']), float(e['zr'])],
                     west=None if e['w'] is None else [e['w'][k] for k in ('a', 'b', 'z', 'g')],
@@ -1307,10 +1357,10 @@ def bauen(omsi, karte, osm_pfad, entwurf_pfad, nn0, ost0, nord0, cache, bauplan_
                                                      ('aussen', lambda e_, sd_: aussen_geo(e_, sd_) if aussen_geo(e_, sd_) is not None else aussen_frei(e_, sd_)))
                                       for sd in ('w', 'o')}) for e in roh],
                    strassen=[dict(name=st['name'], punkte=[_xy((el['x'], el['y'])) for el in st['elemente']] + [_xy(rs._ende(st['elemente'][-1])[:2])])
-                             for st in strassen if st['elemente']],
+                             for st in strassen + wege if st['elemente']],
                    hoehen=hoehenraster(kz['zf'], F))
     senken_ur = [p_ + [round(float(gel.h(np.array([p_[0] * 300 + p_[2] * 5.0]), np.array([p_[1] * 300 + p_[3] * 5.0]))[0]), 3)] for p_ in senken]
-    out = dict(karte=karte, nn0=nn0, objekte=liste, strassen=strassen + wand_splines, kreuzungen=[kreuzung], kontext=kontext,
+    out = dict(karte=karte, nn0=nn0, objekte=liste, strassen=strassen + wand_splines + wege + rand_ketten, kreuzungen=[kreuzung], kontext=kontext,
                anschlussteile=[name, 'Bahnbruecke', 'Unterfuehrung'],
                gelaende=senken_ur, gelaende_zurueck=rueckbau(roh_karte, senken, gel, roh), messung=messung, quellen=['OpenStreetMap (ODbL)', 'DGM1/DOP40 Bayerische Vermessungsverwaltung (CC BY 4.0)'])
     with open(os.path.join(ordner, 'sonderbau_ring.json'), 'w', encoding='utf-8') as f:

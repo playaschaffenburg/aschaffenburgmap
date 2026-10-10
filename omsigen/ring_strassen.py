@@ -26,6 +26,37 @@ RAMPEN = {
     'Rampe_Ost_Nord': dict(seite='o', s=(0.0, 114.0), trenn=0.8, spur=5.0, rest='parkstreifen', richtung='zurueck'),
     'Rampe_Ost_Sued': dict(seite='o', s=(160.0, None), trenn=2.3, spur=3.6, rest='sperr', richtung='zurueck'),
 }
+# Abschnitte nach Luftbild/Fotos (Fotovergleich 10.10.2026): ab dieser Achs-Station ein eigener Spline mit
+# abgewandeltem Querschnitt, nahtlos am ersten. 'ohne_sperr': die Sperrflaeche neben der Rampe endet (Keil bis y -345),
+# danach Randstreifen; 'sperr_raender': die Raender werden Sperrflaeche (hinter dem Ende der Trennwaende, bis die
+# Fahrbahnen zusammenlaufen)
+ABSCHNITTE = {
+    'Rampe_Ost_Sued': [(212.0, 'ohne_sperr')],
+    # Ring ab 242 (Ende der Trennwaende): Spitzwinkel-Sperrflaechen bis zum Zusammenlauf - Lage im Luftbild noch
+    # unklar (eine liegt in der Ringmitte), daher noch nicht gebaut
+}
+
+
+def abgewandelt(q, art):
+    """Querschnitt (Baukasten-JSON) fuer einen Abschnitt"""
+    import copy
+    q = copy.deepcopy(q)
+    teile = q.get('teile', [])
+    for i, t in enumerate(teile):
+        if t.get('art') != 'parkstreifen':
+            continue
+        if art == 'ohne_sperr' and t.get('belag') == 'sperr':
+            t['belag'] = 'asphalt'
+        if art == 'sperr_raender' and i in (0, len(teile) - 1):
+            t['belag'] = 'sperr'
+    q['name'] = q.get('name', 'SB') + ('_ohne_Sperr' if art == 'ohne_sperr' else '_Sperrraender')
+    return q
+
+
+def abschnitt_name(name, s):
+    return f'{name}_ab{int(round(s))}'
+
+
 # Ludwigsallee nach Luftbild: Punkt auf der Fahrbahnmitte (Mitte der Fahrspuren) und Ende am Kreuzungsobjekt (x)
 LUDWIG = {
     'Schiesshausbruecke': dict(ways=['10058252', '339300221', '575971195'], mitte=(1055.0, -267.0), x=(1035.0, 1050.0)),
@@ -175,11 +206,20 @@ def planen(entwurf, gel, ways, ueberschreiben=None):
             Q[name] = o['querschnitt']
         if o.get('versatz') is not None and name in lage:
             lage[name] = float(o['versatz'])
-    out = [dict(name='Ring', art='ring', querschnitt=Q['Ring'], elemente=elemente(achse, 0.0, 0.0, L, zr))]
+    def geteilt(name, art, t, a, b, z, **extra):
+        """Strasse von Station a bis b, an den ABSCHNITTE-Stationen in eigene Splines geteilt"""
+        grenzen = [(a, None)] + [(s_, w) for s_, w in ABSCHNITTE.get(name, []) if a < s_ < b]
+        teile = []
+        for k, (s0, w) in enumerate(grenzen):
+            s1 = grenzen[k + 1][0] if k + 1 < len(grenzen) else b
+            n = name if w is None else abschnitt_name(name, s0)
+            q = Q[name] if w is None else (ueberschreiben or {}).get(n, {}).get('querschnitt') or abgewandelt(Q[name], w)
+            teile.append(dict(name=n, art=art, querschnitt=q, elemente=elemente(achse, t, s0, s1, z), **extra))
+        return teile
+    out = geteilt('Ring', 'ring', 0.0, 0.0, L, zr)
     for name, r in RAMPEN.items():
         a, b = r['s'][0], r['s'][1] if r['s'][1] is not None else L
-        out.append(dict(name=name, art='rampe', versatz=lage[name], querschnitt=Q[name],
-                        elemente=elemente(achse, lage[name], a, b, rampe_z(r['seite']))))
+        out += geteilt(name, 'rampe', lage[name], a, b, rampe_z(r['seite']), versatz=lage[name])
     for name, l in LUDWIG.items():
         P = np.concatenate([np.array(ways[i]) for i in l['ways']])
         # Richtung aus OSM (Ausgleichsgerade), Lage durch die gemessene Mitte

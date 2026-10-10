@@ -18,6 +18,11 @@ Projekt: `omsigen` erzeugt OMSI-2-Karten aus OpenStreetMap (siehe README.md). Sp
 - Neue Bauwerke: erst die **Bauaufnahme** (Objekt-Editor, `aufnahme.json`: echtes Bauwerk über Luftbild/Mapillary/
   Panoramax nachgezeichnet), dann bauen – nichts erfinden, was dort fehlt. Ziel auch im Abgleich: keine Abweichung.
   Keine Google-Street-View-/3D-Tiles-Daten ableiten (Nutzungsbedingungen).
+- Abgleich mit der Wirklichkeit: `python -m omsigen.luftbildvergleich` (Boden: Markierungen, Borde, Wege - genauer als
+  Fotos) und `python -m omsigen.fotovergleich --ausrichten` (Senkrechtes: Mauern, Geländer, Lärmschutz, Ampeln).
+  Mapillary-Posen liegen oft 3-5 m daneben, Lagen nur aus ausgerichteten Fotos oder dem Luftbild ablesen; Lagen im
+  Bild nur mit eingezeichneten Linien bewerten (Raster nicht vom Auge abzählen). Mapillary-Erkennungen sind Hinweise,
+  keine Belege (Zebrastreifen am Ostarm waren Abbiegepfeile).
 - Zusätzlich `python -m omsigen.ansicht <Karte> --png …` (Ziel: Beinahe-Anschlüsse 0) und für installierte
   Karten `python -m omsigen.openomsi <Karte> --png … --cam …` (Spielbild aus openOMSI). Bilder ansehen.
 - Standardkarten (Grundorf, Berlin-Spandau) sind die Referenz: mit `omsigen.ansicht` nachsehen, wie OMSI etwas

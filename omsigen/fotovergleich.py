@@ -158,13 +158,13 @@ def varianten(f, stufe, beste):
     return [(r0 + r, v0, g0 + g, n0, ro0 + ro, h0) for r in (-0.5, 0, 0.5) for g in (-0.6, 0, 0.6) for ro in (-1, 0, 1)]
 
 
-def pose_aus(f, v, boden):
+def pose_aus(f, v, boden=None):
+    """Pose der Variante; Hoehe als 'ueber' (m ueber der gerenderten Oberflaeche, der Renderer setzt sie)"""
     r, vor, dg, dn, dro, h = v
     g = math.radians(f['gier'])
     x = f['x'] + math.cos(g) * r + math.sin(g) * vor
     y = f['y'] - math.sin(g) * r + math.cos(g) * vor
-    z = float(boden(x, y)[0]) + h
-    return dict(x=x, y=y, z=z, gier=f['gier'] + dg, neigung=f['neigung'] + dn, roll=f['roll'] + dro, vfov=f['vfov'])
+    return dict(x=x, y=y, ueber=h, gier=f['gier'] + dg, neigung=f['neigung'] + dn, roll=f['roll'] + dro, vfov=f['vfov'])
 
 
 def ausrichten(wahl, boden, omsi, karte, aus, mcache, sonderbau=None):
@@ -182,9 +182,7 @@ def ausrichten(wahl, boden, omsi, karte, aus, mcache, sonderbau=None):
         posen, wer = [], []
         for f in wahl:
             for k, v in enumerate(varianten(f, stufe, beste[f['id']][0])):
-                p = pose_aus(f, v, boden)
-                if math.isnan(p['z']):
-                    continue
+                p = pose_aus(f, v)
                 p.update(datei=os.path.join(tmp, f"{f['id']}_{stufe}_{k}.png"), breite=KLEIN, hoehe=f['_hk'])
                 posen.append(p)
                 wer.append((f['id'], v, p['datei']))
@@ -201,7 +199,7 @@ def ausrichten(wahl, boden, omsi, karte, aus, mcache, sonderbau=None):
         print(f'Ausrichten Stufe {stufe + 1}: {len(posen)} Bilder')
     for f in wahl:
         v, q = beste[f['id']]
-        f['ausgerichtet'] = pose_aus(f, v, boden)
+        f['ausgerichtet'] = pose_aus(f, v)
         f['versatz'] = dict(rechts=v[0], vor=v[1], gier=v[2], neigung=v[3], roll=v[4], hoehe=v[5])
         f['guete'] = (round(start.get(f['id'], 99.0), 2), round(q, 2))
         print(f"  {f['id']}: rechts {v[0]:+.1f} vor {v[1]:+.1f} Gier {v[2]:+.1f} Neigung {v[3]:+.1f} Hoehe {v[5]:.1f}  Guete {f['guete'][0]} -> {f['guete'][1]}")
@@ -252,8 +250,9 @@ def main():
     sb_einsetzen = sb_pfad if (os.path.isfile(sb_pfad) and not a.wie_karte) else None
     bereich = a.bereich
     if bereich is None:
-        P = np.array([e['p'] for e in sb.get('kontext', {}).get('stationen', [])] or [[1084, -266]])
-        bereich = [P[:, 0].min() - 15, P[:, 1].min() - 15, P[:, 0].max() + 15, P[:, 1].max() + 15]
+        k_ = sb.get('kontext', {})
+        P = np.array([q for st in k_.get('strassen', []) for q in st['punkte']] + [e['p'] for e in k_.get('stationen', [])] or [[1084, -266]])
+        bereich = [P[:, 0].min() - 10, P[:, 1].min() - 10, P[:, 0].max() + 10, P[:, 1].max() + 10]
     mcache = os.path.join(a.cache, 'mapillary')
     alle = M.fotos(b['ost0'], b['nord0'], b['zone'], bereich, mcache)
     if a.ids:
@@ -263,7 +262,7 @@ def main():
         wahl = auswahl(alle, a.ab, maximal=a.max)
     print(f'{len(alle)} Fotos im Bereich, {len(wahl)} gewaehlt')
     os.makedirs(a.aus, exist_ok=True)
-    boden = Boden(sb, b['ost0'], b['nord0'], b['nn0'], os.path.join(a.cache, 'geodaten'))
+    boden = None
     if a.ausrichten:
         wahl = ausrichten(wahl, boden, a.omsi, a.karte, a.aus, mcache, sb_einsetzen)
     posen, ok = [], []
@@ -271,10 +270,7 @@ def main():
         if 'ausgerichtet' in f:
             p = dict(f['ausgerichtet'])
         else:
-            z = float(boden(f['x'], f['y'])[0])
-            if math.isnan(z):
-                continue
-            p = dict(x=f['x'], y=f['y'], z=z + a.hoehe, gier=f['gier'], neigung=f['neigung'], roll=f['roll'], vfov=f['vfov'])
+            p = dict(x=f['x'], y=f['y'], ueber=a.hoehe, gier=f['gier'], neigung=f['neigung'], roll=f['roll'], vfov=f['vfov'])
         hoehe = int(round(BREITE * f['hoehe'] / f['breite']))
         p.update(datei=os.path.abspath(os.path.join(a.aus, f"{f['id']}_render.png")), breite=BREITE, hoehe=hoehe)
         posen.append(p)

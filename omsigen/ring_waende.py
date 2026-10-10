@@ -33,11 +33,15 @@ MIN_STUECK = 20.0         # m: kuerzere Wechsel einfach/zweistufig werden dem Na
 # Texturen im Spline-Ordner (Splines\Aschaffenburg\texture), Quelle: Objektordner des Sonderbaus bzw. Marcel
 TEX = {'klinker': 'AB_SB_klinker.bmp', 'beton': 'AB_SB_beton.bmp', 'gabionen': 'AB_SB_gabionen.bmp',
        'pflanzen': 'AB_SB_bodendecker.bmp', 'stab': 'AB_SB_stabgelaender.tga', 'gruen': 'AB_SB_lsw_gruen.bmp',
-       'glas': 'AB_SB_glas.tga'}
+       'glas': 'AB_SB_glas.tga', 'holz': 'AB_SB_lsw_holz.bmp', 'sandstein': 'AB_SB_sandstein.bmp', 'hecke': 'AB_SB_hecke.bmp'}
 QUELLE = {'klinker': 'AB_klinker.bmp', 'beton': 'betonwand1.bmp', 'gabionen': 'AB_gabionen.bmp',
-          'pflanzen': 'AB_bodendecker.bmp', 'stab': 'AB_stabgelaender.tga', 'gruen': 'AB_lsw_gruen.bmp', 'glas': 'AB_glas.tga'}
+          'pflanzen': 'AB_bodendecker.bmp', 'stab': 'AB_stabgelaender.tga', 'gruen': 'AB_lsw_gruen.bmp', 'glas': 'AB_glas.tga',
+          'holz': 'AB_lsw_holz.bmp', 'sandstein': 'AB_sandstein.bmp', 'hecke': 'AB_hecke.bmp'}
 ALPHA = {'stab', 'glas'}
-GROESSE = {'klinker': 2.0, 'beton': 4.0, 'gabionen': 2.0, 'pflanzen': 2.0, 'stab': 1.0, 'gruen': 2.5, 'glas': 2.5}
+GROESSE = {'klinker': 2.0, 'beton': 4.0, 'gabionen': 2.0, 'pflanzen': 2.0, 'stab': 1.0, 'gruen': 2.5, 'glas': 2.5, 'holz': 2.5,
+            'sandstein': 1.5, 'hecke': 2.0}
+# Hoehe der Laermschutzwand je Art (Holzpalisade an der Rampe Ost-Sued nach Fotos hoeher)
+LSW_HOEHE = {'holz': 3.0}
 
 
 # ------------------------------------------------------------------ Profile
@@ -76,6 +80,24 @@ class Profil:
             for x, y, u in pts:
                 L += ['[profilepnt]', f'{x:.3f}', f'{y:.3f}', f'{u:.3f}', f'{1.0 / GROESSE[t]:.3f}', '']
         return '\r\n'.join(L) + '\r\n'
+
+
+# Raender an Wegen (Fotos: Sandsteinmauer mit Hecke an der Suedostecke)
+RAND_ARTEN = ('mauer_hecke',)
+
+
+def profil_rand(art, s):
+    """Profil eines Wegrands, Fuss bei y = 0 (Boden am Weg); `s` = Seite, zu der er sich vom Spline aus erstreckt
+    (+1 rechts, -1 links). mauer_hecke: Sandsteinmauer 0,7 m hoch, 0,4 m stark, dahinter Hecke 2 m hoch, 1 m tief"""
+    p = Profil()
+    if art == 'mauer_hecke':
+        p.flaeche('sandstein', 0.0, -0.3, 0.7, -s)
+        p.oben('sandstein', 0.0, s * 0.4, 0.7)
+        p.flaeche('hecke', s * 0.4, 0.7, 2.0, -s)
+        p.oben('hecke', s * 0.4, s * 1.4, 2.0)
+        p.flaeche('hecke', s * 1.4, -0.3, 2.0, s)
+        p.umriss.append([(0.0, -0.3), (0.0, 0.7), (s * 0.4, 0.7), (s * 0.4, 2.0), (s * 1.4, 2.0), (s * 1.4, -0.3)])
+    return p
 
 
 def profil(art, material, variante, laerm, r, tiefe):
@@ -139,8 +161,8 @@ def profil(art, material, variante, laerm, r, tiefe):
             p.flaeche('beton', -r * d, u, 0.0, -r)
             p.umriss.append([(0.0, u), (0.0, 0.0), (-r * d, 0.0), (-r * d, u)])
             lsw_x = -r * 0.2
-    if lsw_x is not None and laerm in ('gruen', 'glas'):
-        p.beidseitig(laerm, lsw_x, 0.0, LSW_H)
+    if lsw_x is not None and laerm in ('gruen', 'glas', 'holz'):
+        p.beidseitig(laerm, lsw_x, 0.0, LSW_HOEHE.get(laerm, LSW_H))
     return p
 
 
