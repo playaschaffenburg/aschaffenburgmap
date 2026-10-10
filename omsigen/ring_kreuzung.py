@@ -34,19 +34,32 @@ INSEL_W = ((1059.5, -266.3), (1064.4, -265.5))     # Fahrbahnteiler West (Ampelm
 SPERR_O = [(1088.6, -267.15), (1094.0, -266.0), (1094.0, -268.3)]
 ROT = [(-259.7, -257.45), (-274.1, -272.1)]        # Radfurten (y) Nord, Sued
 ROT_X = (1065.5, 1099.4)
-FURTEN = [((1071.6, -254.55), (1096.6, -254.55)), ((1070.4, -278.2), (1097.8, -278.2)),
-          ((1099.4, -255.8), (1099.4, -273.6)), ((1104.8, -255.8), (1104.8, -273.6))]
+# Fussgaengerfurten (Luftbild): Mittellinie von Gehweg/Insel zu Gehweg/Insel, Breite, Ampelgruppe = Fahrzeugphase,
+# in der die gequerten Spuren rot haben (Nord: Phase 3 Rampe Ost; Sued und Ost: Phase 2 Rampe West)
+FURTEN = [dict(a=(1070.6, -255.9), b=(1082.6, -255.9), breite=2.8, gruppe=2),     # ueber die Rampe West Nord
+          dict(a=(1087.9, -255.9), b=(1097.6, -255.9), breite=2.8, gruppe=2, sig_b=(1100.6, -253.7)),   # ueber die Rampe Ost Nord
+          dict(a=(1069.6, -276.3), b=(1082.8, -276.3), breite=3.8, gruppe=1),     # ueber die Rampe West Sued
+          dict(a=(1087.6, -276.3), b=(1098.6, -276.3), breite=3.8, gruppe=1),     # ueber die Rampe Ost Sued
+          dict(a=(1102.1, -254.9), b=(1102.1, -266.9), breite=5.4, gruppe=1),     # Ostarm, Nordhaelfte bis zur Insel
+          dict(a=(1102.1, -267.4), b=(1102.1, -274.6), breite=5.4, gruppe=1)]     # Ostarm, Suedhaelfte
+FG_SIGNAL = 'Sceneryobjects\\Verkehrszeichen_MC\\Ampel_Mensch_1.sco'
+# Gehwegpfade an den Ecken (Armende -> Furt), damit die Fussgaenger der Gehwege die Furten erreichen
+GEHPFADE = [[(1050.0, -259.7), (1063.0, -259.4), (1068.2, -257.6), (1070.6, -255.9)],
+            [(1050.0, -274.4), (1063.0, -274.6), (1067.9, -275.6), (1069.6, -276.3)],
+            [(1120.0, -254.7), (1104.0, -254.8), (1102.1, -254.9), (1099.0, -255.3), (1097.6, -255.9)],
+            [(1120.0, -274.7), (1104.0, -274.7), (1102.1, -274.6), (1099.6, -275.4), (1098.6, -276.3)]]
 RADBOX = ((1106.2, -258.8), (1109.8, -256.0))      # Aufstellflaeche fuer Radfahrer auf der Busspur Ost
 HALT = {0: ('x', 1064.5), 1: ('y', -253.85), 3: ('x', 1110.2), 4: ('y', -280.4)}   # Haltlinien der Zufahrten
 HALT_RAD = (1105.5, -258.8, -266.0)                # Haltlinie fuer Radfahrer vor der Aufstellflaeche Ost (x, y von/bis)
 RAND = {2: ('y', -254.55), 5: ('y', -278.2)}       # Ende der Markierungen der Ausfahrten (Furt)
 # Ampelmasten: Arm -> (rechts der Zufahrt, links der Zufahrt)
-MASTEN = {0: ((1063.6, -274.6), (1063.6, -265.9)), 1: ((1070.9, -253.4), (1084.8, -256.9)),
+MASTEN = {0: ((1063.6, -274.6), (1063.6, -265.9)), 1: ((1070.6, -255.0), (1084.8, -256.9)),
           3: ((1110.6, -254.7), (1104.6, -267.15)), 4: ((1098.0, -281.0), (1085.2, -275.3))}
 # Gehwege an den Ecken: entlang der Ludwigsallee und um die Ecke bis an die Rampenwaende (dort enden sie an der
 # Aussenwand der Rampe, sonderbau_ring.im_knoten)
-GEHWEG_ZONEN = [box(1049.9, -261.6, 1072.6, -252.0), box(1096.0, -256.6, 1120.1, -240.0),
-                box(1049.9, -281.0, 1071.6, -272.9), box(1096.2, -281.0, 1120.1, -273.3)]
+GEHWEG_ZONEN = [box(1049.9, -261.6, 1072.6, -254.5), box(1096.0, -256.6, 1120.1, -240.0),
+                box(1049.9, -279.5, 1071.6, -272.9), box(1096.2, -281.0, 1120.1, -273.3)]
+ECK_ENDE = {0: -254.5, 2: -279.5}                  # dort schliesst die Eckbruestung quer an die Rampenwand an
 BRUESTUNG_ZONEN = [0, 2]                           # Ecken ueber dem Bahneinschnitt (NW, SW)
 GEHWEG_BREITE = 2.6
 KLEINMAST = 'Sceneryobjects\\Verkehrszeichen_MC\\Mast_Ampel_klein_1.sco'   # kleiner Ampelmast (wie in Neuendorf)
@@ -362,8 +375,9 @@ def bauen(achse, K, strassen, arme_roh, gel, verbindungen, phasen, pfeile, rampe
                 mitte = Point((a_[0] + b_[0]) / 2, (a_[1] + b_[1]) / 2)
                 if F['fahrbahn'].buffer(0.3).contains(mitte):
                     continue
-                if any(z.exterior.distance(mitte) < 0.05 for z in GEHWEG_ZONEN):
-                    continue                   # Schnitt am Rand der Zone (Armende, Rampe)
+                if any(z.exterior.distance(mitte) < 0.05 for z in GEHWEG_ZONEN) and not any(
+                        abs(a_[1] - y_) < 0.05 and abs(b_[1] - y_) < 0.05 for y_ in ECK_ENDE.values()):
+                    continue                   # Schnitt am Rand der Zone (Armende); am Rampenende quer abschliessen
                 linien.append((a_, b_, 'aussen'))
     for name in ('nord', 'sued'):
         bogen = T[name]['offen'].exterior
@@ -493,8 +507,13 @@ def bauen(achse, K, strassen, arme_roh, gel, verbindungen, phasen, pfeile, rampe
             weiss.append(gestrichelt(LineString([(ROT_X[0], y), (ROT_X[1], y)]), 0.15, 0.5, 0.5))
     rot.append(box(RADBOX[0][0], RADBOX[0][1], RADBOX[1][0], RADBOX[1][1]))
     weiss.append(box(HALT_RAD[0], HALT_RAD[2] + 0.0, HALT_RAD[0] + 0.3, -255.9))
-    for p, q in FURTEN:
-        weiss.append(gestrichelt(LineString([p, q]), 0.15, 0.5, 0.5))
+    # Fussgaengerfurten: an beiden Raendern unterbrochene Linien (0,12 m, 0,5 m Strich, 0,2 m Luecke)
+    for f in FURTEN:
+        a, b = np.array(f['a']), np.array(f['b'])
+        d = (b - a) / np.linalg.norm(b - a)
+        nq = np.array([-d[1], d[0]]) * f['breite'] / 2
+        for sgn in (1, -1):
+            weiss.append(gestrichelt(LineString([a + nq * sgn, b + nq * sgn]), 0.12, 0.5, 0.2))
     sperr.append(Polygon(SPERR_O))
     weiss.append(Polygon(SPERR_O).exterior.buffer(0.07))
     # ---------------------------------------------------------- Pfade
@@ -550,6 +569,19 @@ def bauen(achse, K, strassen, arme_roh, gel, verbindungen, phasen, pfeile, rampe
                 lp.append(tuple(np.array(e[:2]) - hl * 1.6))
             if len(lp) > 2:
                 weiss.append(gestrichelt(LineString(lp[1:-1]), 0.12, 1.5, 1.5).intersection(F['fahrbahn']))
+    # Fussgaenger: Furten (an die Ampel gebunden) und Gehwegpfade an den Ecken, beide Richtungen
+    for f in FURTEN:
+        a, b = np.array(f['a']), np.array(f['b'])
+        h = math.degrees(math.atan2(b[0] - a[0], b[1] - a[1])) % 360
+        for n_, e in enumerate(stuecke([a[0], a[1], h, float(np.linalg.norm(b - a)), 0.0], 3.0)):
+            z0, dz = hoehe_el(e)
+            pfade.append((e, 0, f['gruppe'] if n_ == 0 else None, (z0 - ASPH_H + WALK_H if n_ == 0 else z0, dz), 2.0, 1))
+    for linie in GEHPFADE:
+        for p, q in zip(linie[:-1], linie[1:]):
+            h = math.degrees(math.atan2(q[0] - p[0], q[1] - p[1])) % 360
+            e = [p[0], p[1], h, math.dist(p, q), 0.0]
+            z0, dz = hoehe_el(e)
+            pfade.append((e, 0, None, (z0 - ASPH_H + WALK_H, dz), 2.0, 1))
     flaeche('weiss', unary_union(weiss).intersection(F['fahrbahn'].buffer(0.01)), ASPH_H + 0.02, 1.0)
     flaeche('radfurt', unary_union(rot).intersection(F['fahrbahn']).difference(unary_union(weiss)), ASPH_H + 0.02, 4.0)
     flaeche('busbeton', unary_union(beton).intersection(F['fahrbahn']).difference(unary_union(weiss)), ASPH_H + 0.01, 3.9)
@@ -575,6 +607,20 @@ def bauen(achse, K, strassen, arme_roh, gel, verbindungen, phasen, pfeile, rampe
                                 gruppe=None, z_boden=float(zf(*mp)) + WALK_H))
             if ausleger:
                 signale.append(dict(art='oben', datei=ampel.OBEN, eltern=len(signale) - 1, anhang=0, rot=ampel.OBEN_DREHUNG, gruppe=g))
+    for f in FURTEN:
+        a, b = np.array(f['a']), np.array(f['b'])
+        d = (b - a) / np.linalg.norm(b - a)
+        for p, gegen in ((a, b), (b, a)):
+            q = p - d * 0.8 if p is a else p + d * 0.8                     # auf Gehweg/Insel hinter der Furt
+            if p is b and 'sig_b' in f:
+                q = np.array(f['sig_b'])
+            blick = math.degrees(math.atan2(gegen[0] - p[0], gegen[1] - p[1])) % 360
+            boden = float(zf(*q)) + WALK_H
+            signale.append(dict(art='signal', datei=FG_SIGNAL, x=float(q[0]), y=float(q[1]), hoehe=2.8, rot=(blick + 180) % 360,
+                                gruppe=f['gruppe'], z_boden=boden))
+            mp = q + ampel.MAST_VERSATZ * np.array(dvec(blick))
+            signale.append(dict(art='mast', datei=KLEINMAST, x=float(mp[0]), y=float(mp[1]), hoehe=0.2, rot=0.0, gruppe=None,
+                                z_boden=float(zf(*mp)) + WALK_H))
     erhoeht = unary_union([F['gehweg'], F['inseln']])
     lose = [s for s in signale if s['art'] in ('signal', 'mast') and not erhoeht.buffer(0.3).contains(Point(s['x'], s['y']))]
     return dict(mesh=m, O=O, pfade=pfade, regeln=regeln, ketten=ketten, plan=plan, signale=signale, flaechen=F, zf=zf, trog=T,
@@ -588,8 +634,10 @@ def sco_text(name, modell, k, alpha):
          '[fixed]', '', '[surface]', '', '[absheight]', '']
     L += list(ampel.sco_block(k['plan']))
     O = k['O']
-    for (x, y, h, Ln, R), blinker, gruppe, (z, dh), breite in k['pfade']:
-        vals = [x - O[0], y - O[1], z, h % 360, R, Ln, 0, dh, 0, breite, 0, blinker]
+    for p in k['pfade']:
+        (x, y, h, Ln, R), blinker, gruppe, (z, dh), breite = p[:5]
+        art_ = p[5] if len(p) > 5 else 0
+        vals = [x - O[0], y - O[1], z, h % 360, R, Ln, 0, dh, art_, breite, 2 if art_ == 1 else 0, blinker]
         L += ['[path]'] + [f'{v:.4f}' if isinstance(v, float) else str(v) for v in vals] + ['']
         if gruppe is not None:
             L += ['[use_traffic_light]', str(gruppe), '']

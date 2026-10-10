@@ -256,10 +256,10 @@ mod tests {
             let i = zeile * (t.cells + 1) + spalte;
             t.heights[i] = t.heights[i].min(*z);
         }
-        for (k, t) in &kacheln {
-            assert!(v.preview_terrain(k.0, k.1, t), "Kachel {k:?} nicht geladen");
-        }
-        println!("{} Gelaendepunkte in {} Kacheln abgesenkt", senken.len(), kacheln.len());
+        // wie beim Speichern: abgesenktes Gelaende als .terrain in die Sitzung (Objekte am Boden stehen dann darauf)
+        let neu: Vec<((i32, i32), Vec<f32>)> = kacheln.iter().map(|(k, t)| (*k, t.heights.clone())).collect();
+        let n_k = crate::gelaende::Gelaende::default().uebernehmen(&mut v, &ae.sitzung.join("maps").join("Aburg_Newgen"), neu).unwrap();
+        println!("{} Gelaendepunkte in {} Kacheln abgesenkt", senken.len(), n_k);
         // Etappe 3: Kreuzung (Ampeln auf Gehwegen und Inseln, ueber dem abgesenkten Gelaende)
         for plan in kreuzungen_lesen(&json).unwrap() {
             let n = kreuzung_anlegen(&mut ae, &mut v, &plan).unwrap();
@@ -286,10 +286,7 @@ mod tests {
             }
         }
         v.tiles_around(mitte, 1).unwrap();
-        for (k, t) in &kacheln {
-            assert!(v.preview_terrain(k.0, k.1, t), "Kachel {k:?} nicht geladen");
-        }
-        let z =v.terrain_height(1084.0, -265.0).unwrap_or(10.0);
+        let z = v.terrain_height(1084.0, -265.0).unwrap_or(10.0);
         println!("Gelaende an der Kreuzung: {z:.2} m");
         if let Some(bild) = std::env::var_os("OMSI_BILD") {
             let bild = std::path::PathBuf::from(bild);

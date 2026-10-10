@@ -30,7 +30,8 @@ RING = ['159575718', '227934178', '7975056', '227934179']
 WEST = ['227934180', '183815409', '23781579']          # Einbahn nach Sueden
 OST = ['233369539', '23781578', '7925387']             # (umgedreht: Nord -> Sued) Einbahn nach Norden
 DECKE = (-248.9, -284.0)                               # Unterfuehrung: wo die Trogwaende an die Decke stossen (y)
-S_PLATTE = (107.0, 161.0)                              # Achs-Stationen unter dem Kreuzungsobjekt (ohne Rampenplatten)
+S_PLATTE = (107.0, 161.0)
+LSW_FREI = (96.0, 166.0)                               # ohne Laermschutzwand: die Rampen an der Kreuzung (Fotos)                              # Achs-Stationen unter dem Kreuzungsobjekt (ohne Rampenplatten)
 SCHRITT = 2.0
 STUECK = 40.0                                          # m je Wand-Objekt
 
@@ -249,15 +250,18 @@ def fuge(e, seite):
     return (e['ra'] if vz < 0 else e['rb']) + vz * WAND / 2
 
 
-def im_knoten(e):
-    """Station im Bereich der Ludwigsallee (dort keine Aussenwaende, die Kreuzung liegt darueber)"""
-    return -281.0 <= e['p'][1] <= -252.0          # dort beginnen die gerundeten Ecken des Kreuzungsobjekts
+def im_knoten(e, seite=None):
+    """Station im Bereich der Ludwigsallee (dort keine Aussenwaende, die Kreuzung liegt darueber); West: bis an die
+    Eckbruestungen des Kreuzungsobjekts (ring_kreuzung.ECK_ENDE)"""
+    if seite == 'w':
+        return -279.5 <= e['p'][1] <= -254.5
+    return -281.0 <= e['p'][1] <= -252.0
 
 
 def aussen(e, seite):
     """Lage der Aussenwand (Querweg t) oder None"""
     r = e[seite]
-    if r is None or im_knoten(e) or r['z'] - e['zr'] < 0.4 and abs(r['g'] - r['z']) < 0.6:
+    if r is None or im_knoten(e, seite) or r['z'] - e['zr'] < 0.4 and abs(r['g'] - r['z']) < 0.6:
         return None
     return r['a'] if seite == 'w' else r['b']
 
@@ -396,7 +400,8 @@ def aussenwand(roh, seite, o):
             lsw, lsw_h = 'glas', 2.5
             lsw_t = (stufen[-1][0] + vz * 0.2, stufen[-1][1] + vz * 0.2)
         # Laermschutzwand oben (nur wo die Wand das Gelaende haelt: Gelaende ueber der Rampe)
-        if seite == 'w' or ga > za + 1.0 and gb > zb + 1.0:
+        nah = LSW_FREI[0] <= ea['s'] <= LSW_FREI[1]
+        if not nah and (seite == 'w' or ga > za + 1.0 and gb > zb + 1.0):
             m.quad(lsw, [p(ea, lsw_t[0], hoch_a), p(eb, lsw_t[1], hoch_b), p(eb, lsw_t[1], hoch_b + lsw_h), p(ea, lsw_t[0], hoch_a + lsw_h)],
                    [(s_ges / 2, 0), ((s_ges + laenge) / 2, 0), ((s_ges + laenge) / 2, 1), (s_ges / 2, 1)], n_innen, beidseitig=True)
             if int((s_ges + laenge) // 3) > int(s_ges // 3):     # Pfosten alle 3 m
