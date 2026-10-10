@@ -559,7 +559,7 @@ def strassen_raender(q):
     return -mitte, x - mitte
 
 
-def bahnbruecke(st, gel, o, z_platte=None):
+def bahnbruecke(st, gel, o, z_platte=None, x_wand=None):
     """Bruecke der Schiesshausbruecke ueber die Bahn, genau unter der Strasse (Etappe 2): Platte so breit wie der
     Querschnitt, Bruestungen mit Gelaender an den Raendern, Widerlager dort, wo der Bahneinschnitt (DGM) beginnt und
     endet. Jenseits des Splines (auf dem Kreuzungsobjekt) gilt die Hoehe `z_platte(x, y)`; dort gibt es keine
@@ -586,6 +586,8 @@ def bahnbruecke(st, gel, o, z_platte=None):
     if not tief.any():
         return m, z_bei(L / 2)
     a0, a1 = A[tief].min() - 1.5, A[tief].max() + 1.5
+    if x_wand is not None and abs(u[0]) > 0.3:
+        a1 = (x_wand + 0.2 - p0[0]) / u[0]           # Anschluss: das Ueberbauende liegt auf der Tunnelwand
     sohle = float(np.nanmin(gel.h(P[tief, 0], P[tief, 1])))
     # lokaler Rahmen: a entlang, b quer (links positiv), Hoehe absolut
     W = lambda a, b, z: (p0[0] + u[0] * a + n[0] * b - o[0], p0[1] + u[1] * a + n[1] * b - o[1], z - o[2])
@@ -633,13 +635,15 @@ def tunnel_gelaende(t):
     out = []
     if not t or not t['y']:
         return out
-    (x0, x1), (y0, y1) = t['x'], t['y']
+    from .ring_bauplan import tunnel_enden
+    (x0, x1) = t['x']
+    y0, y1 = tunnel_enden(t['y'])                    # bis ans Ende von Fluegelwaenden und Gleisbett
     for kx in range(int(math.floor(x0 / 300)), int(math.floor(x1 / 300)) + 1):
         for ky in range(int(math.floor((y0 - 5) / 300)), int(math.floor((y1 + 5) / 300)) + 1):
             for zeile in range(61):
                 for spalte in range(61):
                     x, y = kx * 300 + spalte * 5.0, ky * 300 + zeile * 5.0
-                    if x0 + 0.5 <= x <= x1 - 0.5 and y0 - 5 <= y <= y1 + 5:
+                    if x0 + 0.5 <= x <= x1 - 0.5 and y0 - 0.01 <= y <= y1 + 0.01:
                         out.append([kx, ky, spalte, zeile, t['sohle'] - 0.1])
     return out
 
@@ -808,7 +812,7 @@ def urgelaende(kg, senken, gel):
 HINTER_MAUER = 5.5        # abgesenktes Gelaende hinter Aussenmauern (eine Rasterzelle + Rand)
 
 
-def deckel(roh, karte, o, breite=12.0):
+def deckel(roh, karte, o, breite=12.0, frei=None):
     """Deckel neben dem Bauwerk: vom Rand (hinter der Aussenwand auf Gelaendehoehe) 12 m nach aussen bis auf das
     unveraenderte Gelaende - verdecken die Schraege des abgesenkten 5-m-Gelaenderasters (wie bauwerke.rs)"""
     m = Mesh()
@@ -831,11 +835,17 @@ def deckel(roh, karte, o, breite=12.0):
                 continue
             for i in range(teile):
                 q = [ra[i], rb[i], rb[i + 1], ra[i + 1]]
+                from shapely.geometry import Polygon
+                if frei is not None and frei.intersects(Polygon([(c[0] + o[0], c[1] + o[1]) for c in q])):
+                    continue                             # Bahneinschnitt mit Fluegelwaenden und Gleisbett
                 m.quad('boden', q, [((c[0] + o[0]) / 5, (c[1] + o[1]) / 5) for c in q], (0, 0, 1))
     return m
 
 
-def plattenrand(platte, zf, karte, o, ausser, gehweg, breite=9.0, schritt=2.0):
+from shapely.geometry import Polygon
+
+
+def plattenrand(platte, zf, karte, o, ausser, gehweg, breite=9.0, schritt=2.0, frei=None):
     """Deckel am Aussenrand der Kreuzungsplatte: wo kein anderes Teil anschliesst (ausser: Geometrie, deren Naehe
     ausgenommen ist - Trog, Arme, Waende, Bruestungen), vom Plattenrand (20 cm darunter beginnend) `breite` m nach
     aussen bis auf das urspruengliche Gelaende -> Mesh"""
@@ -871,6 +881,8 @@ def plattenrand(platte, zf, karte, o, ausser, gehweg, breite=9.0, schritt=2.0):
                 ra, rb = reihen
                 for i in range(len(ra) - 1):
                     q4 = [ra[i], rb[i], rb[i + 1], ra[i + 1]]
+                    if frei is not None and frei.intersects(Polygon([(v[0] + o[0], v[1] + o[1]) for v in q4])):
+                        continue                         # Bahneinschnitt
                     m.quad('boden', q4, [((v[0] + o[0]) / 5, (v[1] + o[1]) / 5) for v in q4], (0, 0, 1))
     return m
 
@@ -1104,7 +1116,7 @@ def bauen(omsi, karte, osm_pfad, entwurf_pfad, nn0, ost0, nord0, cache, bauplan_
     schreiben(ordner, rel, 'Unterfuehrung', decke(T, min(zs) - 0.12, o, portal_geo), o, liste)
     st_w = next(st for st in strassen if st['name'] == 'Schiesshausbruecke')
     o = np.array([st_w['elemente'][0]['x'], st_w['elemente'][0]['y'], 0.0])
-    bb, _ = bahnbruecke(st_w, gel, o, kz['zf'])
+    bb, _ = bahnbruecke(st_w, gel, o, kz['zf'], x_wand=kz['tunnel']['x'][0] if kz['tunnel'].get('y') else None)
     schreiben(ordner, rel, 'Bahnbruecke', bb, o, liste)
     # Waende als Spline-Ketten entlang der Wandlinien (ring_waende, wie Staedtedreieck/Ahlheim)
     from . import ring_waende as rw
@@ -1126,16 +1138,23 @@ def bauen(omsi, karte, osm_pfad, entwurf_pfad, nn0, ost0, nord0, cache, bauplan_
     senken = gelaende(roh) + platte_gelaende(platte_, kz['zf']) + tunnel_gelaende(kz['tunnel'])
     roh_karte = Kartengelaende(os.path.join(omsi, 'maps', karte))       # Karte, wie sie ist (fuer Rueckbau)
     karte_gel = urgelaende(karte_gel, senken, gel)
+    # Bahneinschnitt am Tunnel (Fluegelwaende + Gleisbett, ring_bauplan): dort keine Deckel
+    from shapely.geometry import box as _box, Polygon
+    bahn_frei = None
+    if kz['tunnel'].get('y'):
+        ys_e, yn_e = rb.tunnel_enden(kz['tunnel']['y'])
+        tx0, tx1 = kz['tunnel']['x']
+        bahn_frei = _box(tx0 - 0.4, ys_e - 0.3, tx1 + 0.4, yn_e + 0.3).difference(platte_)
     # Sohle und Deckel in Stuecken von STUECK m (Ursprung je Stueck: erster Punkt auf der Ring-Achse, Hoehe 0)
     n = int(STUECK / SCHRITT)
     for k in range(0, len(roh) - 1, n):
         teil = roh[k:k + n + 1]
         o = np.array([teil[0]['p'][0], teil[0]['p'][1], 0.0])
         schreiben(ordner, rel, f'Sohle_{k // n:02d}', flaechen(teil, o), o, liste)
-        schreiben(ordner, rel, f'Deckel_{k // n:02d}', deckel(teil, karte_gel, o), o, liste)
+        schreiben(ordner, rel, f'Deckel_{k // n:02d}', deckel(teil, karte_gel, o, frei=bahn_frei), o, liste)
     # Plattenrand-Deckel (Anschluss Platte -> Gelaende), ausser an Trog, Armen, Waenden und Bruestungen
     from shapely.geometry import LineString as _LS
-    ausnahmen = [F['offen'].buffer(1.0)]
+    ausnahmen = [F['offen'].buffer(1.0)] + ([bahn_frei.buffer(0.5)] if bahn_frei is not None else [])
     for a_ in kz['arme']:
         raender_ = rk.raender(a_.q)
         ausnahmen.append(_LS([a_.punkt(0, raender_[0][1]), a_.punkt(0, raender_[-1][2])]).buffer(1.2))
@@ -1151,7 +1170,7 @@ def bauen(omsi, karte, osm_pfad, entwurf_pfad, nn0, ost0, nord0, cache, bauplan_
             ausnahmen.append(_LS(g_['punkte']).buffer(1.0))
     o_r = np.array([platte_.centroid.x, platte_.centroid.y, 0.0])
     schreiben(ordner, rel, 'Plattenrand', plattenrand(platte_, kz['zf'], karte_gel, o_r, unary_union(ausnahmen),
-                                                      unary_union([F['gehweg'], F['inseln']])), o_r, liste)
+                                                      unary_union([F['gehweg'], F['inseln']]), frei=bahn_frei), o_r, liste)
     messung = [dict(s=e['s'], x=float(e['p'][0]), y=float(e['p'][1]), ring=[float(e['ra']), float(e['rb']), float(e['zr'])],
                     west=None if e['w'] is None else [e['w'][k] for k in ('a', 'b', 'z', 'g')],
                     ost=None if e['o'] is None else [e['o'][k] for k in ('a', 'b', 'z', 'g')], decke=bool(e['unter_decke'])) for e in roh]

@@ -255,6 +255,12 @@ def anschluesse(plan, arme):
     return out
 
 
+def tunnel_enden(tunnel_y, vor=3.0):
+    """Enden von Fluegelwaenden, Gleisbett und Absenkung: erste 5-m-Gelaenderasterreihe mindestens `vor` m vor jedem
+    Tunnelmund -> (y Sued, y Nord)"""
+    return math.floor((tunnel_y[0] - vor) / 5.0) * 5.0, math.ceil((tunnel_y[1] + vor) / 5.0) * 5.0
+
+
 def poly(f):
     p = Polygon(f['punkte'], f.get('loecher') or [])
     return p if p.is_valid else p.buffer(0)
@@ -496,6 +502,37 @@ def bauen(plan, achse, K, arme_roh, gel, oeffnungen=None):
                     m.quad('beton', [(a_[0] - O[0], a_[1] - O[1], za - 1.45), (b_[0] - O[0], b_[1] - O[1], zb - 1.45),
                                      (b_[0] - O[0], b_[1] - O[1], zb + WALK_H), (a_[0] - O[0], a_[1] - O[1], za + WALK_H)],
                            [(0, 0), (L / 4, 0), (L / 4, 0.4), (0, 0.4)], (n[0], n[1], 0))
+        if tunnel_y:
+            # Anschluss an den offenen Bahneinschnitt: Fluegelwaende bis zur ersten Gelaende-Rasterreihe >= 3 m vor dem
+            # Tunnelmund (dort endet auch die Absenkung, tunnel_enden), dazwischen das Gleisbett
+            ys_e, yn_e = tunnel_enden(tunnel_y)
+            so = tun['sohle']
+            for wx, nx in ((tun['x0'], 1.0), (tun['x1'], -1.0)):
+                for ym, ye in ((tunnel_y[1], yn_e), (tunnel_y[0], ys_e)):
+                    z_mund = float(zf(wx, ym)) + WALK_H
+                    gh = lambda y: float(gel.h(np.array([wx - nx * 1.0]), np.array([y]))[0])
+                    z_ende = max(gh(ye) + 0.3, so + 1.0)
+                    ys = np.linspace(ym, ye, max(2, int(abs(ye - ym) / 1.0) + 1))
+                    oben = [max(z_mund + (z_ende - z_mund) * (y - ym) / (ye - ym), gh(y) + 0.3, so + 1.0) for y in ys]
+                    oben[0] = z_mund
+                    d = -nx * 0.4                                   # Wanddicke nach aussen
+                    P_ = lambda x, y, z: (x - O[0], y - O[1], z)
+                    for (y0, z0), (y1, z1) in zip(zip(ys[:-1], oben[:-1]), zip(ys[1:], oben[1:])):
+                        u0, u1 = (y0 - ym), (y1 - ym)
+                        m.quad('klinker', [P_(wx, y0, so - 0.5), P_(wx, y1, so - 0.5), P_(wx, y1, z1 - 0.15), P_(wx, y0, z0 - 0.15)],
+                               [(u0 / 2, so / 2), (u1 / 2, so / 2), (u1 / 2, (z1 - 0.15) / 2), (u0 / 2, (z0 - 0.15) / 2)], (nx, 0, 0))
+                        m.quad('beton', [P_(wx, y0, z0 - 0.15), P_(wx, y1, z1 - 0.15), P_(wx, y1, z1), P_(wx, y0, z0)],
+                               [(u0 / 4, 0), (u1 / 4, 0), (u1 / 4, 0.04), (u0 / 4, 0.04)], (nx, 0, 0))
+                        m.quad('beton', [P_(wx, y0, z0), P_(wx, y1, z1), P_(wx + d, y1, z1), P_(wx + d, y0, z0)],
+                               [(u0 / 4, 0), (u1 / 4, 0), (u1 / 4, 0.1), (u0 / 4, 0.1)], (0, 0, 1))
+                        m.quad('beton', [P_(wx + d, y0, so - 0.5), P_(wx + d, y1, so - 0.5), P_(wx + d, y1, z1), P_(wx + d, y0, z0)],
+                               [(u0 / 4, so / 4), (u1 / 4, so / 4), (u1 / 4, z1 / 4), (u0 / 4, z0 / 4)], (-nx, 0, 0))
+                    sg = 1.0 if ye > ym else -1.0
+                    m.quad('beton', [P_(wx, ye, so - 0.5), P_(wx + d, ye, so - 0.5), P_(wx + d, ye, oben[-1]), P_(wx, ye, oben[-1])],
+                           [(0, 0), (0.1, 0), (0.1, oben[-1] / 4), (0, oben[-1] / 4)], (0, sg, 0))
+            bett = box(tun['x0'], ys_e - 0.3, tun['x1'], yn_e + 0.3)
+            for c in rk.fein_dreiecke(bett, 3.0):
+                m.dreieck('boden', [(x - O[0], y - O[1], so) for x, y in c], [(x / 5, y / 5) for x, y in c], (0, 0, 1))
     # Pfade, Ampel
     pf, regeln, kt = pfade(plan, arme, zf)
     rollen = [a.rolle for a in arme]
