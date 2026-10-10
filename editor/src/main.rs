@@ -24,6 +24,7 @@ mod katalog;
 mod knoten;
 mod kreuzung;
 mod luftbild;
+mod markieren;
 mod netz;
 mod objekteditor;
 mod orte;
@@ -290,6 +291,8 @@ struct App {
     objekteditor_auto: bool,
     /// Messwerkzeug (M): an, Anfangs- und Endpunkt der letzten Messung
     messen: bool,
+    /// Flaechen-Markierung (F): Flaeche aufziehen/klicken, alles darin loeschen
+    markierer: markieren::Markierer,
     mess_a: Option<DVec3>,
     mess_b: Option<DVec3>,
     /// Strasse bauen, Uebergang setzen: an, feste Laenge (sonst Vorschlag), freies Ende unter der Maus mit Plan
@@ -380,6 +383,12 @@ enum UiAktion {
     /// Querschnitt gespeichert: (.sli, Querschnitt, gleich damit bauen)
     QsGespeichert(String, querschnitt::Querschnitt, bool),
     Messen,
+    /// Flaechen-Markierung an/aus
+    Markieren,
+    /// alles in der markierten Flaeche loeschen
+    FlaecheLoeschen,
+    /// Inhalt der markierten Flaeche neu bestimmen (Arten geaendert)
+    FlaecheNeu,
     /// Bruecken/Rampen neu planen (Einstellung geaendert)
     BauwerkeNeu,
     /// Kreuzungs-Ersteller: aus den gewaehlten Enden bauen
@@ -538,6 +547,7 @@ impl App {
             objekteditor: None,
             objekteditor_auto: std::env::var_os("OMSI_OBJEKTEDITOR").is_some(),
             messen: false,
+            markierer: markieren::Markierer::neu(),
             mess_a: None,
             mess_b: None,
             uebergang_modus: false,
@@ -1257,6 +1267,9 @@ impl App {
                         aktionen.push(UiAktion::Werkzeug(if self.bearb.werkzeug == Werkzeug::Welt { Werkzeug::Ansehen } else { Werkzeug::Welt }));
                     }
                     ui.separator();
+                    if ui.selectable_label(self.markierer.an, "Flaeche markieren (L)").on_hover_text("Flaeche auf der Karte markieren (Rechteck ziehen oder Ecken klicken) und alles darin loeschen").clicked() {
+                        aktionen.push(UiAktion::Markieren);
+                    }
                     if ui.selectable_label(self.messen, "Messen (M)").on_hover_text("Strecke messen (waagerecht, mit Hoehenunterschied) - z. B. Strassenbreiten im Luftbild").clicked() {
                         aktionen.push(UiAktion::Messen);
                     }
@@ -2108,6 +2121,46 @@ impl App {
             });
             // Markierungen ueber dem 3D-Bild (unter den Panels)
             let maler = ui_maler(ctx);
+            if self.markierer.an {
+                if let Some(v) = self.viewer.as_ref() {
+                    let kam = self.kam.clone();
+                    let bild = |w: DVec3| bearbeiten::projizieren(&kam, w, bw, bh).map(|(x, y, _)| (x, y));
+                    let hoehe = |q: glam::DVec2| v.ground_height(q.x, q.y).unwrap_or(0.0);
+                    let objekte = if self.markierer.objekte.is_empty() { vec![] } else { self.bearb.objekte(v) };
+                    let splines: Vec<(i64, Vec<glam::DVec2>)> = match self.aendern.as_ref() {
+                        Some(a) if !self.markierer.splines.is_empty() => a.kacheln.values().flatten().filter(|s| self.markierer.splines.contains(&s.id))
+                            .map(|s| (s.id, s.punkte().iter().map(|(q, _)| q.truncate()).collect())).collect(),
+                        _ => vec![],
+                    };
+                    self.markierer.zeichnen(&maler, bild, hoehe, &objekte, &splines);
+                }
+                egui::Window::new("Flaeche markieren").anchor(egui::Align2::RIGHT_TOP, egui::vec2(-12.0, 44.0)).resizable(false).collapsible(false).show(ctx, |ui| {
+                    ui.label("Rechteck: linke Maustaste ziehen.\nVieleck: Ecken klicken, Enter oder Klick auf den\nersten Punkt schliesst, Ruecktaste nimmt einen zurueck.");
+                    let mut neu = false;
+                    neu |= ui.checkbox(&mut self.markierer.mit_objekten, "Objekte und Baeume").changed();
+                    neu |= ui.checkbox(&mut self.markierer.mit_strassen, "Strassen (Splines der Karte)").changed();
+                    if self.markierer.mit_strassen {
+                        neu |= ui.checkbox(&mut self.markierer.ganz, "nur Strassen ganz in der Flaeche").on_hover_text("sonst: Strassen, deren Mitte in der Flaeche liegt").changed();
+                    }
+                    if neu && self.markierer.hat_auswahl() {
+                        aktionen.push(UiAktion::FlaecheNeu);
+                    }
+                    if self.markierer.hat_auswahl() {
+                        ui.label(egui::RichText::new(format!("{} Objekte, {} Strassen-Splines markiert", self.markierer.objekte.len(), self.markierer.splines.len())).strong());
+                        ui.horizontal(|ui| {
+                            if ui.button("Loeschen (Entf)").clicked() {
+                                aktionen.push(UiAktion::FlaecheLoeschen);
+                            }
+                            if ui.button("Markierung aufheben").clicked() {
+                                self.markierer.leeren();
+                            }
+                        });
+                    }
+                    if ui.small_button("Modus beenden (L)").clicked() {
+                        aktionen.push(UiAktion::Markieren);
+                    }
+                });
+            }
             if let (true, Some(v)) = (self.hilfe.an, self.viewer.as_ref()) {
                 let r = (self.kam.abstand * 2.5 + 150.0).min(1500.0);
                 let pt = |p: DVec3| bearbeiten::projizieren(&self.kam, p + DVec3::Z * 0.15, bw, bh).map(|(x, y, _)| egui::pos2(x, y));
@@ -3199,6 +3252,34 @@ impl App {
                     self.strasse.bauwerke_aktualisieren(v);
                 }
             }
+            UiAktion::Markieren => {
+                self.markierer.umschalten();
+                if self.markierer.an {
+                    self.messen = false;
+                    self.pipette = false;
+                    self.meldung = "Flaeche markieren: Rechteck mit der linken Maustaste ziehen, oder Ecken klicken und mit Enter (oder Klick auf den ersten Punkt) schliessen. Entf loescht alles darin, Esc bricht ab.".into();
+                }
+            }
+            UiAktion::FlaecheNeu => {
+                let (objekte, splines) = self.markier_inhalt();
+                self.markierer.berechnen(&objekte, &splines);
+                self.meldung = format!("markiert: {} Objekte, {} Strassen-Splines - Entf loescht sie", self.markierer.objekte.len(), self.markierer.splines.len());
+            }
+            UiAktion::FlaecheLoeschen => {
+                let (objekte, splines) = (self.markierer.objekte.clone(), self.markierer.splines.clone());
+                let Some(v) = self.viewer.as_mut() else { return };
+                let n_obj = self.bearb.loeschen_viele(v, &objekte);
+                let mut n_spl = 0;
+                if !splines.is_empty() {
+                    if let Some(a) = self.aendern.as_mut() {
+                        a.auswahl = splines;
+                        n_spl = a.loeschen(v).unwrap_or(0);
+                    }
+                    self.anschluesse.vergessen();
+                }
+                self.markierer.leeren();
+                self.meldung = format!("geloescht: {n_obj} Objekte, {n_spl} Strassen-Splines (Strg+Z holt sie zurueck)");
+            }
             UiAktion::Messen => {
                 self.messen = !self.messen;
                 if self.messen {
@@ -3406,6 +3487,20 @@ impl App {
             }
             Err(e) => Some(UebergangPlan { a: (0.0, 0.0), b: (0.0, 0.0), laenge: 0.0, steigung: 0.0, text: format!("nicht moeglich: {e:#}") }),
         }
+    }
+
+    /// Objekte und Strassen-Splines (Punkte alle ~1 m) der geladenen Kacheln fuer die Flaechen-Markierung
+    fn markier_inhalt(&mut self) -> (Vec<bearbeiten::Objekt>, Vec<(i64, Vec<glam::DVec2>)>) {
+        let Some(v) = self.viewer.as_ref() else { return (vec![], vec![]) };
+        let objekte = self.bearb.objekte(v);
+        let mut splines = Vec::new();
+        if let Some(a) = self.aendern.as_mut() {
+            a.aktualisieren(v);
+            for s in a.kacheln.values().flatten() {
+                splines.push((s.id, s.punkte().iter().map(|(q, _)| q.truncate()).collect()));
+            }
+        }
+        (objekte, splines)
     }
 
     /// letzte Messung (waagerechte Strecke in m)
@@ -3616,6 +3711,29 @@ impl App {
             }
             KeyCode::KeyI if !self.strg => Some(UiAktion::Pipette),
             KeyCode::KeyM if !self.strg => Some(UiAktion::Messen),
+            KeyCode::KeyL if !self.strg => Some(UiAktion::Markieren),
+            KeyCode::Enter if self.markierer.an && !self.markierer.punkte.is_empty() => {
+                if self.markierer.schliessen() {
+                    Some(UiAktion::FlaecheNeu)
+                } else {
+                    None
+                }
+            }
+            KeyCode::Backspace if self.markierer.an && !self.markierer.punkte.is_empty() => {
+                self.markierer.punkte.pop();
+                None
+            }
+            KeyCode::Escape if self.markierer.an => {
+                if self.markierer.zeichnet() {
+                    self.markierer.abbrechen();
+                } else if self.markierer.hat_auswahl() {
+                    self.markierer.leeren();
+                } else {
+                    self.markierer.an = false;
+                }
+                None
+            }
+            KeyCode::Delete if self.markierer.an && self.markierer.hat_auswahl() => Some(UiAktion::FlaecheLoeschen),
             KeyCode::Escape if self.messen => Some(UiAktion::Messen),
             KeyCode::Delete if self.bearb.werkzeug == Werkzeug::Welt && self.welt_wahl.is_some() => {
                 self.welt_frage = self.welt_wahl;
@@ -4147,6 +4265,7 @@ impl ApplicationHandler for App {
                     self.ziehen = Some((knopf, p));
                 }
                 self.maus = Some(p);
+                self.markierer.bewegen(p);
                 if self.surface.is_some() {
                     let (bw, bh) = self.bildgroesse();
                     let (o, d) = self.kam.strahl(p.0, p.1, bw, bh);
@@ -4259,6 +4378,28 @@ impl ApplicationHandler for App {
                             if let Some(m) = self.messung() {
                                 self.meldung = format!("Messung: {m:.2} m");
                             }
+                        }
+                    }
+                    return;
+                }
+                if state == ElementState::Pressed && !egui_will && button == MouseButton::Left && self.markierer.an {
+                    if let Some(p) = self.maus {
+                        self.markierer.druecken(p);
+                    }
+                    return;
+                }
+                if state == ElementState::Released && button == MouseButton::Left && self.markierer.an && (self.markierer.zeichnet() || !egui_will) {
+                    if let Some(p) = self.maus {
+                        let mut m = std::mem::take(&mut self.markierer);
+                        let (bw, bh) = self.bildgroesse();
+                        let kam = self.kam.clone();
+                        let fertig = m.loslassen(p, |q| {
+                            let (o, d) = kam.strahl(q.0, q.1, bw, bh);
+                            treffer(o, d, |x, y| self.boden(x, y), 6000.0)
+                        }, |w| bearbeiten::projizieren(&kam, w, bw, bh).map(|(x, y, _)| (x, y)));
+                        self.markierer = m;
+                        if fertig {
+                            self.ausfuehren(UiAktion::FlaecheNeu);
                         }
                     }
                     return;

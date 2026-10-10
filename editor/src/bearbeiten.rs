@@ -84,8 +84,9 @@ pub struct Bearbeiten {
     pub unter_maus: Option<Wahl>,
     pub neue: Vec<Neu>,
     ziehen: Option<(Wahl, DVec3, Schritt)>,
-    undo: Vec<Schritt>,
-    redo: Vec<Schritt>,
+    /// Rueckgaengig-Schritte, je Eintrag eine Gruppe (Flaechen-Loeschen = viele Objekte in einem Schritt)
+    undo: Vec<Vec<Schritt>>,
+    redo: Vec<Vec<Schritt>>,
     geist: Option<Geist>,
     /// Richtung fuer das naechste platzierte Objekt
     pub platzier_richtung: f64,
@@ -172,7 +173,7 @@ impl Bearbeiten {
     }
 
     fn schritt(&mut self, s: Schritt) {
-        self.undo.push(s);
+        self.undo.push(vec![s]);
         self.redo.clear();
         self.aenderungen += 1;
     }
@@ -329,19 +330,65 @@ impl Bearbeiten {
     }
 
     pub fn rueckgaengig(&mut self, v: &mut Viewer) -> Option<String> {
-        let s = self.undo.pop()?;
-        self.anwenden(v, s, false);
-        self.redo.push(s);
+        let g = self.undo.pop()?;
+        for s in g.iter().rev() {
+            self.anwenden(v, *s, false);
+        }
+        self.redo.push(g);
         self.aenderungen += 1;
         Some("rueckgaengig".into())
     }
 
     pub fn wiederholen(&mut self, v: &mut Viewer) -> Option<String> {
-        let s = self.redo.pop()?;
-        self.anwenden(v, s, true);
-        self.undo.push(s);
+        let g = self.redo.pop()?;
+        for s in g.iter() {
+            self.anwenden(v, *s, true);
+        }
+        self.undo.push(g);
         self.aenderungen += 1;
         Some("wiederholt".into())
+    }
+
+    /// viele Objekte auf einmal loeschen (ein Rueckgaengig-Schritt) -> Anzahl
+    pub fn loeschen_viele(&mut self, v: &mut Viewer, wahlen: &[Wahl]) -> usize {
+        let mut gruppe = Vec::new();
+        for w in wahlen {
+            match *w {
+                Wahl::Karte(id) => {
+                    let vorher = v.object_edit(id);
+                    if vorher.deleted {
+                        continue;
+                    }
+                    self.ed.editing_added = None;
+                    self.ed.selected = Some(id);
+                    v.edit(&mut self.ed, &Action::Delete);
+                    let nachher = v.object_edit(id);
+                    if nachher != vorher {
+                        gruppe.push(Schritt::Karte { id, vorher, nachher });
+                    }
+                }
+                Wahl::Neu(i) => {
+                    let Some(n) = self.neue.get(i) else { continue };
+                    if n.z.geloescht {
+                        continue;
+                    }
+                    let vorher = n.z;
+                    let nachher = NeuZustand { geloescht: true, ..vorher };
+                    self.neue[i].z = nachher;
+                    self.zeichnen(v, i);
+                    gruppe.push(Schritt::Neu { i, vorher, nachher });
+                }
+            }
+        }
+        self.ed.selected = None;
+        self.wahl = None;
+        let n = gruppe.len();
+        if n > 0 {
+            self.undo.push(gruppe);
+            self.redo.clear();
+            self.aenderungen += 1;
+        }
+        n
     }
 
     pub fn undo_len(&self) -> usize {
