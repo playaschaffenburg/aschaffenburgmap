@@ -551,6 +551,7 @@ def bauen(plan, achse, K, arme_roh, gel, oeffnungen=None):
     from shapely.ops import nearest_points
     standflaeche = erhoeht.buffer(-0.25)             # Mast mindestens 25 cm hinter der Bordkante
     kleine_masten = []                               # mehrere Signale an einem Mast (wie in echt, Fotovergleich)
+    ausleger_masten = []
     for s in plan['ampeln']:
         p = np.array(s['pos'], float)
         rot_ = s['richtung'] % 360
@@ -563,17 +564,19 @@ def bauen(plan, achse, K, arme_roh, gel, oeffnungen=None):
         ausleger = s.get('mast') == 'ausleger'
         if not ausleger:
             mp0 = p - ampel.MAST_VERSATZ * np.array(dvec(rot_))
-            da = [m_ for m_ in kleine_masten if np.hypot(*(m_ - mp0)) < 0.6]
+            da = [m_ for m_ in kleine_masten + ausleger_masten if np.hypot(*(m_ - mp0)) < 0.6]
             if da:
-                p = p + (da[0] - mp0)                # Signal an den vorhandenen Mast
+                p = p + (da[0] - mp0)                # Signal an den vorhandenen Mast (auch an einen Ausleger)
         signal = ampel.SIGNAL if s['art'] == 'kfz' else rk.FG_SIGNAL
         signale.append(dict(art='signal', datei=signal, x=float(p[0]), y=float(p[1]), hoehe=ampel.SIGNAL_HOEHE, rot=rot_, gruppe=s['gruppe'],
                             z_boden=float(zf(*p)) + WALK_H))
         mp = p - ampel.MAST_VERSATZ * np.array(dvec(rot_))
         if not ausleger:
-            if any(np.hypot(*(m_ - mp)) < 1e-3 for m_ in kleine_masten):
+            if any(np.hypot(*(m_ - mp)) < 1e-3 for m_ in kleine_masten + ausleger_masten):
                 continue                             # Mast steht schon
             kleine_masten.append(mp)
+        else:
+            ausleger_masten.append(mp)
         signale.append(dict(art='mast', datei=ampel.MAST if ausleger else rk.KLEINMAST, x=float(mp[0]), y=float(mp[1]),
                             hoehe=ampel.MAST_HOEHE if ausleger else 0.2, rot=(rot_ + 180) % 360 if ausleger else rot_,
                             gruppe=None, z_boden=float(zf(*mp)) + WALK_H))

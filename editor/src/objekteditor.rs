@@ -2657,7 +2657,7 @@ impl ObjektEditor {
                 });
                 ui.horizontal(|ui| {
                     ui.label("Material");
-                    for (k, n) in [("klinker", "Klinker"), ("beton", "Beton"), ("gabionen", "Gabionen")] {
+                    for (k, n) in [("klinker", "Klinker"), ("beton", "Beton"), ("gabionen", "Gabionen"), ("paneel", "Paneele rot")] {
                         ae |= ui.selectable_value(&mut wd.material, k.to_string(), n).changed();
                     }
                 });

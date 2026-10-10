@@ -33,13 +33,15 @@ MIN_STUECK = 20.0         # m: kuerzere Wechsel einfach/zweistufig werden dem Na
 # Texturen im Spline-Ordner (Splines\Aschaffenburg\texture), Quelle: Objektordner des Sonderbaus bzw. Marcel
 TEX = {'klinker': 'AB_SB_klinker.bmp', 'beton': 'AB_SB_beton.bmp', 'gabionen': 'AB_SB_gabionen.bmp',
        'pflanzen': 'AB_SB_bodendecker.bmp', 'stab': 'AB_SB_stabgelaender.tga', 'gruen': 'AB_SB_lsw_gruen.bmp',
-       'glas': 'AB_SB_glas.tga', 'holz': 'AB_SB_lsw_holz.bmp', 'sandstein': 'AB_SB_sandstein.bmp', 'hecke': 'AB_SB_hecke.bmp'}
+       'glas': 'AB_SB_glas.tga', 'holz': 'AB_SB_lsw_holz.bmp', 'sandstein': 'AB_SB_sandstein.bmp', 'hecke': 'AB_SB_hecke.bmp',
+       'paneel': 'AB_SB_paneel_rot.bmp'}
 QUELLE = {'klinker': 'AB_klinker.bmp', 'beton': 'betonwand1.bmp', 'gabionen': 'AB_gabionen.bmp',
           'pflanzen': 'AB_bodendecker.bmp', 'stab': 'AB_stabgelaender.tga', 'gruen': 'AB_lsw_gruen.bmp', 'glas': 'AB_glas.tga',
-          'holz': 'AB_lsw_holz.bmp', 'sandstein': 'AB_sandstein.bmp', 'hecke': 'AB_hecke.bmp'}
+          'holz': 'AB_lsw_holz.bmp', 'sandstein': 'AB_sandstein.bmp', 'hecke': 'AB_hecke.bmp',
+          'paneel': 'AB_paneel_rot.bmp'}
 ALPHA = {'stab', 'glas'}
 GROESSE = {'klinker': 2.0, 'beton': 4.0, 'gabionen': 2.0, 'pflanzen': 2.0, 'stab': 1.0, 'gruen': 2.5, 'glas': 2.5, 'holz': 2.5,
-            'sandstein': 1.5, 'hecke': 2.0}
+            'sandstein': 1.5, 'hecke': 2.0, 'paneel': 2.5}
 # Hoehe der Laermschutzwand je Art (Holzpalisade an der Rampe Ost-Sued nach Fotos hoeher)
 LSW_HOEHE = {'holz': 3.0}
 
@@ -105,7 +107,8 @@ def profil(art, material, variante, laerm, r, tiefe):
     """Profil einer Wand. r: Seite der Fahrbahn in Profil-x (-1/+1); Krone bei y = 0, unten bis -tiefe.
     variante: trenn 'bruestung'/'flach', aussen 'einfach'/'stufig'"""
     p = Profil()
-    m = material if material in ('klinker', 'beton', 'gabionen') else 'klinker'
+    # paneel: rote Laermschutz-Paneele an den Trogwaenden (Fotos 2017/2019)
+    m = material if material in ('klinker', 'beton', 'gabionen', 'paneel') else 'klinker'
     u = -tiefe
     if art == 'portal':
         # Stirn des Trogendes ueber der Unterfuehrung: Beton bis unter die Decke, Bruestung und Gelaender wie die

@@ -1082,6 +1082,12 @@ def texturen(omsi, ziel):
         lg[:, x] = (62, 112, 92) if x % 8 >= 2 else (44, 86, 70)
     lg[60:64, :] = (40, 70, 58)
     Image.fromarray((lg + rng.normal(0, 3, lg.shape)).clip(0, 255).astype(np.uint8)).save(os.path.join(ziel, TEX['lsw_gruen']))
+    # rote Laermschutz-Paneele (Trog): waagerechte Rippen, Fugen alle 2,5 m (Spline: u = Hoehe -> Spalten, v = Laenge -> Zeilen)
+    pn = np.zeros((128, 128, 3))
+    for x in range(128):
+        pn[:, x] = (150, 66, 52) if x % 8 >= 2 else (112, 46, 38)
+    pn[:3, :] = (95, 40, 34)
+    Image.fromarray((pn + rng.normal(0, 4, pn.shape)).clip(0, 255).astype(np.uint8)).save(os.path.join(ziel, 'AB_paneel_rot.bmp'))
     # Sandstein (Mauer am Weg): gelbbraune Quader in Lagen
     ss = np.zeros((128, 128, 3))
     for y in range(128):
