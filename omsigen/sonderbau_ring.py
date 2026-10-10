@@ -44,7 +44,8 @@ TEX = {'beton': 'betonwand1.bmp', 'klinker': 'AB_klinker.bmp', 'gabionen': 'AB_g
 
 
 # ------------------------------------------------------------------ Geometrie-Helfer
-MIN_FLAECHE2 = 2e-5      # doppelte Dreiecksflaeche (m^2): darunter wird ein Dreieck nicht geschrieben
+MIN_FLAECHE2 = 2e-4      # doppelte Dreiecksflaeche (m^2): darunter wird ein Dreieck nicht geschrieben (die .x-Datei
+                         # rundet auf 0,1 mm - kleinere Splitter werden dort flaechenlos)
 
 
 class Mesh:
@@ -988,7 +989,8 @@ def bauen(omsi, karte, osm_pfad, entwurf_pfad, nn0, ost0, nord0, cache, bauplan_
     if geaendert:
         rb.schreiben(bauplan_pfad, bp)
     waende_zuordnen(roh, bp['waende'])
-    kz = rb.bauen(bp, achse, K, arme, gel)
+    from . import ring_waende as rw
+    kz = rb.bauen(bp, achse, K, arme, gel, oeffnungen=rw.oeffnungen(roh))
     O = kz['O']
     name = 'Kreuzung_Ludwigsallee'
     alpha = [TEX[k_] for k_ in kz['mesh'].mats if TEX[k_].endswith('.tga')]

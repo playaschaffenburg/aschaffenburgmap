@@ -212,6 +212,49 @@ def _rampen(achse, K, strassen, arme, rampen_namen):
 
 
 # ------------------------------------------------------------------ Geometrie der Bauteile
+ANSCHLUSS_L = 1.5          # m: so weit uebernimmt die Platte an jedem Arm den Querschnitt der Strasse
+
+
+def _art_teil(t):
+    """Bauplan-Flaechenart fuer ein Baukasten-Teil der anschliessenden Strasse"""
+    art, belag = t.get('art'), str(t.get('belag', ''))
+    if art in ('gehweg', 'radweg'):
+        return 'gehweg'
+    if art == 'gruen':
+        return 'gruen'
+    if art == 'mittelinsel':
+        return 'insel'
+    if belag == 'sperr':
+        return 'sperr'
+    if belag.startswith('beton'):
+        return 'busbeton'
+    return 'fahrbahn'
+
+
+def anschluesse(plan, arme):
+    """Anschluss an die Strassen: je Arm die ersten ANSCHLUSS_L m genau im Querschnitt der Strasse (Teil fuer Teil);
+    die Flaechen des Bauplans treten dort zurueck -> neue Flaechenliste (Kopie)"""
+    stuecke = []
+    for a in arme:
+        for t, qa, qb in rk.raender(a.q):
+            r_ = Polygon([a.punkt(0, qa), a.punkt(0, qb), a.punkt(ANSCHLUSS_L, qb), a.punkt(ANSCHLUSS_L, qa)])
+            art = _art_teil(t)
+            stuecke.append((art, r_))
+            if art in AUF_FAHRBAHN:                      # Belag auf der Fahrbahn: darunter Fahrbahn
+                stuecke.append(('fahrbahn', r_))
+    if not stuecke:
+        return plan['flaechen']
+    bereich = unary_union([g for _, g in stuecke])
+    out = [dict(id=f'anschluss{i}', art=art, punkte=[list(c) for c in g.exterior.coords[:-1]], loecher=[],
+                textur=dict(dx=0, dy=0, skala=1, dreh=0)) for i, (art, g) in enumerate(stuecke)]
+    for f in plan['flaechen']:
+        rest = poly(f).difference(bereich)
+        for g in rk._polys(rest):
+            if g.area > 1e-3:
+                out.append(dict(f, punkte=[list(c) for c in g.exterior.coords[:-1]], loecher=[[list(c) for c in i.coords[:-1]] for i in g.interiors]))
+    return out
+
+
 def poly(f):
     p = Polygon(f['punkte'], f.get('loecher') or [])
     return p if p.is_valid else p.buffer(0)
@@ -312,14 +355,18 @@ def pfade(plan, arme, zf):
 
 
 # ------------------------------------------------------------------ Bauen
-def bauen(plan, achse, K, arme_roh, gel):
+def bauen(plan, achse, K, arme_roh, gel, oeffnungen=None):
     """Kreuzungsobjekt aus dem Bauplan -> dict wie ring_kreuzung.bauen (mesh, O, pfade, regeln, ketten, plan, signale,
-    flaechen, zf, trog, tunnel, lose_signale)"""
+    flaechen, zf, trog, tunnel, lose_signale). oeffnungen: {nord, sued: Polygon} - Trogoeffnungen aus den Wandlinien
+    (ring_waende.oeffnungen; Anschluss: die Platte endet in der Wandmitte)"""
     from .sonderbau_ring import Mesh, stabgelaender
     arme = [rk.Arm(i, a) for i, a in enumerate(arme_roh)]
     zf = rk.hoehenflaeche(arme)
     T = rk.trog(achse, K)
+    for name, poly_ in (oeffnungen or {}).items():
+        T[name]['offen'] = poly_
     offen = unary_union([T['nord']['offen'], T['sued']['offen']])
+    plan = dict(plan, flaechen=anschluesse(plan, arme))
     nach_art = {a: unary_union([poly(f) for f in plan['flaechen'] if f['art'] == a] or [Polygon()]) for a in ARTEN}
     erhoeht = unary_union([nach_art[a] for a in ERHOEHT]).difference(offen)
     fahrbahn = nach_art['fahrbahn'].difference(erhoeht).difference(offen)

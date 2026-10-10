@@ -308,6 +308,21 @@ class Raum:
         T = self.P[k]
         return float(_punkt_dreieck(np.asarray(p, float), T[:, 0], T[:, 1], T[:, 2]).min())
 
+    def abstand_eigen(self, p, a, b, teil, r=0.1):
+        """kleinster Abstand von p zu Dreiecken des eigenen Teils ohne die, die eine Ecke mit der Kante a-b teilen"""
+        k = self.nahe(p, r)
+        k = k[self.teil[k] == teil]
+        if not len(k):
+            return math.inf
+        T = self.P[k]
+        teilt = np.zeros(len(k), bool)
+        for q in (a, b):
+            teilt |= (np.linalg.norm(T - q, axis=2) < 0.002).any(axis=1)
+        T = T[~teilt]
+        if not len(T):
+            return math.inf
+        return float(_punkt_dreieck(np.asarray(p, float), T[:, 0], T[:, 1], T[:, 2]).min())
+
     def boden(self, x, y, z_max):
         """höchste nach oben zeigende Fläche unter (x, y) bis z_max (oder None)"""
         k = self.nahe((x, y), 0.01)
@@ -423,6 +438,10 @@ def pruefen(teile, gelaende=None, signale=()):
                     continue
                 m = (a + b) / 2
                 d = raum.abstand(m, SPALT[1], ausser=ti)
+                # liegt die Kante auf einer eigenen Flaeche auf (z. B. Bordstein-Unterkante auf der Fahrbahn), ist sie
+                # angeschlossen: eigene Dreiecke, die keine Ecke mit der Kante teilen
+                if SPALT[0] < d < SPALT[1]:
+                    d = min(d, raum.abstand_eigen(m, a, b, ti))
                 if SPALT[0] < d < SPALT[1] and not verdeckt(raum, gelaende, m, ausser=ti):
                     funde.append(dict(art='spalt', text=f'Spalt {d * 100:.0f} cm zum Nachbarteil', pos=m, teil=t.name))
         # offene Kettenenden

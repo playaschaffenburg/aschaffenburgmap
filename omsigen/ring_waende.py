@@ -17,6 +17,7 @@ import shutil
 import numpy as np
 
 from .ring_strassen import omsi_richtung, _ende
+from .kreuzung import WALK_H
 
 KNOTEN = 8.0              # m hoechstens zwischen zwei Kettenpunkten
 TIEFE_RUND = 1.0          # Profiltiefe auf ganze Meter (wenige .sli-Dateien)
@@ -252,7 +253,8 @@ def splines(roh, platte, omsi):
         if platte is not None and S_PLATTE[0] <= e['s'] <= S_PLATTE[1]:
             q = welt(e, fuge(e, seite), 0)
             zp = float(platte(q[0], q[1]))
-            z = min(z, zp - 0.1) if e['unter_decke'] else zp + 0.05
+            # auf der Platte: Kappe auf Gehweghoehe (die Inseln schliessen buendig an)
+            return min(z, zp - 0.1) + 0.05 if e['unter_decke'] else zp + WALK_H
         return z + 0.05
 
     def var_trenn(e, seite, bt):
@@ -323,7 +325,7 @@ def portal_splines(roh, platte, z_unten):
         dd = np.asarray(e['d'], float) * (1 if name == 'nord' else -1)      # in die Decke hinein
         w = np.linspace(0.0, math.pi, 37)
         P = np.array([c + u * R * math.cos(a) + dd * R * math.sin(a) for a in w])
-        Z = np.array([float(platte(x, y)) + 0.05 for x, y in P])
+        Z = np.array([float(platte(x, y)) + WALK_H for x, y in P])
         # Seite des Trogs (Mittelpunkt) in Profil-x: links der Laufrichtung -> -1
         kreuz = dd[0] * (c - pw)[1] - dd[1] * (c - pw)[0]
         rr = -1 if kreuz > 0 else 1
@@ -336,6 +338,36 @@ def portal_splines(roh, platte, z_unten):
         geometrie[name] = (c, R, dd)
         out.append(dict(name=f'Wand_portal_{name}', art='wand', bauteil=None, sli=f'Splines\\Aschaffenburg\\{datei_}.sli', elemente=els, umriss=pr.umriss))
     return out, dateien, geometrie
+
+
+def oeffnungen(roh, laenge=40.0):
+    """Trogoeffnungen in der Kreuzungsplatte aus den Wandlinien (Anschlusspunkte): je Portal der Streifen zwischen den
+    Mittellinien der Trennwaende (laenge m vor dem Portal) und der Halbkreis des Portal-Splines -> {nord, sued: Polygon}"""
+    from shapely.geometry import Polygon
+    from shapely.ops import unary_union
+    from .sonderbau_ring import fuge, welt
+    out = {}
+    stationen = _portale(roh)
+    for name, sp in zip(('nord', 'sued'), stationen):
+        vz = -1 if name == 'nord' else 1                 # vom Portal weg (Nord: kleinere Station)
+        teil = [e for e in roh if 0 <= (e['s'] - sp) * vz <= laenge]
+        teil.sort(key=lambda e: abs(e['s'] - sp))
+        links, rechts = [], []
+        for e in teil:
+            tw = fuge(e, 'w')
+            to = fuge(e, 'o')
+            tw = e['ra'] - 0.25 if tw is None else tw
+            to = e['rb'] + 0.25 if to is None else to
+            links.append(welt(e, tw, 0)[:2])
+            rechts.append(welt(e, to, 0)[:2])
+        streifen = Polygon(links + rechts[::-1]).buffer(0)
+        e = teil[0]
+        pw, po = links[0], rechts[0]
+        c = (pw + po) / 2
+        R = float(np.linalg.norm(pw - c))
+        dd = np.asarray(e['d'], float) * (1 if name == 'nord' else -1)
+        out[name] = unary_union([streifen, halbscheibe(c, R, dd)]).buffer(0.001).buffer(-0.001)
+    return out
 
 
 def stirnflaechen(ketten, o):
