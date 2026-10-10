@@ -501,9 +501,17 @@ def bauen(plan, achse, K, arme_roh, gel, oeffnungen=None):
     rollen = [a.rolle for a in arme]
     ampelplan = ampel.plane([dict(name=a.name, h=a.h) for a in arme], rollen, plan['phasen'])
     signale = []
+    from shapely.ops import nearest_points
+    standflaeche = erhoeht.buffer(-0.25)             # Mast mindestens 25 cm hinter der Bordkante
     for s in plan['ampeln']:
         p = np.array(s['pos'], float)
         rot_ = s['richtung'] % 360
+        # Anschluss: Mastfuss muss auf Gehweg/Insel stehen; knapp daneben (bis 1,5 m) -> hinter die naechste Kante
+        mp0 = p - ampel.MAST_VERSATZ * np.array(dvec(rot_))
+        if not standflaeche.is_empty and not standflaeche.contains(Point(*mp0)):
+            q = nearest_points(standflaeche, Point(*mp0))[0]
+            if q.distance(Point(*mp0)) <= 1.5:
+                p = p + (np.array([q.x, q.y]) - mp0)
         signal = ampel.SIGNAL if s['art'] == 'kfz' else rk.FG_SIGNAL
         signale.append(dict(art='signal', datei=signal, x=float(p[0]), y=float(p[1]), hoehe=ampel.SIGNAL_HOEHE, rot=rot_, gruppe=s['gruppe'],
                             z_boden=float(zf(*p)) + WALK_H))
@@ -514,7 +522,7 @@ def bauen(plan, achse, K, arme_roh, gel, oeffnungen=None):
                             gruppe=None, z_boden=float(zf(*mp)) + WALK_H))
         if ausleger:
             signale.append(dict(art='oben', datei=ampel.OBEN, eltern=len(signale) - 1, anhang=0, rot=ampel.OBEN_DREHUNG, gruppe=s['gruppe']))
-    lose = [s for s in signale if s['art'] in ('signal', 'mast') and not erhoeht.buffer(0.3).contains(Point(s['x'], s['y']))]
+    lose = [s for s in signale if s['art'] == 'mast' and not erhoeht.contains(Point(s['x'], s['y']))]
     F = dict(fahrbahn=fahrbahn, gehweg=nach_art['gehweg'], inseln=unary_union([nach_art['insel'], nach_art['gruen']]), offen=offen)
     return dict(mesh=m, O=O, pfade=pf, regeln=regeln, ketten=[dict(von=k['von'], nach=k['nach'], mv=k['mv']) for k in kt], plan=ampelplan,
                 signale=signale, flaechen=F, zf=zf, trog=T, arme=arme, tunnel=dict(x=(tun.get('x0'), tun.get('x1')), y=tunnel_y, sohle=tun.get('sohle')),

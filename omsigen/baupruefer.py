@@ -460,6 +460,11 @@ def pruefen(teile, gelaende=None, signale=()):
     for i, s in enumerate(signale):
         if 'x' not in s or s.get('z_boden') is None:
             continue
+        # Signalkopf am Mast: es zaehlt der Mastfuss (der Kopf darf ueber die Bordkante haengen)
+        if s.get('art') == 'signal' and any(m.get('art') == 'mast' and 'x' in m and math.hypot(m['x'] - s['x'], m['y'] - s['y']) < 1.0 for m in signale):
+            mast_da = True
+        else:
+            mast_da = False
         boden = raum.boden(s['x'], s['y'], s['z_boden'] + 0.5)
         if boden is None and gelaende is not None:
             boden = gelaende(s['x'], s['y'])
@@ -467,9 +472,9 @@ def pruefen(teile, gelaende=None, signale=()):
             continue
         dz = s['z_boden'] - boden
         name = os.path.basename(s.get('datei', '?'))
-        if dz > BODEN_TOL:
+        if dz > BODEN_TOL and not mast_da:
             funde.append(dict(art='ampel_schwebt', text=f'{name} schwebt {dz:.2f} m', pos=np.array([s['x'], s['y'], boden]), teil='Kreuzung'))
-        elif dz < -BODEN_TOL:
+        elif dz < -BODEN_TOL and not mast_da:
             funde.append(dict(art='ampel_versinkt', text=f'{name} steckt {-dz:.2f} m im Boden', pos=np.array([s['x'], s['y'], boden]), teil='Kreuzung'))
         if s.get('art') == 'signal' and s.get('hoehe', 0) > 0.6:
             mast = any(m.get('art') == 'mast' and math.hypot(m['x'] - s['x'], m['y'] - s['y']) < 1.0 for m in signale if 'x' in m)

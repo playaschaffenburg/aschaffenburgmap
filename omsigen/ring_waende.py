@@ -242,7 +242,7 @@ def glatt(S, an, min_laenge=MIN_STUECK):
             an[k] = not an[k]
 
 
-def splines(roh, platte, omsi):
+def splines(roh, platte, omsi, decke_unten=None):
     """alle Waende als Spline-Ketten -> (Liste dict(name, art='wand', sli, elemente), {sli-Datei: Text})"""
     from .sonderbau_ring import fuge, aussen, S_PLATTE, welt, wand
     dateien = {}
@@ -254,7 +254,10 @@ def splines(roh, platte, omsi):
             q = welt(e, fuge(e, seite), 0)
             zp = float(platte(q[0], q[1]))
             # auf der Platte: Kappe auf Gehweghoehe (die Inseln schliessen buendig an)
-            return min(z, zp - 0.1) + 0.05 if e['unter_decke'] else zp + WALK_H
+            # unter der Decke reicht die Wand nur bis in die Decke (35 cm unter die Platte), sonst scheint sie durch
+            if e['unter_decke']:
+                return min(z, zp - 0.35) if decke_unten is None else decke_unten + 1.12      # 2 cm ueber die Deckenoberseite (Deckenkante im Wandkoerper)
+            return zp + WALK_H
         return z + 0.05
 
     def var_trenn(e, seite, bt):

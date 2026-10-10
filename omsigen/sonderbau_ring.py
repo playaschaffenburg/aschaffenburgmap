@@ -1017,7 +1017,7 @@ def bauen(omsi, karte, osm_pfad, entwurf_pfad, nn0, ost0, nord0, cache, bauplan_
     schreiben(ordner, rel, 'Bahnbruecke', bb, o, liste)
     # Waende als Spline-Ketten entlang der Wandlinien (ring_waende, wie Staedtedreieck/Ahlheim)
     from . import ring_waende as rw
-    wand_splines, wand_dateien = rw.splines(roh, kz['zf'], omsi)
+    wand_splines, wand_dateien = rw.splines(roh, kz['zf'], omsi, decke_unten=min(zs) - 0.12 - 1.1)
     wand_splines += portal
     wand_dateien.update(portal_dateien)
     # Stirnflaechen an den Wandenden (Splines haben keine): ein Objekt
