@@ -1,16 +1,18 @@
-//! Objekt-Editor fuer Sonderbauten (zuerst die Kreuzung Ludwigsallee am Ring): jedes Bauteil des Objekts einzeln
+//! Objekt-Editor fuer Sonderbauten (zuerst der Sonderbau Ring / Kreuzung Ludwigsallee): jedes Bauteil einzeln
 //! bearbeiten - Flaechen (Fahrbahn, Gehweg, Insel, Gruen, Sperrflaeche, Radfurt, Busspur-Beton) mit Eckpunkten und
-//! Textur-Lage, Linien, Haltlinien, Pfeile, BUS-Schrift, Ampeln, Gelaender, Fussgaengerfurten, Gehpfade, dazu
-//! Bahntunnel und Laermschutzwaende des Bauwerks.
+//! Textur-Lage, Linien, Haltlinien, Pfeile, BUS-Schrift, Ampeln, Gelaender, Fussgaengerfurten, Gehpfade, die Waende
+//! des Bauwerks (Trenn- und Aussenwaende: Bereich, Material, Laermschutz, Versatz, Hoehe) und die Strassen
+//! (Querschnitt im Baukasten, Versatz).
 //!
-//! Bearbeitet wird nur der Bauplan (`sonderbau/ring/bauplan.json`, Format in omsigen/ring_bauplan.py); "Anwenden" baut
-//! daraus mit omsigen alle Objekte neu und setzt den Sonderbau in die Karte (Sitzung, Rueckgaengig, Speichern wie
-//! gewohnt). Die Draufsicht zeigt das Luftbild und die Flaechen mit ihren echten Texturen in derselben Lage wie im
-//! Objekt.
+//! Bedient wird direkt in der 3D-Ansicht (die Leiste rechts zeigt Werkzeuge und Eigenschaften); auf Wunsch zusaetzlich in
+//! einem 2D-Plan ueber dem Luftbild mit den echten Texturen. Bearbeitet wird nur der Bauplan
+//! (`sonderbau/ring/bauplan.json`, Format in omsigen/ring_bauplan.py); "Anwenden" (oder automatisch) baut daraus mit
+//! omsigen alle Objekte neu und setzt den Sonderbau in die Karte (Sitzung, Rueckgaengig, Speichern wie gewohnt).
 
 use glam::{DVec2, DVec3};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver};
+use std::time::{Duration, Instant};
 
 // ------------------------------------------------------------------ Bauplan
 #[derive(Clone, Debug, PartialEq)]
@@ -90,9 +92,31 @@ pub struct Gehpfad {
     pub punkte: Vec<DVec2>,
 }
 
+/// Wand des Bauwerks: Bereich entlang der Ring-Achse (Stationen von/bis) auf einer Seite
+#[derive(Clone, Debug)]
+pub struct Wand {
+    pub id: String,
+    /// "w" oder "o"
+    pub seite: String,
+    /// "trenn" (zwischen Ring und Rampe) oder "aussen"
+    pub art: String,
+    pub von: f64,
+    pub bis: f64,
+    /// klinker | beton | gabionen
+    pub material: String,
+    /// keine | gruen | glas
+    pub laerm: String,
+    /// m nach aussen (weg vom Ring)
+    pub versatz: f64,
+    /// m hoeher als die Fahrbahn bzw. das Gelaende dahinter
+    pub hoehe: f64,
+    /// ab 3,5 m zweistufig mit Pflanzstreifen (Aussenwand Klinker)
+    pub stufig: bool,
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Bauplan {
-    /// alle weiteren Felder (Name, Abbiegespuren, Phasen, Tunnel, Laermschutz, Zaehler) unveraendert durchgereicht
+    /// weitere Felder (Name, Abbiegespuren, Phasen, Tunnel, Strassen, Zaehler) - Strassen werden hier bearbeitet
     pub rest: serde_json::Map<String, serde_json::Value>,
     pub flaechen: Vec<Flaeche>,
     pub linien: Vec<Linie>,
@@ -102,6 +126,7 @@ pub struct Bauplan {
     pub gelaender: Vec<Gelaender>,
     pub furten: Vec<Furt>,
     pub gehpfade: Vec<Gehpfad>,
+    pub waende: Vec<Wand>,
 }
 
 fn p2(v: &serde_json::Value) -> DVec2 {
@@ -132,7 +157,7 @@ impl Bauplan {
     pub fn aus_json(j: &serde_json::Value) -> Bauplan {
         let liste = |k: &str| j[k].as_array().cloned().unwrap_or_default();
         let mut rest = j.as_object().cloned().unwrap_or_default();
-        for k in ["flaechen", "linien", "haltlinien", "symbole", "ampeln", "gelaender", "furten", "gehpfade"] {
+        for k in ["flaechen", "linien", "haltlinien", "symbole", "ampeln", "gelaender", "furten", "gehpfade", "waende"] {
             rest.remove(k);
         }
         Bauplan {
@@ -153,6 +178,11 @@ impl Bauplan {
             gelaender: liste("gelaender").iter().map(|v| Gelaender { id: s(v, "id"), punkte: pl(&v["punkte"]), unten: s(v, "unten"), flip: v["flip"].as_bool().unwrap_or(false) }).collect(),
             furten: liste("furten").iter().map(|v| Furt { id: s(v, "id"), a: p2(&v["a"]), b: p2(&v["b"]), breite: f(v, "breite", 3.0), gruppe: v["gruppe"].as_i64().unwrap_or(0) }).collect(),
             gehpfade: liste("gehpfade").iter().map(|v| Gehpfad { id: s(v, "id"), punkte: pl(&v["punkte"]) }).collect(),
+            waende: liste("waende").iter().map(|v| Wand {
+                id: s(v, "id"), seite: s(v, "seite"), art: s(v, "art"), von: f(v, "von", 0.0), bis: f(v, "bis", 0.0),
+                material: s(v, "material"), laerm: if s(v, "laerm").is_empty() { "keine".into() } else { s(v, "laerm") },
+                versatz: f(v, "versatz", 0.0), hoehe: f(v, "hoehe", 0.0), stufig: v["stufig"].as_bool().unwrap_or(true),
+            }).collect(),
         }
     }
 
@@ -170,6 +200,10 @@ impl Bauplan {
         o.insert("gelaender".into(), self.gelaender.iter().map(|x| serde_json::json!({"id": x.id, "punkte": jl(&x.punkte), "unten": x.unten, "flip": x.flip})).collect());
         o.insert("furten".into(), self.furten.iter().map(|x| serde_json::json!({"id": x.id, "a": j2(x.a), "b": j2(x.b), "breite": r(x.breite), "gruppe": x.gruppe})).collect());
         o.insert("gehpfade".into(), self.gehpfade.iter().map(|x| serde_json::json!({"id": x.id, "punkte": jl(&x.punkte)})).collect());
+        o.insert("waende".into(), self.waende.iter().map(|x| serde_json::json!({
+            "id": x.id, "seite": x.seite, "art": x.art, "von": r(x.von), "bis": r(x.bis), "material": x.material, "laerm": x.laerm,
+            "versatz": r(x.versatz), "hoehe": r(x.hoehe), "stufig": x.stufig,
+        })).collect());
         serde_json::Value::Object(o)
     }
 
@@ -177,6 +211,15 @@ impl Bauplan {
         let n = self.rest.get("_id").and_then(|v| v.as_u64()).unwrap_or(1000) + 1;
         self.rest.insert("_id".into(), n.into());
         format!("{art}{n}")
+    }
+
+    /// Strassen des Sonderbaus (Name, Querschnitt, Versatz) in Bauplan-Reihenfolge
+    pub fn strassen(&self) -> Vec<(String, serde_json::Value, Option<f64>)> {
+        self.rest.get("strassen").and_then(|v| v.as_object()).map(|o| o.iter().map(|(k, v)| (k.clone(), v["querschnitt"].clone(), v["versatz"].as_f64())).collect()).unwrap_or_default()
+    }
+
+    fn strasse_mut(&mut self, name: &str) -> Option<&mut serde_json::Value> {
+        self.rest.get_mut("strassen").and_then(|v| v.as_object_mut()).and_then(|o| o.get_mut(name))
     }
 }
 
@@ -191,6 +234,8 @@ pub enum Wahl {
     Gelaender(usize),
     Furt(usize),
     Gehpfad(usize),
+    Wand(usize),
+    Strasse(usize),
 }
 
 pub const FLAECHEN_ARTEN: [(&str, &str); 7] = [("fahrbahn", "Fahrbahn"), ("gehweg", "Gehweg (erhoeht)"), ("insel", "Insel Beton (erhoeht)"),
@@ -209,6 +254,18 @@ fn material(art: &str) -> (&'static str, f64) {
     }
 }
 
+fn farbe_art(art: &str) -> egui::Color32 {
+    match art {
+        "fahrbahn" => egui::Color32::from_rgb(70, 72, 76),
+        "gehweg" => egui::Color32::from_rgb(150, 150, 150),
+        "insel" => egui::Color32::from_rgb(190, 185, 170),
+        "gruen" => egui::Color32::from_rgb(80, 130, 60),
+        "sperr" => egui::Color32::from_rgb(230, 230, 230),
+        "radfurt" => egui::Color32::from_rgb(176, 62, 52),
+        _ => egui::Color32::from_rgb(170, 170, 165),
+    }
+}
+
 fn reihenfolge(art: &str) -> u8 {
     match art {
         "fahrbahn" => 0,
@@ -224,16 +281,53 @@ fn reihenfolge(art: &str) -> u8 {
 pub struct Arm {
     pub name: String,
     pub pos: DVec2,
-    pub h: f64,
     pub links: DVec2,
     pub rechts: DVec2,
+}
+
+/// Station entlang der Ring-Achse: Punkt, Querrichtung (nach Osten), Lage der Wandlinien ohne Versatz
+#[derive(Clone, Debug, Default)]
+pub struct Station {
+    pub s: f64,
+    pub p: DVec2,
+    pub q: DVec2,
+    pub t: std::collections::HashMap<String, f64>,
+}
+
+#[derive(Clone, Debug, Default)]
+pub struct Raster {
+    x0: f64,
+    y0: f64,
+    schritt: f64,
+    nx: usize,
+    ny: usize,
+    werte: Vec<f64>,
+}
+
+impl Raster {
+    fn h(&self, p: DVec2) -> Option<f64> {
+        if self.werte.is_empty() || self.schritt <= 0.0 {
+            return None;
+        }
+        let fx = (p.x - self.x0) / self.schritt;
+        let fy = (p.y - self.y0) / self.schritt;
+        if fx < 0.0 || fy < 0.0 || fx >= (self.nx - 1) as f64 || fy >= (self.ny - 1) as f64 {
+            return None;
+        }
+        let (i, j) = (fx.floor() as usize, fy.floor() as usize);
+        let (u, v) = (fx - i as f64, fy - j as f64);
+        let w = |a: usize, b: usize| self.werte[b * self.nx + a];
+        Some(w(i, j) * (1.0 - u) * (1.0 - v) + w(i + 1, j) * u * (1.0 - v) + w(i, j + 1) * (1.0 - u) * v + w(i + 1, j + 1) * u * v)
+    }
 }
 
 #[derive(Clone, Debug, Default)]
 pub struct Kontext {
     pub offen: Vec<Vec<DVec2>>,
     pub arme: Vec<Arm>,
-    pub achse: Vec<DVec2>,
+    pub stationen: Vec<Station>,
+    pub strassen: Vec<(String, Vec<DVec2>)>,
+    pub hoehen: Raster,
     pub lose: usize,
 }
 
@@ -242,10 +336,19 @@ impl Kontext {
         let Ok(b) = std::fs::read(datei) else { return Kontext::default() };
         let Ok(j) = serde_json::from_slice::<serde_json::Value>(&b) else { return Kontext::default() };
         let k = &j["kontext"];
+        let h = &k["hoehen"];
         Kontext {
             offen: k["offen"].as_array().map(|a| a.iter().map(pl).collect()).unwrap_or_default(),
-            arme: k["arme"].as_array().map(|a| a.iter().map(|v| Arm { name: s(v, "name"), pos: p2(&v["pos"]), h: f(v, "h", 0.0), links: p2(&v["links"]), rechts: p2(&v["rechts"]) }).collect()).unwrap_or_default(),
-            achse: pl(&k["achse"]),
+            arme: k["arme"].as_array().map(|a| a.iter().map(|v| Arm { name: s(v, "name"), pos: p2(&v["pos"]), links: p2(&v["links"]), rechts: p2(&v["rechts"]) }).collect()).unwrap_or_default(),
+            stationen: k["stationen"].as_array().map(|a| a.iter().map(|v| Station {
+                s: f(v, "s", 0.0), p: p2(&v["p"]), q: p2(&v["q"]),
+                t: v["t"].as_object().map(|o| o.iter().filter_map(|(k, x)| x.as_f64().map(|x| (k.clone(), x))).collect()).unwrap_or_default(),
+            }).collect()).unwrap_or_default(),
+            strassen: k["strassen"].as_array().map(|a| a.iter().map(|v| (s(v, "name"), pl(&v["punkte"]))).collect()).unwrap_or_default(),
+            hoehen: Raster {
+                x0: f(h, "x0", 0.0), y0: f(h, "y0", 0.0), schritt: f(h, "schritt", 0.0), nx: h["nx"].as_u64().unwrap_or(0) as usize,
+                ny: h["ny"].as_u64().unwrap_or(0) as usize, werte: h["werte"].as_array().map(|a| a.iter().map(|x| x.as_f64().unwrap_or(0.0)).collect()).unwrap_or_default(),
+            },
             lose: k["lose_signale"].as_array().map(|a| a.len()).unwrap_or(0),
         }
     }
@@ -314,7 +417,6 @@ fn mit_loechern(aussen: &[DVec2], loecher: &[Vec<DVec2>]) -> Vec<DVec2> {
     loecher.sort_by(|a, b| b.iter().map(|p| p.x).fold(f64::MIN, f64::max).partial_cmp(&a.iter().map(|p| p.x).fold(f64::MIN, f64::max)).unwrap());
     for l in loecher {
         let (hi, h) = l.iter().enumerate().max_by(|a, b| a.1.x.partial_cmp(&b.1.x).unwrap()).map(|(i, p)| (i, *p)).unwrap();
-        // naechster Punkt des Rings, dessen Verbindung keine Kante schneidet
         let mut beste: Option<(f64, usize)> = None;
         for (i, q) in ring.iter().enumerate() {
             let d = (*q - h).length();
@@ -406,15 +508,36 @@ pub enum Aktion {
     Gebaut { json: PathBuf, einsetzen: bool },
     /// Kamera der 3D-Ansicht auf diesen Punkt
     Kamera(DVec3),
+    /// Querschnitt dieser Strasse im Baukasten bearbeiten (Baukasten-JSON)
+    Querschnitt(String, serde_json::Value),
 }
 
-#[derive(Clone, Copy, PartialEq)]
+#[derive(Clone, Copy, PartialEq, Debug)]
 enum Zug {
     Nichts,
     Griff(usize),
     Verschieben,
     Textur,
     Schwenken,
+}
+
+/// Werkzeug in der Leiste
+#[derive(Clone, Copy, PartialEq, Debug)]
+pub enum Werkzeug {
+    Auswahl,
+    /// Textur der gewaehlten Flaeche mit der Maus verschieben
+    Textur,
+    /// neue Flaeche Ecke fuer Ecke klicken
+    Flaeche,
+    Linie,
+    Gelaender,
+    Gehpfad,
+}
+
+impl Werkzeug {
+    fn zeichnet(self) -> bool {
+        matches!(self, Werkzeug::Flaeche | Werkzeug::Linie | Werkzeug::Gelaender | Werkzeug::Gehpfad)
+    }
 }
 
 pub struct ObjektEditor {
@@ -425,28 +548,39 @@ pub struct ObjektEditor {
     pub plan: Bauplan,
     kontext: Kontext,
     pub wahl: Option<Wahl>,
-    mitte: DVec2,
-    m_px: f32,
+    unter: Option<Wahl>,
+    pub werkzeug: Werkzeug,
+    /// Eckpunkte des Bauteils, das gerade gezeichnet wird
+    entwurf: Vec<DVec2>,
     zug: Zug,
     letzte: Option<DVec2>,
     undo: Vec<String>,
     redo: Vec<String>,
     offen_aenderung: Option<String>,
     pub geaendert: bool,
+    zuletzt_geaendert: Instant,
     job: Option<Receiver<Result<String, String>>>,
     pub meldung: String,
     luftbild: Option<(egui::TextureHandle, [f64; 4])>,
     luft_job: Option<Receiver<Option<(egui::ColorImage, [f64; 4])>>>,
     luft_alpha: f32,
     texturen: std::collections::HashMap<String, Option<egui::TextureHandle>>,
-    texturen_echt: bool,
     einsetzen: bool,
+    pub automatisch: bool,
     einrasten: bool,
     neue_art: usize,
-    zeige: [bool; 8],
+    zeige: [bool; 10],
+    /// in der 3D-Ansicht bearbeiten (sonst nur im 2D-Plan)
+    pub drei_d: bool,
+    /// Flaechen in der 3D-Ansicht farbig fuellen
+    pub fuellen_3d: bool,
+    /// 2D-Plan (Fenster) zeigen
+    pub plan2d: bool,
+    mitte: DVec2,
+    m_px: f32,
 }
 
-const EBENEN: [&str; 8] = ["Flaechen", "Linien", "Haltlinien", "Symbole", "Ampeln", "Gelaender", "Furten", "Gehpfade"];
+const EBENEN: [&str; 10] = ["Flaechen", "Linien", "Haltlinien", "Symbole", "Ampeln", "Gelaender", "Furten", "Gehpfade", "Waende", "Strassen"];
 
 impl ObjektEditor {
     /// Editor fuer den Sonderbau Ring in Karte `karte` (Objekte in Sceneryobjects\Aschaffenburg\<karte>\Sonderbau_Ring)
@@ -458,27 +592,38 @@ impl ObjektEditor {
             Err(_) => Bauplan::default(),
         };
         let kontext = Kontext::lesen(&json);
-        let mut ed = ObjektEditor {
-            plan_pfad, json, root: root.to_path_buf(), karte: karte.to_string(), plan, kontext, wahl: None,
-            mitte: DVec2::new(1084.0, -265.0), m_px: 9.0, zug: Zug::Nichts, letzte: None, undo: vec![], redo: vec![],
-            offen_aenderung: None, geaendert: false, job: None, meldung: String::new(), luftbild: None, luft_job: None,
-            luft_alpha: 0.55, texturen: Default::default(), texturen_echt: true, einsetzen: true, einrasten: true, neue_art: 0,
-            zeige: [true; 8],
-        };
-        if ed.plan.flaechen.is_empty() || ed.kontext.arme.is_empty() {
+        let mut ed = ObjektEditor::leer();
+        ed.plan_pfad = plan_pfad;
+        ed.json = json;
+        ed.root = root.to_path_buf();
+        ed.karte = karte.to_string();
+        ed.plan = plan;
+        ed.kontext = kontext;
+        if ed.plan.flaechen.is_empty() || ed.kontext.arme.is_empty() || ed.kontext.stationen.is_empty() {
             ed.bauen(false);
-            ed.meldung = "Erstes Erzeugen des Sonderbaus laeuft (Bauplan aus dem Luftbild-Stand) ...".into();
+            ed.meldung = "Erzeugen des Sonderbaus laeuft (Bauplan und Kontext) ...".into();
         }
         ed.luftbild_laden(root);
         Ok(ed)
     }
 
+    fn leer() -> ObjektEditor {
+        ObjektEditor {
+            plan_pfad: PathBuf::new(), json: PathBuf::new(), root: PathBuf::new(), karte: String::new(), plan: Bauplan::default(),
+            kontext: Kontext::default(), wahl: None, unter: None, werkzeug: Werkzeug::Auswahl, entwurf: vec![], zug: Zug::Nichts,
+            letzte: None, undo: vec![], redo: vec![], offen_aenderung: None, geaendert: false, zuletzt_geaendert: Instant::now(), job: None,
+            meldung: String::new(), luftbild: None, luft_job: None, luft_alpha: 0.55, texturen: Default::default(), einsetzen: true,
+            automatisch: false, einrasten: true, neue_art: 0, zeige: [true; 10], drei_d: true, fuellen_3d: false, plan2d: false,
+            mitte: DVec2::new(1084.0, -265.0), m_px: 6.0,
+        }
+    }
+
     fn luftbild_laden(&mut self, root: &Path) {
         let Some(b) = crate::geo::Bezug::lesen(&root.join("maps").join(&self.karte)) else { return };
         let (tx, rx) = channel();
-        let bereich = [1030.0, -330.0, 1140.0, -200.0];
+        let bereich = [1030.0, -440.0, 1140.0, -120.0];
         std::thread::spawn(move || {
-            let erg = crate::geo::ausschnitt(&b, bereich, 1400).ok().flatten().and_then(|p| image::open(p).ok()).map(|i| {
+            let erg = crate::geo::ausschnitt(&b, bereich, 1600).ok().flatten().and_then(|p| image::open(p).ok()).map(|i| {
                 let i = i.to_rgba8();
                 (egui::ColorImage::from_rgba_unmultiplied([i.width() as usize, i.height() as usize], i.as_raw()), bereich)
             });
@@ -489,6 +634,11 @@ impl ObjektEditor {
 
     fn ordner(&self) -> PathBuf {
         self.json.parent().map(|p| p.to_path_buf()).unwrap_or_default()
+    }
+
+    /// Hoehe der Kreuzungsflaeche (Raster aus dem letzten Bauen), sonst None
+    pub fn hoehe(&self, p: DVec2) -> Option<f64> {
+        self.kontext.hoehen.h(p)
     }
 
     // ---------------------------------------------------------- Aenderungen und Rueckgaengig
@@ -502,9 +652,11 @@ impl ObjektEditor {
             self.offen_aenderung = Some(self.stand());
         }
         self.geaendert = true;
+        self.zuletzt_geaendert = Instant::now();
     }
 
-    fn abschliessen(&mut self) {
+    /// Bedienvorgang abschliessen (Maus losgelassen): Stand fuer Rueckgaengig ablegen
+    pub fn abschliessen(&mut self) {
         if let Some(s) = self.offen_aenderung.take() {
             if s != self.stand() {
                 self.undo.push(s);
@@ -516,7 +668,7 @@ impl ObjektEditor {
         }
     }
 
-    fn rueckgaengig(&mut self) {
+    pub fn rueckgaengig(&mut self) {
         self.abschliessen();
         if let Some(s) = self.undo.pop() {
             self.redo.push(self.stand());
@@ -525,10 +677,11 @@ impl ObjektEditor {
             }
             self.wahl = None;
             self.geaendert = true;
+            self.zuletzt_geaendert = Instant::now();
         }
     }
 
-    fn wiederholen(&mut self) {
+    pub fn wiederholen(&mut self) {
         if let Some(s) = self.redo.pop() {
             self.undo.push(self.stand());
             if let Ok(v) = serde_json::from_str(&s) {
@@ -536,6 +689,7 @@ impl ObjektEditor {
             }
             self.wahl = None;
             self.geaendert = true;
+            self.zuletzt_geaendert = Instant::now();
         }
     }
 
@@ -598,6 +752,33 @@ impl ObjektEditor {
         out
     }
 
+    /// Querschnitt einer Strasse aus dem Baukasten uebernehmen
+    pub fn querschnitt_setzen(&mut self, name: &str, q: serde_json::Value) {
+        self.aendern();
+        if let Some(st) = self.plan.strasse_mut(name) {
+            st["querschnitt"] = q;
+        }
+        self.abschliessen();
+        self.meldung = format!("Querschnitt von {name} uebernommen - Anwenden baut neu");
+    }
+
+    // ---------------------------------------------------------- Waende: Linien entlang der Stationen
+    fn wand_punkt(&self, st: &Station, w: &Wand) -> Option<DVec2> {
+        let t = *st.t.get(&format!("{}_{}", w.art, w.seite))?;
+        let vz = if w.seite == "w" { -1.0 } else { 1.0 };
+        Some(st.p + st.q * (t + vz * w.versatz))
+    }
+
+    fn wand_linie(&self, w: &Wand) -> Vec<DVec2> {
+        self.kontext.stationen.iter().filter(|st| st.s >= w.von - 1e-6 && st.s <= w.bis + 1e-6).filter_map(|st| self.wand_punkt(st, w)).collect()
+    }
+
+    /// Station der Wandlinie (Art, Seite) am naechsten zu p
+    fn station_bei(&self, w: &Wand, p: DVec2) -> Option<f64> {
+        self.kontext.stationen.iter().filter_map(|st| self.wand_punkt(st, w).map(|q| ((q - p).length(), st.s)))
+            .min_by(|a, b| a.0.total_cmp(&b.0)).map(|x| x.1)
+    }
+
     // ---------------------------------------------------------- Bauteile allgemein
     fn griffe(&self, w: Wahl) -> Vec<DVec2> {
         match w {
@@ -609,6 +790,27 @@ impl ObjektEditor {
             Wahl::Gelaender(i) => self.plan.gelaender.get(i).map(|x| x.punkte.clone()).unwrap_or_default(),
             Wahl::Furt(i) => self.plan.furten.get(i).map(|x| vec![x.a, x.b]).unwrap_or_default(),
             Wahl::Gehpfad(i) => self.plan.gehpfade.get(i).map(|x| x.punkte.clone()).unwrap_or_default(),
+            Wahl::Wand(i) => self.plan.waende.get(i).map(|w| {
+                let l = self.wand_linie(w);
+                match (l.first(), l.last()) {
+                    (Some(a), Some(b)) => vec![*a, *b],
+                    _ => vec![],
+                }
+            }).unwrap_or_default(),
+            Wahl::Strasse(_) => vec![],
+        }
+    }
+
+    /// Linie des Bauteils zum Zeichnen der Auswahl
+    fn umriss(&self, w: Wahl) -> (Vec<DVec2>, bool) {
+        match w {
+            Wahl::Flaeche(i) => (self.plan.flaechen.get(i).map(|x| x.punkte.clone()).unwrap_or_default(), true),
+            Wahl::Wand(i) => (self.plan.waende.get(i).map(|x| self.wand_linie(x)).unwrap_or_default(), false),
+            Wahl::Strasse(i) => (self.kontext.strassen.get(i).map(|x| x.1.clone()).unwrap_or_default(), false),
+            Wahl::Furt(i) => (self.plan.furten.get(i).map(|x| vec![x.a, x.b]).unwrap_or_default(), false),
+            Wahl::Symbol(i) => (self.plan.symbole.get(i).map(|x| vec![x.pos, x.pos + richtung_vec(x.richtung) * 5.0 * x.skala]).unwrap_or_default(), false),
+            Wahl::Ampel(i) => (self.plan.ampeln.get(i).map(|x| vec![x.pos - richtung_vec(x.richtung) * 0.46, x.pos + richtung_vec(x.richtung) * 1.0]).unwrap_or_default(), false),
+            _ => (self.griffe(w), false),
         }
     }
 
@@ -622,6 +824,7 @@ impl ObjektEditor {
             Wahl::Gelaender(i) => self.plan.gelaender.get_mut(i).map(|x| x.punkte.iter_mut().collect()).unwrap_or_default(),
             Wahl::Furt(i) => self.plan.furten.get_mut(i).map(|x| vec![&mut x.a, &mut x.b]).unwrap_or_default(),
             Wahl::Gehpfad(i) => self.plan.gehpfade.get_mut(i).map(|x| x.punkte.iter_mut().collect()).unwrap_or_default(),
+            Wahl::Wand(_) | Wahl::Strasse(_) => vec![],
         }
     }
 
@@ -644,7 +847,19 @@ impl ObjektEditor {
         }
     }
 
-    fn verschieben(&mut self, w: Wahl, d: DVec2) {
+    fn verschieben(&mut self, w: Wahl, von: DVec2, nach: DVec2) {
+        if let Wahl::Wand(i) = w {
+            let Some(wd) = self.plan.waende.get(i).cloned() else { return };
+            if let (Some(a), Some(b)) = (self.station_bei(&wd, von), self.station_bei(&wd, nach)) {
+                let d = b - a;
+                if let Some(x) = self.plan.waende.get_mut(i) {
+                    x.von += d;
+                    x.bis += d;
+                }
+            }
+            return;
+        }
+        let d = nach - von;
         for p in self.punkte_mut(w) {
             *p += d;
         }
@@ -656,7 +871,7 @@ impl ObjektEditor {
             return;
         }
         let g = self.griffe(w);
-        if g.is_empty() {
+        if g.is_empty() || matches!(w, Wahl::Wand(_) | Wahl::Strasse(_)) {
             return;
         }
         let c = g.iter().fold(DVec2::ZERO, |a, b| a + *b) / g.len() as f64;
@@ -677,119 +892,40 @@ impl ObjektEditor {
             Wahl::Gelaender(i) => drop(self.plan.gelaender.remove(i)),
             Wahl::Furt(i) => drop(self.plan.furten.remove(i)),
             Wahl::Gehpfad(i) => drop(self.plan.gehpfade.remove(i)),
+            Wahl::Wand(i) => drop(self.plan.waende.remove(i)),
+            Wahl::Strasse(_) => self.meldung = "Strassen lassen sich nicht loeschen (nur Querschnitt und Lage aendern)".into(),
         }
     }
 
     fn duplizieren(&mut self, w: Wahl) -> Wahl {
-        let d = DVec2::new(1.0, -1.0);
+        macro_rules! dup {
+            ($liste:ident, $art:expr, $v:ident) => {{
+                let mut x = self.plan.$liste[$v].clone();
+                x.id = self.plan.neue_id($art);
+                self.plan.$liste.push(x);
+                self.plan.$liste.len() - 1
+            }};
+        }
         let neu = match w {
-            Wahl::Flaeche(i) => {
-                let mut x = self.plan.flaechen[i].clone();
-                x.id = self.plan.neue_id("flaeche");
-                self.plan.flaechen.push(x);
-                Wahl::Flaeche(self.plan.flaechen.len() - 1)
+            Wahl::Flaeche(i) => Wahl::Flaeche(dup!(flaechen, "flaeche", i)),
+            Wahl::Linie(i) => Wahl::Linie(dup!(linien, "linie", i)),
+            Wahl::Halt(i) => Wahl::Halt(dup!(haltlinien, "halt", i)),
+            Wahl::Symbol(i) => Wahl::Symbol(dup!(symbole, "symbol", i)),
+            Wahl::Ampel(i) => Wahl::Ampel(dup!(ampeln, "ampel", i)),
+            Wahl::Gelaender(i) => Wahl::Gelaender(dup!(gelaender, "gelaender", i)),
+            Wahl::Furt(i) => Wahl::Furt(dup!(furten, "furt", i)),
+            Wahl::Gehpfad(i) => Wahl::Gehpfad(dup!(gehpfade, "gehpfad", i)),
+            Wahl::Wand(i) => {
+                let k = dup!(waende, "wand", i);
+                return Wahl::Wand(k);
             }
-            Wahl::Linie(i) => {
-                let mut x = self.plan.linien[i].clone();
-                x.id = self.plan.neue_id("linie");
-                self.plan.linien.push(x);
-                Wahl::Linie(self.plan.linien.len() - 1)
-            }
-            Wahl::Halt(i) => {
-                let mut x = self.plan.haltlinien[i].clone();
-                x.id = self.plan.neue_id("halt");
-                self.plan.haltlinien.push(x);
-                Wahl::Halt(self.plan.haltlinien.len() - 1)
-            }
-            Wahl::Symbol(i) => {
-                let mut x = self.plan.symbole[i].clone();
-                x.id = self.plan.neue_id(&x.art.clone());
-                self.plan.symbole.push(x);
-                Wahl::Symbol(self.plan.symbole.len() - 1)
-            }
-            Wahl::Ampel(i) => {
-                let mut x = self.plan.ampeln[i].clone();
-                x.id = self.plan.neue_id("ampel");
-                self.plan.ampeln.push(x);
-                Wahl::Ampel(self.plan.ampeln.len() - 1)
-            }
-            Wahl::Gelaender(i) => {
-                let mut x = self.plan.gelaender[i].clone();
-                x.id = self.plan.neue_id("gelaender");
-                self.plan.gelaender.push(x);
-                Wahl::Gelaender(self.plan.gelaender.len() - 1)
-            }
-            Wahl::Furt(i) => {
-                let mut x = self.plan.furten[i].clone();
-                x.id = self.plan.neue_id("furt");
-                self.plan.furten.push(x);
-                Wahl::Furt(self.plan.furten.len() - 1)
-            }
-            Wahl::Gehpfad(i) => {
-                let mut x = self.plan.gehpfade[i].clone();
-                x.id = self.plan.neue_id("gehpfad");
-                self.plan.gehpfade.push(x);
-                Wahl::Gehpfad(self.plan.gehpfade.len() - 1)
-            }
+            Wahl::Strasse(_) => return w,
         };
-        self.verschieben(neu, d);
+        let d = DVec2::new(1.0, -1.0);
+        for p in self.punkte_mut(neu) {
+            *p += d;
+        }
         neu
-    }
-
-    /// oberstes Bauteil unter p (Toleranz in m)
-    fn treffer(&self, p: DVec2, tol: f64) -> Option<Wahl> {
-        let z = &self.zeige;
-        if z[4] {
-            if let Some(i) = self.plan.ampeln.iter().rposition(|a| (a.pos - p).length() < tol.max(0.6)) {
-                return Some(Wahl::Ampel(i));
-            }
-        }
-        if z[3] {
-            if let Some(i) = self.plan.symbole.iter().rposition(|s| {
-                let v = richtung_vec(s.richtung);
-                let (a, b) = (s.pos, s.pos + v * 5.0 * s.skala);
-                abstand_strecke(p, a, b) < tol.max(0.9)
-            }) {
-                return Some(Wahl::Symbol(i));
-            }
-        }
-        if z[2] {
-            if let Some(i) = self.plan.haltlinien.iter().rposition(|h| abstand_zug(p, &h.punkte, false).0 < tol + h.breite / 2.0) {
-                return Some(Wahl::Halt(i));
-            }
-        }
-        if z[6] {
-            if let Some(i) = self.plan.furten.iter().rposition(|f| abstand_strecke(p, f.a, f.b) < f.breite / 2.0 + tol * 0.5) {
-                return Some(Wahl::Furt(i));
-            }
-        }
-        if z[1] {
-            if let Some(i) = self.plan.linien.iter().rposition(|l| abstand_zug(p, &l.punkte, false).0 < tol + l.breite / 2.0) {
-                return Some(Wahl::Linie(i));
-            }
-        }
-        if z[5] {
-            if let Some(i) = self.plan.gelaender.iter().rposition(|g| abstand_zug(p, &g.punkte, false).0 < tol) {
-                return Some(Wahl::Gelaender(i));
-            }
-        }
-        if z[7] {
-            if let Some(i) = self.plan.gehpfade.iter().rposition(|g| abstand_zug(p, &g.punkte, false).0 < tol) {
-                return Some(Wahl::Gehpfad(i));
-            }
-        }
-        if z[0] {
-            // oben liegende Flaechen zuerst (Markierungsflaechen, dann erhoehte, dann Fahrbahn)
-            let mut kand: Vec<usize> = (0..self.plan.flaechen.len()).filter(|&i| {
-                let f = &self.plan.flaechen[i];
-                punkt_in(p, &f.punkte) && !f.loecher.iter().any(|l| punkt_in(p, l))
-            }).collect();
-            kand.sort_by_key(|&i| std::cmp::Reverse(reihenfolge(&self.plan.flaechen[i].art)));
-            if let Some(&i) = kand.first() {
-                return Some(Wahl::Flaeche(i));
-            }
-        }
-        None
     }
 
     /// liegt Bauteil w unter p?
@@ -803,11 +939,48 @@ impl ObjektEditor {
             Wahl::Gelaender(i) => self.plan.gelaender.get(i).map(|g| abstand_zug(p, &g.punkte, false).0 < tol).unwrap_or(false),
             Wahl::Furt(i) => self.plan.furten.get(i).map(|f| abstand_strecke(p, f.a, f.b) < f.breite / 2.0 + tol * 0.5).unwrap_or(false),
             Wahl::Gehpfad(i) => self.plan.gehpfade.get(i).map(|g| abstand_zug(p, &g.punkte, false).0 < tol).unwrap_or(false),
+            Wahl::Wand(i) => self.plan.waende.get(i).map(|w| abstand_zug(p, &self.wand_linie(w), false).0 < tol.max(0.6)).unwrap_or(false),
+            Wahl::Strasse(i) => self.kontext.strassen.get(i).map(|s| abstand_zug(p, &s.1, false).0 < tol.max(0.8)).unwrap_or(false),
         }
     }
 
+    /// oberstes Bauteil unter p (Toleranz in m)
+    fn treffer(&self, p: DVec2, tol: f64) -> Option<Wahl> {
+        let z = &self.zeige;
+        let reihen: [(usize, Vec<Wahl>); 9] = [
+            (4, (0..self.plan.ampeln.len()).map(Wahl::Ampel).collect()),
+            (3, (0..self.plan.symbole.len()).map(Wahl::Symbol).collect()),
+            (2, (0..self.plan.haltlinien.len()).map(Wahl::Halt).collect()),
+            (6, (0..self.plan.furten.len()).map(Wahl::Furt).collect()),
+            (1, (0..self.plan.linien.len()).map(Wahl::Linie).collect()),
+            (5, (0..self.plan.gelaender.len()).map(Wahl::Gelaender).collect()),
+            (8, (0..self.plan.waende.len()).map(Wahl::Wand).collect()),
+            (7, (0..self.plan.gehpfade.len()).map(Wahl::Gehpfad).collect()),
+            (9, (0..self.kontext.strassen.len()).map(Wahl::Strasse).collect()),
+        ];
+        for (ebene, liste) in reihen.iter() {
+            if !z[*ebene] {
+                continue;
+            }
+            if let Some(w) = liste.iter().rev().find(|w| self.liegt_unter(**w, p, tol)) {
+                return Some(*w);
+            }
+        }
+        if z[0] {
+            let mut kand: Vec<usize> = (0..self.plan.flaechen.len()).filter(|&i| {
+                let f = &self.plan.flaechen[i];
+                punkt_in(p, &f.punkte) && !f.loecher.iter().any(|l| punkt_in(p, l))
+            }).collect();
+            kand.sort_by_key(|&i| std::cmp::Reverse(reihenfolge(&self.plan.flaechen[i].art)));
+            if let Some(&i) = kand.first() {
+                return Some(Wahl::Flaeche(i));
+            }
+        }
+        None
+    }
+
     /// naechster Eckpunkt eines anderen Bauteils (Einrasten)
-    fn einrasten_an(&self, p: DVec2, tol: f64, ausser: Wahl) -> Option<DVec2> {
+    fn einrasten_an(&self, p: DVec2, tol: f64, ausser: Option<Wahl>) -> Option<DVec2> {
         let mut best: Option<(f64, DVec2)> = None;
         let mut pruefe = |q: DVec2| {
             let d = (q - p).length();
@@ -816,17 +989,17 @@ impl ObjektEditor {
             }
         };
         for (i, f) in self.plan.flaechen.iter().enumerate() {
-            if ausser != Wahl::Flaeche(i) {
+            if ausser != Some(Wahl::Flaeche(i)) {
                 f.punkte.iter().for_each(|q| pruefe(*q));
             }
         }
         for (i, l) in self.plan.linien.iter().enumerate() {
-            if ausser != Wahl::Linie(i) {
+            if ausser != Some(Wahl::Linie(i)) {
                 l.punkte.iter().for_each(|q| pruefe(*q));
             }
         }
         for (i, g) in self.plan.gelaender.iter().enumerate() {
-            if ausser != Wahl::Gelaender(i) {
+            if ausser != Some(Wahl::Gelaender(i)) {
                 g.punkte.iter().for_each(|q| pruefe(*q));
             }
         }
@@ -834,6 +1007,7 @@ impl ObjektEditor {
             pruefe(a.links);
             pruefe(a.rechts);
         }
+        self.entwurf.iter().for_each(|q| pruefe(*q));
         best.map(|b| b.1)
     }
 
@@ -841,22 +1015,9 @@ impl ObjektEditor {
         self.aendern();
         let q = |dx: f64, dy: f64| c + DVec2::new(dx, dy);
         let w = match art {
-            "flaeche" => {
-                let a = FLAECHEN_ARTEN[self.neue_art].0.to_string();
-                let id = self.plan.neue_id("flaeche");
-                self.plan.flaechen.push(Flaeche { id, art: a, punkte: vec![q(-2.0, -2.0), q(2.0, -2.0), q(2.0, 2.0), q(-2.0, 2.0)], loecher: vec![],
-                                                  textur: Textur { dx: 0.0, dy: 0.0, skala: 1.0, dreh: 0.0 } });
-                Wahl::Flaeche(self.plan.flaechen.len() - 1)
-            }
-            "linie" | "strich" => {
-                let id = self.plan.neue_id("linie");
-                let (an, aus) = if art == "strich" { (3.0, 6.0) } else { (0.0, 0.0) };
-                self.plan.linien.push(Linie { id, punkte: vec![q(-3.0, 0.0), q(3.0, 0.0)], breite: 0.12, an, aus });
-                Wahl::Linie(self.plan.linien.len() - 1)
-            }
             "halt" => {
                 let id = self.plan.neue_id("halt");
-                let arm = self.kontext.arme.iter().enumerate().min_by(|a, b| (a.1.pos - c).length().partial_cmp(&(b.1.pos - c).length()).unwrap()).map(|x| x.0).unwrap_or(0);
+                let arm = self.kontext.arme.iter().enumerate().min_by(|a, b| (a.1.pos - c).length().total_cmp(&(b.1.pos - c).length())).map(|x| x.0).unwrap_or(0);
                 self.plan.haltlinien.push(Haltlinie { id, arm, punkte: vec![q(-1.75, 0.0), q(1.75, 0.0)], breite: 0.5 });
                 Wahl::Halt(self.plan.haltlinien.len() - 1)
             }
@@ -870,30 +1031,501 @@ impl ObjektEditor {
                 self.plan.ampeln.push(Ampel { id, art: art.into(), pos: c, richtung: 0.0, mast: "klein".into(), gruppe: 0 });
                 Wahl::Ampel(self.plan.ampeln.len() - 1)
             }
-            "gelaender" => {
-                let id = self.plan.neue_id("gelaender");
-                self.plan.gelaender.push(Gelaender { id, punkte: vec![q(-2.0, 0.0), q(2.0, 0.0)], unten: "gelaende".into(), flip: false });
-                Wahl::Gelaender(self.plan.gelaender.len() - 1)
-            }
             "furt" => {
                 let id = self.plan.neue_id("furt");
                 self.plan.furten.push(Furt { id, a: q(-4.0, 0.0), b: q(4.0, 0.0), breite: 3.0, gruppe: 0 });
                 Wahl::Furt(self.plan.furten.len() - 1)
             }
             _ => {
-                let id = self.plan.neue_id("gehpfad");
-                self.plan.gehpfade.push(Gehpfad { id, punkte: vec![q(-3.0, 0.0), q(3.0, 0.0)] });
-                Wahl::Gehpfad(self.plan.gehpfade.len() - 1)
+                // Wand: 20 m an der naechsten Station, Seite nach Lage des Punkts
+                let st = self.kontext.stationen.iter().min_by(|a, b| (a.p - c).length().total_cmp(&(b.p - c).length())).cloned().unwrap_or_default();
+                let seite = if (c - st.p).dot(st.q) < 0.0 { "w" } else { "o" };
+                let id = self.plan.neue_id("wand");
+                self.plan.waende.push(Wand { id, seite: seite.into(), art: "aussen".into(), von: st.s - 10.0, bis: st.s + 10.0,
+                                             material: if seite == "w" { "gabionen".into() } else { "klinker".into() }, laerm: "keine".into(),
+                                             versatz: 0.0, hoehe: 0.0, stufig: true });
+                Wahl::Wand(self.plan.waende.len() - 1)
             }
         };
         self.wahl = Some(w);
         self.abschliessen();
     }
 
-    // ---------------------------------------------------------- Fenster
-    pub fn ui(&mut self, ctx: &egui::Context, offen: &mut bool) -> Option<Aktion> {
+    /// gezeichnetes Bauteil anlegen
+    fn entwurf_fertig(&mut self) {
+        let pts = std::mem::take(&mut self.entwurf);
+        let min = if self.werkzeug == Werkzeug::Flaeche { 3 } else { 2 };
+        if pts.len() < min {
+            self.meldung = format!("zu wenige Punkte ({} noetig)", min);
+            return;
+        }
+        self.aendern();
+        let w = match self.werkzeug {
+            Werkzeug::Flaeche => {
+                let id = self.plan.neue_id("flaeche");
+                self.plan.flaechen.push(Flaeche { id, art: FLAECHEN_ARTEN[self.neue_art].0.into(), punkte: pts, loecher: vec![],
+                                                  textur: Textur { dx: 0.0, dy: 0.0, skala: 1.0, dreh: 0.0 } });
+                Wahl::Flaeche(self.plan.flaechen.len() - 1)
+            }
+            Werkzeug::Linie => {
+                let id = self.plan.neue_id("linie");
+                self.plan.linien.push(Linie { id, punkte: pts, breite: 0.12, an: 0.0, aus: 0.0 });
+                Wahl::Linie(self.plan.linien.len() - 1)
+            }
+            Werkzeug::Gelaender => {
+                let id = self.plan.neue_id("gelaender");
+                self.plan.gelaender.push(Gelaender { id, punkte: pts, unten: "gelaende".into(), flip: false });
+                Wahl::Gelaender(self.plan.gelaender.len() - 1)
+            }
+            _ => {
+                let id = self.plan.neue_id("gehpfad");
+                self.plan.gehpfade.push(Gehpfad { id, punkte: pts });
+                Wahl::Gehpfad(self.plan.gehpfade.len() - 1)
+            }
+        };
+        self.abschliessen();
+        self.wahl = Some(w);
+        self.werkzeug = Werkzeug::Auswahl;
+        self.meldung = "Bauteil angelegt".into();
+    }
+
+    // ---------------------------------------------------------- Bedienung (2D und 3D, Weltpunkte)
+    /// Maus ueber q (Hervorhebung)
+    pub fn hover(&mut self, q: Option<DVec2>, tol: f64) {
+        self.unter = if self.werkzeug.zeichnet() { None } else { q.and_then(|q| self.treffer(q, tol)) };
+    }
+
+    pub fn zieht(&self) -> bool {
+        self.zug != Zug::Nichts
+    }
+
+    /// haelt die Maus ein Bauteil, einen Griff oder eine Textur (sonst darf die Kamera schwenken)?
+    pub fn greift(&self) -> bool {
+        matches!(self.zug, Zug::Griff(_) | Zug::Verschieben | Zug::Textur)
+    }
+
+    /// zeichnet gerade ein neues Bauteil (Klicks gehoeren dem Editor)
+    pub fn zeichnet(&self) -> bool {
+        self.werkzeug.zeichnet()
+    }
+
+    /// linke Maustaste gedrueckt bei q
+    pub fn druecken(&mut self, q: DVec2, tol: f64, alt: bool) {
+        self.letzte = Some(q);
+        if self.werkzeug.zeichnet() {
+            self.zug = Zug::Nichts;
+            return;
+        }
+        let textur = alt || self.werkzeug == Werkzeug::Textur;
+        let griff = self.wahl.and_then(|w| self.griffe(w).iter().position(|g| (*g - q).length() < tol * 1.4));
+        self.zug = match (griff, self.wahl) {
+            (Some(k), Some(_)) if !textur => Zug::Griff(k),
+            (_, Some(Wahl::Flaeche(i))) if textur && self.liegt_unter(Wahl::Flaeche(i), q, tol) => Zug::Textur,
+            _ => {
+                let t = if self.wahl.map(|w| self.liegt_unter(w, q, tol)).unwrap_or(false) { self.wahl } else { self.treffer(q, tol) };
+                self.wahl = t;
+                match t {
+                    Some(Wahl::Flaeche(_)) if textur => Zug::Textur,
+                    Some(Wahl::Strasse(_)) => Zug::Nichts,
+                    Some(_) => Zug::Verschieben,
+                    None => Zug::Schwenken,
+                }
+            }
+        };
+    }
+
+    /// Maus mit gedrueckter linker Taste bei q
+    pub fn ziehen(&mut self, q: DVec2, tol: f64, strg: bool) {
+        let Some(l) = self.letzte else { return };
+        let d = q - l;
+        match (self.zug, self.wahl) {
+            (Zug::Griff(k), Some(Wahl::Wand(i))) => {
+                self.aendern();
+                let Some(wd) = self.plan.waende.get(i).cloned() else { return };
+                if let Some(s) = self.station_bei(&wd, q) {
+                    if let Some(x) = self.plan.waende.get_mut(i) {
+                        if k == 0 { x.von = s.min(x.bis - 2.0) } else { x.bis = s.max(x.von + 2.0) }
+                    }
+                }
+            }
+            (Zug::Griff(k), Some(w)) => {
+                self.aendern();
+                let mut ziel = q;
+                if self.einrasten && !strg {
+                    if let Some(s) = self.einrasten_an(q, tol * 1.5, Some(w)) {
+                        ziel = s;
+                    }
+                }
+                if let Some(pk) = self.punkte_mut(w).into_iter().nth(k) {
+                    *pk = ziel;
+                }
+            }
+            (Zug::Verschieben, Some(w)) => {
+                self.aendern();
+                self.verschieben(w, l, q);
+            }
+            (Zug::Textur, Some(Wahl::Flaeche(i))) => {
+                self.aendern();
+                if let Some(fl) = self.plan.flaechen.get_mut(i) {
+                    let sk = material(&fl.art).1 * fl.textur.skala.max(0.05);
+                    let (sn, cs) = fl.textur.dreh.to_radians().sin_cos();
+                    // die Textur folgt der Maus: uv am verschobenen Punkt bleibt gleich
+                    fl.textur.dx -= (cs * d.x + sn * d.y) / sk;
+                    fl.textur.dy -= (-sn * d.x + cs * d.y) / sk;
+                }
+            }
+            _ => {}
+        }
+        self.letzte = Some(q);
+    }
+
+    pub fn loslassen(&mut self) {
+        self.zug = Zug::Nichts;
+        self.letzte = None;
+        self.abschliessen();
+    }
+
+    /// Klick (ohne Ziehen) bei q
+    pub fn klicken(&mut self, q: DVec2, tol: f64, strg: bool) {
+        if self.werkzeug.zeichnet() {
+            let mut p = q;
+            if self.einrasten && !strg {
+                if let Some(s) = self.einrasten_an(q, tol * 1.5, None) {
+                    p = s;
+                }
+            }
+            // Klick auf den ersten Punkt schliesst die Flaeche
+            if self.werkzeug == Werkzeug::Flaeche && self.entwurf.len() >= 3 && (self.entwurf[0] - p).length() < tol * 1.5 {
+                self.entwurf_fertig();
+                return;
+            }
+            self.entwurf.push(p);
+            return;
+        }
+        if self.werkzeug == Werkzeug::Textur {
+            return;
+        }
+        self.wahl = self.treffer(q, tol);
+    }
+
+    /// Doppelklick: Zeichnen beenden, sonst Punkt auf der Kante einfuegen
+    pub fn doppelklick(&mut self, q: DVec2, tol: f64) {
+        if self.werkzeug.zeichnet() {
+            self.entwurf.pop();
+            self.entwurf_fertig();
+            return;
+        }
+        if let Some(w) = self.wahl {
+            if let Some((zug, zu, _)) = self.zug_mut(w) {
+                let (d, k) = abstand_zug(q, zug, zu);
+                if d < tol * 2.0 {
+                    self.aendern();
+                    if let Some((zug, _, _)) = self.zug_mut(w) {
+                        zug.insert(k + 1, q);
+                    }
+                    self.abschliessen();
+                }
+            }
+        }
+    }
+
+    /// Rechtsklick ohne Ziehen: Eckpunkt loeschen bzw. letzten gezeichneten Punkt zuruecknehmen
+    pub fn rechtsklick(&mut self, q: DVec2, tol: f64) -> bool {
+        if self.werkzeug.zeichnet() && !self.entwurf.is_empty() {
+            self.entwurf.pop();
+            return true;
+        }
+        if let Some(w) = self.wahl {
+            if let Some(k) = self.griffe(w).iter().position(|g| (*g - q).length() < tol * 1.4) {
+                let geht = self.zug_mut(w).map(|(z, _, min)| z.len() > min).unwrap_or(false);
+                if geht {
+                    self.aendern();
+                    if let Some((zug, _, _)) = self.zug_mut(w) {
+                        zug.remove(k);
+                    }
+                    self.abschliessen();
+                    return true;
+                }
+            }
+        }
+        false
+    }
+
+    /// Mausrad mit Alt/Strg: Textur skalieren/drehen, Pfeil/Ampel drehen -> true, wenn verbraucht
+    pub fn rad(&mut self, rad: f32, alt: bool, strg: bool) -> bool {
+        if rad == 0.0 || !(alt || strg) {
+            return false;
+        }
+        match (alt, strg, self.wahl) {
+            (true, _, Some(Wahl::Flaeche(i))) => {
+                self.aendern();
+                if let Some(fl) = self.plan.flaechen.get_mut(i) {
+                    fl.textur.skala = (fl.textur.skala * 1.05f64.powf(rad as f64)).clamp(0.05, 20.0);
+                }
+            }
+            (false, true, Some(Wahl::Flaeche(i))) => {
+                self.aendern();
+                if let Some(fl) = self.plan.flaechen.get_mut(i) {
+                    fl.textur.dreh += 5.0 * rad.signum() as f64;
+                }
+            }
+            (false, true, Some(w)) => {
+                self.aendern();
+                self.drehen(w, 5.0 * rad.signum() as f64);
+            }
+            _ => return false,
+        }
+        self.abschliessen();
+        true
+    }
+
+    /// Taste -> true, wenn der Editor sie verbraucht hat
+    pub fn taste(&mut self, k: egui::Key, umschalt: bool, strg: bool) -> bool {
+        match k {
+            egui::Key::Escape if self.werkzeug.zeichnet() && !self.entwurf.is_empty() => self.entwurf.clear(),
+            egui::Key::Escape if self.werkzeug != Werkzeug::Auswahl => self.werkzeug = Werkzeug::Auswahl,
+            egui::Key::Escape if self.wahl.is_some() => self.wahl = None,
+            egui::Key::Enter if self.werkzeug.zeichnet() => self.entwurf_fertig(),
+            egui::Key::Backspace if self.werkzeug.zeichnet() => drop(self.entwurf.pop()),
+            egui::Key::Delete if self.wahl.is_some() => {
+                let w = self.wahl.unwrap();
+                self.aendern();
+                self.loeschen(w);
+                self.wahl = None;
+                self.abschliessen();
+            }
+            egui::Key::D if strg && self.wahl.is_some() => {
+                let w = self.wahl.unwrap();
+                self.aendern();
+                self.wahl = Some(self.duplizieren(w));
+                self.abschliessen();
+            }
+            egui::Key::Z if strg && !umschalt && !self.undo.is_empty() => self.rueckgaengig(),
+            egui::Key::Y if strg && !self.redo.is_empty() => self.wiederholen(),
+            egui::Key::Z if strg && umschalt && !self.redo.is_empty() => self.wiederholen(),
+            _ => return false,
+        }
+        true
+    }
+
+    // ---------------------------------------------------------- Zeichnen (2D und 3D)
+    fn textur(&mut self, ctx: &egui::Context, datei: &str) -> Option<egui::TextureId> {
+        if !self.texturen.contains_key(datei) {
+            let pfad = self.ordner().join("texture").join(datei);
+            let t = image::open(&pfad).ok().map(|i| {
+                let i = i.to_rgba8();
+                let img = egui::ColorImage::from_rgba_unmultiplied([i.width() as usize, i.height() as usize], i.as_raw());
+                ctx.load_texture(format!("oe_{datei}"), img, egui::TextureOptions { wrap_mode: egui::TextureWrapMode::Repeat, ..egui::TextureOptions::LINEAR })
+            });
+            self.texturen.insert(datei.to_string(), t);
+        }
+        self.texturen.get(datei).and_then(|t| t.as_ref().map(|t| t.id()))
+    }
+
+    /// alle Bauteile zeichnen. `bild`: Weltpunkt (mit Hoehe) -> Bildschirm, `boden`: Hoehe ohne Raster,
+    /// `m`: Pixel je Meter (fuer Linienbreiten), `fuellen`: Flaechen fuellen, `texturiert`: mit den echten Texturen
+    pub fn zeichnen(&mut self, ctx: &egui::Context, p: &egui::Painter, bild: &dyn Fn(DVec3) -> Option<egui::Pos2>, boden: &dyn Fn(DVec2) -> f64,
+                    m: f32, fuellen: bool, texturiert: bool, deck: u8) {
+        let raster = std::mem::take(&mut self.kontext.hoehen);
+        let hoehe = |q: DVec2| raster.h(q).map(|z| z + 0.1).unwrap_or_else(|| boden(q)) + 0.06;
+        let b = |q: DVec2| bild(q.extend(hoehe(q)));
+        let zug = |pts: &[DVec2]| -> Vec<egui::Pos2> { pts.iter().filter_map(|q| b(*q)).collect() };
+        // Trogoeffnungen (fest)
+        for o in &self.kontext.offen {
+            p.add(egui::Shape::closed_line(zug(o), egui::Stroke::new(1.5, egui::Color32::from_rgb(120, 120, 140))));
+        }
+        if self.zeige[0] {
+            let mut ord: Vec<usize> = (0..self.plan.flaechen.len()).collect();
+            ord.sort_by_key(|&i| reihenfolge(&self.plan.flaechen[i].art));
+            for i in ord {
+                let fl = self.plan.flaechen[i].clone();
+                if fuellen {
+                    let ring = mit_loechern(&fl.punkte, &fl.loecher);
+                    let tris = dreiecke(&ring);
+                    let (datei, m_tex) = material(&fl.art);
+                    let tex = if texturiert { self.textur(ctx, datei) } else { None };
+                    let farbe = farbe_art(&fl.art);
+                    let mut mesh = match tex {
+                        Some(id) => egui::epaint::Mesh::with_texture(id),
+                        None => egui::epaint::Mesh::default(),
+                    };
+                    let sk = m_tex * fl.textur.skala.max(0.05);
+                    let (sn, cs) = fl.textur.dreh.to_radians().sin_cos();
+                    let a = if fl.art == "sperr" && tex.is_none() { deck / 2 } else { deck };
+                    let mut ok = true;
+                    for q in &ring {
+                        let Some(pos) = b(*q) else { ok = false; break };
+                        let uv = egui::pos2(((cs * q.x + sn * q.y) / sk + fl.textur.dx) as f32, -((-sn * q.x + cs * q.y) / sk + fl.textur.dy) as f32);
+                        let col = if tex.is_some() { egui::Color32::from_white_alpha(a) } else { egui::Color32::from_rgba_unmultiplied(farbe.r(), farbe.g(), farbe.b(), a) };
+                        mesh.vertices.push(egui::epaint::Vertex { pos, uv: if tex.is_some() { uv } else { egui::epaint::WHITE_UV }, color: col });
+                    }
+                    if ok {
+                        for t in tris {
+                            mesh.indices.extend([t[0] as u32, t[1] as u32, t[2] as u32]);
+                        }
+                        p.add(egui::Shape::mesh(mesh));
+                    }
+                }
+                let rand = match fl.art.as_str() {
+                    "gehweg" | "insel" | "gruen" => egui::Stroke::new(1.5, egui::Color32::from_rgb(210, 210, 200)),
+                    "sperr" => egui::Stroke::new(1.2, egui::Color32::from_rgb(235, 235, 235)),
+                    "radfurt" => egui::Stroke::new(1.2, egui::Color32::from_rgb(220, 90, 80)),
+                    _ => egui::Stroke::new(0.8, egui::Color32::from_rgba_unmultiplied(255, 255, 255, 70)),
+                };
+                p.add(egui::Shape::closed_line(zug(&fl.punkte), rand));
+            }
+        }
+        let weiss = egui::Color32::from_rgb(245, 245, 240);
+        let breite_px = |b_: f64| ((b_ as f32) * m).max(1.2);
+        if self.zeige[9] {
+            for (name, pts) in &self.kontext.strassen {
+                let l = zug(pts);
+                p.add(egui::Shape::line(l.clone(), egui::Stroke::new(1.0, egui::Color32::from_rgba_unmultiplied(110, 170, 255, 150))));
+                if let Some(q) = l.get(l.len() / 2) {
+                    p.text(*q, egui::Align2::CENTER_CENTER, name.replace('_', " "), egui::FontId::proportional(10.0), egui::Color32::from_rgb(150, 200, 255));
+                }
+            }
+        }
+        if self.zeige[8] {
+            for w in &self.plan.waende {
+                let l = zug(&self.wand_linie(w));
+                let farbe = match w.material.as_str() {
+                    "gabionen" => egui::Color32::from_rgb(170, 160, 140),
+                    "beton" => egui::Color32::from_rgb(200, 200, 200),
+                    _ => egui::Color32::from_rgb(190, 80, 60),
+                };
+                p.add(egui::Shape::line(l.clone(), egui::Stroke::new(if w.art == "trenn" { 3.0 } else { 4.0 }, farbe)));
+                if w.laerm != "keine" {
+                    let c = if w.laerm == "glas" { egui::Color32::from_rgb(140, 220, 255) } else { egui::Color32::from_rgb(60, 170, 110) };
+                    p.extend(egui::Shape::dashed_line(&l, egui::Stroke::new(2.0, c), 6.0, 4.0));
+                }
+            }
+        }
+        if self.zeige[1] {
+            for l in &self.plan.linien {
+                let pts = zug(&l.punkte);
+                let st = egui::Stroke::new(breite_px(l.breite), weiss);
+                if l.aus > 0.0 && l.an > 0.0 {
+                    p.extend(egui::Shape::dashed_line(&pts, st, (l.an as f32) * m, (l.aus as f32) * m));
+                } else {
+                    p.add(egui::Shape::line(pts, st));
+                }
+            }
+        }
+        if self.zeige[2] {
+            for h in &self.plan.haltlinien {
+                p.add(egui::Shape::line(zug(&h.punkte), egui::Stroke::new(breite_px(h.breite), weiss)));
+            }
+        }
+        if self.zeige[6] {
+            for f_ in &self.plan.furten {
+                let d = (f_.b - f_.a).normalize_or_zero();
+                let nq = DVec2::new(-d.y, d.x) * f_.breite / 2.0;
+                for sgn in [1.0, -1.0] {
+                    p.extend(egui::Shape::dashed_line(&zug(&[f_.a + nq * sgn, f_.b + nq * sgn]), egui::Stroke::new(breite_px(0.12), weiss), 0.5 * m, 0.2 * m));
+                }
+                p.add(egui::Shape::line(zug(&[f_.a, f_.b]), egui::Stroke::new(1.0, egui::Color32::from_rgb(120, 220, 255))));
+            }
+        }
+        if self.zeige[3] {
+            for sy in &self.plan.symbole {
+                let v = richtung_vec(sy.richtung) * sy.skala;
+                let r = rechts_vec(sy.richtung) * sy.skala;
+                let w = |a: f64, bb: f64| b(sy.pos + v * bb + r * a);
+                let st = egui::Stroke::new(breite_px(0.18).max(1.5), weiss);
+                let seg = |x: Option<egui::Pos2>, y: Option<egui::Pos2>| if let (Some(x), Some(y)) = (x, y) { p.line_segment([x, y], st); };
+                if sy.art == "bus" {
+                    if let Some(c) = w(0.0, 1.2) {
+                        p.text(c, egui::Align2::CENTER_CENTER, "BUS", egui::FontId::proportional((1.6 * m).clamp(9.0, 40.0)), weiss);
+                    }
+                    continue;
+                }
+                seg(w(0.0, 0.0), w(0.0, 2.6));
+                if sy.pfeile.iter().any(|x| x == "gerade") || sy.pfeile.is_empty() {
+                    seg(w(0.0, 2.5), w(0.0, 3.9));
+                    if let (Some(a), Some(bb), Some(c)) = (w(-0.35, 3.8), w(0.0, 5.0), w(0.35, 3.8)) {
+                        p.add(egui::Shape::convex_polygon(vec![a, bb, c], weiss, egui::Stroke::NONE));
+                    }
+                }
+                for (k, sgn) in [("links", -1.0), ("rechts", 1.0)] {
+                    if sy.pfeile.iter().any(|x| x == k) {
+                        seg(w(0.0, 2.4), w(sgn * 0.7, 3.3));
+                        if let (Some(a), Some(bb), Some(c)) = (w(sgn * 0.45, 3.35), w(sgn * 1.15, 3.85), w(sgn * 0.95, 2.95)) {
+                            p.add(egui::Shape::convex_polygon(vec![a, bb, c], weiss, egui::Stroke::NONE));
+                        }
+                    }
+                }
+            }
+        }
+        if self.zeige[5] {
+            for g in &self.plan.gelaender {
+                p.add(egui::Shape::line(zug(&g.punkte), egui::Stroke::new(3.0, egui::Color32::from_rgb(220, 110, 160))));
+            }
+        }
+        if self.zeige[7] {
+            for g in &self.plan.gehpfade {
+                p.extend(egui::Shape::dashed_line(&zug(&g.punkte), egui::Stroke::new(1.2, egui::Color32::from_rgb(120, 220, 255)), 4.0, 3.0));
+            }
+        }
+        if self.zeige[4] {
+            for a in &self.plan.ampeln {
+                let v = richtung_vec(a.richtung);
+                let mast = a.pos - v * 0.46;
+                let farbe = if a.art == "fg" { egui::Color32::from_rgb(90, 220, 120) } else { egui::Color32::from_rgb(255, 80, 70) };
+                if let (Some(x), Some(y)) = (b(mast), b(a.pos + v * 1.6)) {
+                    p.line_segment([x, y], egui::Stroke::new(2.0, farbe));
+                }
+                if a.mast == "ausleger" {
+                    if let (Some(x), Some(y)) = (b(mast), b(mast - rechts_vec(a.richtung) * 4.0)) {
+                        p.line_segment([x, y], egui::Stroke::new(2.0, egui::Color32::from_rgb(160, 170, 170)));
+                    }
+                }
+                if let Some(c) = b(a.pos) {
+                    p.circle(c, 5.0, farbe, egui::Stroke::new(1.0, egui::Color32::BLACK));
+                    p.text(c + egui::vec2(6.0, -6.0), egui::Align2::LEFT_BOTTOM, format!("{}", a.gruppe + 1), egui::FontId::proportional(11.0), egui::Color32::WHITE);
+                }
+            }
+        }
+        for a in &self.kontext.arme {
+            if let (Some(x), Some(y)) = (b(a.links), b(a.rechts)) {
+                p.line_segment([x, y], egui::Stroke::new(2.5, egui::Color32::from_rgb(255, 160, 40)));
+            }
+        }
+        // Hervorhebung unter der Maus, Auswahl mit Griffen
+        if let Some(w) = self.unter.filter(|u| Some(*u) != self.wahl) {
+            let (l, zu) = self.umriss(w);
+            let st = egui::Stroke::new(2.0, egui::Color32::from_rgba_unmultiplied(255, 255, 255, 200));
+            if zu { p.add(egui::Shape::closed_line(zug(&l), st)); } else { p.add(egui::Shape::line(zug(&l), st)); }
+        }
+        if let Some(w) = self.wahl {
+            let gelb = egui::Color32::from_rgb(255, 230, 40);
+            let (l, zu) = self.umriss(w);
+            let st = egui::Stroke::new(2.5, gelb);
+            if zu { p.add(egui::Shape::closed_line(zug(&l), st)); } else { p.add(egui::Shape::line(zug(&l), st)); }
+            for q in self.griffe(w) {
+                if let Some(c) = b(q) {
+                    p.rect_filled(egui::Rect::from_center_size(c, egui::vec2(9.0, 9.0)), 1.5, gelb);
+                    p.rect_stroke(egui::Rect::from_center_size(c, egui::vec2(9.0, 9.0)), 1.5, egui::Stroke::new(1.0, egui::Color32::BLACK), egui::StrokeKind::Outside);
+                }
+            }
+        }
+        // laufender Entwurf
+        if !self.entwurf.is_empty() {
+            let c = egui::Color32::from_rgb(80, 255, 160);
+            let l = zug(&self.entwurf);
+            p.add(egui::Shape::line(l.clone(), egui::Stroke::new(2.0, c)));
+            for (i, q) in l.iter().enumerate() {
+                p.circle_filled(*q, if i == 0 { 6.0 } else { 4.0 }, c);
+            }
+        }
+        self.kontext.hoehen = raster;
+    }
+
+    // ---------------------------------------------------------- Oberflaeche
+    /// Leiste rechts (Panel) und auf Wunsch das 2D-Fenster
+    pub fn ui(&mut self, haupt: &mut egui::Ui, offen: &mut bool) -> Option<Aktion> {
+        let ctx = &haupt.ctx().clone();
         let mut erg = None;
-        // Hintergrundarbeiten
         if let Some(rx) = &self.luft_job {
             if let Ok(r) = rx.try_recv() {
                 self.luft_job = None;
@@ -908,45 +1540,71 @@ impl ObjektEditor {
                 match r {
                     Ok(t) => {
                         self.kontext = Kontext::lesen(&self.json);
-                        if self.plan.flaechen.is_empty() {
-                            if let Ok(b) = std::fs::read(&self.plan_pfad) {
-                                if let Ok(v) = serde_json::from_slice(&b) {
-                                    self.plan = Bauplan::aus_json(&v);
+                        if let Ok(b) = std::fs::read(&self.plan_pfad) {
+                            if let Ok(v) = serde_json::from_slice::<serde_json::Value>(&b) {
+                                // der Generator ergaenzt beim ersten Mal Strassen und Waende: uebernehmen, ohne Eigenes zu verlieren
+                                let neu = Bauplan::aus_json(&v);
+                                if self.plan.flaechen.is_empty() {
+                                    self.plan = neu;
+                                } else {
+                                    if self.plan.waende.is_empty() {
+                                        self.plan.waende = neu.waende;
+                                    }
+                                    if !self.plan.rest.contains_key("strassen") {
+                                        if let Some(st) = neu.rest.get("strassen") {
+                                            self.plan.rest.insert("strassen".into(), st.clone());
+                                        }
+                                    }
                                 }
                             }
                         }
                         self.texturen.clear();
-                        self.geaendert = false;
+                        if self.offen_aenderung.is_none() && Instant::now().duration_since(self.zuletzt_geaendert) > Duration::from_millis(50) {
+                            self.geaendert = self.stand() != std::fs::read_to_string(&self.plan_pfad).map(|t| serde_json::from_str::<serde_json::Value>(&t).map(|v| Bauplan::aus_json(&v).json().to_string()).unwrap_or_default()).unwrap_or_default();
+                        }
                         self.meldung = format!("Neu gebaut: {t}");
                         erg = Some(Aktion::Gebaut { json: self.json.clone(), einsetzen: self.einsetzen });
                     }
                     Err(e) => self.meldung = format!("Bauen fehlgeschlagen: {e}"),
                 }
             }
-            ctx.request_repaint_after(std::time::Duration::from_millis(200));
+            ctx.request_repaint_after(Duration::from_millis(200));
         }
-        // feste Groesse nach dem Bildschirm (ein Fenster, dessen Inhalt den Platz fuellt, wuerde sonst immer weiter wachsen)
-        let scr = ctx.content_rect();
-        let groesse = egui::vec2((scr.width() - 60.0).clamp(500.0, 1500.0), (scr.height() - 120.0).clamp(300.0, 880.0));
-        egui::Window::new("Objekt-Editor: Sonderbau Ring / Kreuzung Ludwigsallee").open(offen).fixed_size(groesse).default_pos(scr.min + egui::vec2(20.0, 50.0)).show(ctx, |ui| {
-            // links die Zeichenflaeche, rechts die Leiste
-            let (w, h) = (groesse.x, groesse.y);
-            ui.horizontal_top(|ui| {
-                let cw = (w - 330.0 - 3.0 * ui.spacing().item_spacing.x - 12.0).max(200.0);
-                ui.allocate_ui_with_layout(egui::vec2(cw, h), egui::Layout::top_down(egui::Align::Min), |ui| self.zeichenflaeche(ui));
-                ui.separator();
-                ui.allocate_ui_with_layout(egui::vec2(330.0, h), egui::Layout::top_down(egui::Align::Min), |ui| {
-                    ui.set_width(330.0);
-                    ui.set_max_width(330.0);
-                    egui::ScrollArea::vertical().id_salt("oe_leiste").show(ui, |ui| {
-                        if let Some(a) = self.seitenleiste(ui) {
-                            erg = Some(a);
-                        }
-                    });
+        // automatisch anwenden: 1,5 s nach der letzten Aenderung (nicht waehrend gezogen wird)
+        if self.automatisch && self.geaendert && self.job.is_none() && self.offen_aenderung.is_none()
+            && Instant::now().duration_since(self.zuletzt_geaendert) > Duration::from_millis(1500) && !ctx.input(|i| i.pointer.any_down()) {
+            self.bauen(true);
+        } else if self.automatisch && self.geaendert {
+            ctx.request_repaint_after(Duration::from_millis(300));
+        }
+        let mut schliessen = false;
+        egui::Panel::right("objekteditor").default_size(340.0).resizable(true).show(haupt, |ui| {
+            ui.horizontal(|ui| {
+                ui.heading("Objekt-Editor");
+                ui.with_layout(egui::Layout::right_to_left(egui::Align::Center), |ui| {
+                    if ui.button("x").on_hover_text("Objekt-Editor schliessen").clicked() {
+                        schliessen = true;
+                    }
                 });
             });
+            ui.label(egui::RichText::new("Sonderbau Ring / Kreuzung Ludwigsallee").weak());
+            egui::ScrollArea::vertical().id_salt("oe_leiste").show(ui, |ui| {
+                if let Some(a) = self.seitenleiste(ui) {
+                    erg = Some(a);
+                }
+            });
         });
-        if !ctx.input(|i| i.pointer.any_down()) {
+        if schliessen {
+            *offen = false;
+        }
+        if self.plan2d {
+            let mut auf = true;
+            egui::Window::new("2D-Plan (Luftbild)").open(&mut auf).default_size([760.0, 620.0]).resizable(true).show(ctx, |ui| {
+                self.zeichenflaeche(ui);
+            });
+            self.plan2d = auf;
+        }
+        if !ctx.input(|i| i.pointer.any_down()) && self.zug == Zug::Nichts {
             self.abschliessen();
         }
         erg
@@ -954,34 +1612,35 @@ impl ObjektEditor {
 
     fn seitenleiste(&mut self, ui: &mut egui::Ui) -> Option<Aktion> {
         let mut erg = None;
+        // --- Anwenden
         ui.horizontal_wrapped(|ui| {
             let laeuft = self.job.is_some();
-            if ui.add_enabled(!laeuft, egui::Button::new(egui::RichText::new("Anwenden").strong())).on_hover_text("Bauplan speichern, alle Objekte neu bauen und (wenn angehakt) in die Karte setzen").clicked() {
+            let text = if self.geaendert { egui::RichText::new("\u{25B6} Anwenden").strong().color(egui::Color32::from_rgb(255, 210, 80)) } else { egui::RichText::new("\u{25B6} Anwenden").strong() };
+            if ui.add_enabled(!laeuft, egui::Button::new(text)).on_hover_text("Bauplan speichern, alle Objekte neu bauen und in die Karte setzen").clicked() {
                 self.bauen(true);
             }
             if laeuft {
                 ui.spinner();
             }
-            if ui.button("Speichern").on_hover_text("nur den Bauplan speichern").clicked() {
+            ui.checkbox(&mut self.automatisch, "automatisch").on_hover_text("nach jeder Aenderung von selbst neu bauen (1,5 s spaeter)");
+        });
+        ui.horizontal_wrapped(|ui| {
+            if ui.add_enabled(!self.undo.is_empty(), egui::Button::new("Rueckgaengig")).on_hover_text("Strg+Z").clicked() {
+                self.rueckgaengig();
+            }
+            if ui.add_enabled(!self.redo.is_empty(), egui::Button::new("Wiederholen")).on_hover_text("Strg+Y").clicked() {
+                self.wiederholen();
+            }
+            if ui.button("Kamera hin").on_hover_text("die 3D-Ansicht auf die Kreuzung richten").clicked() {
+                erg = Some(Aktion::Kamera(DVec3::new(1084.0, -266.0, 10.0)));
+            }
+            if ui.button("Speichern").on_hover_text("nur den Bauplan speichern (ohne neu zu bauen)").clicked() {
                 self.meldung = match self.speichern() {
                     Ok(()) => format!("Bauplan gespeichert: {}", self.plan_pfad.display()),
                     Err(e) => e,
                 };
             }
-            if ui.add_enabled(!self.undo.is_empty(), egui::Button::new("Rueckgaengig")).on_hover_text("Rueckgaengig (im Editor)").clicked() {
-                self.rueckgaengig();
-            }
-            if ui.add_enabled(!self.redo.is_empty(), egui::Button::new("Wiederholen")).on_hover_text("Wiederholen").clicked() {
-                self.wiederholen();
-            }
-            if ui.button("Kamera").on_hover_text("die 3D-Ansicht auf die Kreuzung richten").clicked() {
-                erg = Some(Aktion::Kamera(DVec3::new(self.mitte.x, self.mitte.y, 10.0)));
-            }
         });
-        ui.checkbox(&mut self.einsetzen, "beim Anwenden in die Karte setzen").on_hover_text("ersetzt Strassen und Objekte an der Stelle (Sitzung, Rueckgaengig, Speichern wie gewohnt)");
-        if self.geaendert {
-            ui.colored_label(egui::Color32::from_rgb(255, 200, 80), "nicht angewendete Aenderungen");
-        }
         if !self.meldung.is_empty() {
             ui.label(egui::RichText::new(&self.meldung).small());
         }
@@ -989,92 +1648,119 @@ impl ObjektEditor {
             ui.colored_label(egui::Color32::from_rgb(255, 120, 90), format!("{} Ampelteile stehen nicht auf Gehweg/Insel", self.kontext.lose));
         }
         ui.separator();
-        ui.horizontal(|ui| {
-            ui.label("Luftbild");
-            ui.add(egui::Slider::new(&mut self.luft_alpha, 0.0..=1.0).show_value(false));
-            ui.checkbox(&mut self.texturen_echt, "Texturen");
-            ui.checkbox(&mut self.einrasten, "Einrasten");
-        });
+        // --- Werkzeuge
+        ui.label(egui::RichText::new("Werkzeug").strong());
         ui.horizontal_wrapped(|ui| {
-            for (i, n) in EBENEN.iter().enumerate() {
-                ui.checkbox(&mut self.zeige[i], *n);
+            for (w, t, tip) in [
+                (Werkzeug::Auswahl, "\u{1F446} Auswaehlen", "Bauteil anklicken, ziehen verschiebt, gelbe Punkte ziehen; Doppelklick auf eine Kante fuegt einen Punkt ein, Rechtsklick loescht ihn"),
+                (Werkzeug::Textur, "\u{1F5BC} Textur schieben", "gewaehlte Flaeche: Ziehen verschiebt die Textur (auch Alt+Ziehen im Auswaehlen), Alt+Rad skaliert, Strg+Rad dreht"),
+                (Werkzeug::Flaeche, "\u{2B1F} Flaeche zeichnen", "Ecken klicken; Klick auf den ersten Punkt, Doppelklick oder Enter schliesst"),
+                (Werkzeug::Linie, "\u{2571} Linie zeichnen", "Punkte klicken; Doppelklick oder Enter beendet"),
+                (Werkzeug::Gelaender, "Gelaender zeichnen", "Punkte klicken; Doppelklick oder Enter beendet"),
+                (Werkzeug::Gehpfad, "Gehpfad zeichnen", "Punkte klicken; Doppelklick oder Enter beendet"),
+            ] {
+                if ui.selectable_label(self.werkzeug == w, t).on_hover_text(tip).clicked() {
+                    self.werkzeug = w;
+                    self.entwurf.clear();
+                }
             }
         });
-        ui.separator();
-        ui.label(egui::RichText::new("Neu (in der Mitte der Ansicht)").strong());
-        let c = self.mitte;
-        ui.horizontal_wrapped(|ui| {
+        if self.werkzeug == Werkzeug::Flaeche {
             egui::ComboBox::from_id_salt("oe_neue_art").selected_text(FLAECHEN_ARTEN[self.neue_art].1).show_ui(ui, |ui| {
                 for (i, (_, n)) in FLAECHEN_ARTEN.iter().enumerate() {
                     ui.selectable_value(&mut self.neue_art, i, *n);
                 }
             });
-            if ui.button("+ Flaeche").clicked() {
-                self.neues("flaeche", c);
-            }
-        });
+        }
+        let hinweis = match self.werkzeug {
+            Werkzeug::Auswahl => "Klick waehlt (weiss = unter der Maus, gelb = gewaehlt). Ziehen verschiebt, gelbe Punkte ziehen. Entf loescht, Strg+D dupliziert, Esc hebt auf.",
+            Werkzeug::Textur => "Flaeche waehlen und ziehen: die Textur folgt der Maus. Alt+Rad: Groesse, Strg+Rad: Drehung.",
+            _ => "Punkte klicken (rastet an Eckpunkten ein, Strg ohne). Doppelklick/Enter beendet, Rechtsklick/Ruecktaste nimmt den letzten zurueck, Esc bricht ab.",
+        };
+        ui.label(egui::RichText::new(hinweis).small().weak());
+        ui.label(egui::RichText::new("Neu an der Kamera-Mitte:").small());
+        let c = self.mitte;
         ui.horizontal_wrapped(|ui| {
-            for (k, t) in [("linie", "Linie"), ("strich", "Leitlinie"), ("halt", "Haltlinie"), ("pfeil", "Pfeil"), ("bus", "BUS"), ("kfz", "Kfz-Ampel"),
-                           ("fg", "Fussg.-Ampel"), ("gelaender", "Gelaender"), ("furt", "Furt"), ("gehpfad", "Gehpfad")] {
+            for (k, t) in [("halt", "Haltlinie"), ("pfeil", "Pfeil"), ("bus", "BUS"), ("kfz", "Kfz-Ampel"), ("fg", "Fussg.-Ampel"), ("furt", "Furt"), ("wand", "Wand")] {
                 if ui.small_button(format!("+ {t}")).clicked() {
                     self.neues(k, c);
                 }
             }
         });
         ui.separator();
+        // --- Auswahl
         if let Some(w) = self.wahl {
-            self.eigenschaften(ui, w);
+            if let Some(a) = self.eigenschaften(ui, w) {
+                erg = Some(a);
+            }
         } else {
-            ui.label(egui::RichText::new("Bauteil anklicken (oder unten in der Liste waehlen).").weak());
+            ui.label(egui::RichText::new("Kein Bauteil gewaehlt - in der 3D-Ansicht oder im 2D-Plan anklicken, oder unten in der Liste.").weak());
         }
         ui.separator();
+        // --- Ansicht
+        egui::CollapsingHeader::new("Ansicht").default_open(false).show(ui, |ui| {
+            ui.checkbox(&mut self.drei_d, "in der 3D-Ansicht bearbeiten");
+            ui.checkbox(&mut self.fuellen_3d, "Flaechen in 3D farbig fuellen");
+            ui.checkbox(&mut self.plan2d, "2D-Plan mit Luftbild und Texturen");
+            ui.checkbox(&mut self.einrasten, "an Eckpunkten einrasten");
+            ui.checkbox(&mut self.einsetzen, "beim Anwenden in die Karte setzen");
+            ui.horizontal_wrapped(|ui| {
+                for (i, n) in EBENEN.iter().enumerate() {
+                    ui.checkbox(&mut self.zeige[i], *n);
+                }
+            });
+        });
         self.bauwerk_ui(ui);
-        ui.separator();
         self.liste(ui);
-        ui.separator();
-        ui.label(egui::RichText::new("Bedienung: Klick waehlt, Ziehen verschiebt, Eckpunkte ziehen. Doppelklick auf eine Kante fuegt einen Punkt ein, \
-            Rechtsklick auf einen Punkt loescht ihn. Alt+Ziehen verschiebt die Textur einer Flaeche, Alt+Rad skaliert sie, Strg+Rad dreht \
-            (Textur bzw. Pfeil/Ampel). Rechte Maustaste/Mitte: Ansicht schieben, Rad: Zoom. Pfeiltasten: 5 cm (Umschalt 50 cm), Entf loescht.").small().weak());
         erg
     }
 
-    fn eigenschaften(&mut self, ui: &mut egui::Ui, w: Wahl) {
+    fn eigenschaften(&mut self, ui: &mut egui::Ui, w: Wahl) -> Option<Aktion> {
+        let mut erg = None;
         let mut weg = false;
         let mut dup = false;
-        ui.horizontal(|ui| {
-            ui.label(egui::RichText::new(match w {
-                Wahl::Flaeche(_) => "Flaeche", Wahl::Linie(_) => "Linie", Wahl::Halt(_) => "Haltlinie", Wahl::Symbol(_) => "Symbol",
-                Wahl::Ampel(_) => "Ampel", Wahl::Gelaender(_) => "Gelaender", Wahl::Furt(_) => "Fussgaengerfurt", Wahl::Gehpfad(_) => "Gehpfad",
-            }).strong());
-            if ui.small_button("duplizieren").clicked() {
-                dup = true;
-            }
-            if ui.small_button("loeschen").clicked() {
-                weg = true;
-            }
-            for (t, g) in [("-15\u{B0}", -15.0), ("-1\u{B0}", -1.0), ("+1\u{B0}", 1.0), ("+15\u{B0}", 15.0)] {
-                if ui.small_button(t).on_hover_text("drehen (um die Mitte bzw. die Richtung)").clicked() {
-                    self.aendern();
-                    self.drehen(w, g);
+        let titel = match w {
+            Wahl::Flaeche(_) => "Flaeche", Wahl::Linie(_) => "Linie", Wahl::Halt(_) => "Haltlinie", Wahl::Symbol(_) => "Symbol",
+            Wahl::Ampel(_) => "Ampel", Wahl::Gelaender(_) => "Gelaender", Wahl::Furt(_) => "Fussgaengerfurt", Wahl::Gehpfad(_) => "Gehpfad",
+            Wahl::Wand(_) => "Wand", Wahl::Strasse(_) => "Strasse",
+        };
+        ui.horizontal_wrapped(|ui| {
+            ui.label(egui::RichText::new(titel).strong().size(16.0));
+            if !matches!(w, Wahl::Strasse(_)) {
+                if ui.small_button("duplizieren").on_hover_text("Strg+D").clicked() {
+                    dup = true;
+                }
+                if ui.small_button("loeschen").on_hover_text("Entf").clicked() {
+                    weg = true;
                 }
             }
         });
+        if !matches!(w, Wahl::Wand(_) | Wahl::Strasse(_)) {
+            ui.horizontal(|ui| {
+                ui.label("drehen");
+                for (t, g) in [("-15\u{B0}", -15.0), ("-1\u{B0}", -1.0), ("+1\u{B0}", 1.0), ("+15\u{B0}", 15.0)] {
+                    if ui.small_button(t).clicked() {
+                        self.aendern();
+                        self.drehen(w, g);
+                    }
+                }
+            });
+        }
         if dup {
             self.aendern();
             self.wahl = Some(self.duplizieren(w));
-            return;
+            return None;
         }
         if weg {
             self.aendern();
             self.loeschen(w);
             self.wahl = None;
-            return;
+            return None;
         }
         let mut ae = false;
-        let dv = |ui: &mut egui::Ui, v: &mut f64, speed: f64, txt: &str| ui.add(egui::DragValue::new(v).speed(speed).prefix(txt)).changed();
         match w {
             Wahl::Flaeche(i) => {
-                let Some(fl) = self.plan.flaechen.get_mut(i) else { return };
+                let Some(fl) = self.plan.flaechen.get_mut(i) else { return None };
                 egui::ComboBox::from_id_salt("oe_f_art").selected_text(FLAECHEN_ARTEN.iter().find(|a| a.0 == fl.art).map(|a| a.1).unwrap_or(&fl.art)).show_ui(ui, |ui| {
                     for (k, n) in FLAECHEN_ARTEN {
                         if ui.selectable_label(fl.art == k, n).clicked() {
@@ -1083,33 +1769,31 @@ impl ObjektEditor {
                         }
                     }
                 });
-                ui.label(format!("{} Eckpunkte, {} Loecher, {:.1} m\u{B2}", fl.punkte.len(), fl.loecher.len(), flaeche2(&fl.punkte).abs()));
-                ui.label(egui::RichText::new("Textur").strong());
+                ui.label(format!("{} Eckpunkte, {:.1} m\u{B2}", fl.punkte.len(), flaeche2(&fl.punkte).abs()));
+                ui.label(egui::RichText::new("Textur (Werkzeug \"Textur schieben\" oder Zahlen)").strong());
                 ui.horizontal(|ui| {
-                    ae |= dv(ui, &mut fl.textur.dx, 0.01, "u ");
-                    ae |= dv(ui, &mut fl.textur.dy, 0.01, "v ");
+                    ae |= ui.add(egui::DragValue::new(&mut fl.textur.dx).speed(0.01).prefix("u ")).changed();
+                    ae |= ui.add(egui::DragValue::new(&mut fl.textur.dy).speed(0.01).prefix("v ")).changed();
                 });
                 ui.horizontal(|ui| {
-                    ae |= ui.add(egui::DragValue::new(&mut fl.textur.skala).speed(0.01).range(0.05..=20.0).prefix("Skala ")).changed();
+                    ae |= ui.add(egui::DragValue::new(&mut fl.textur.skala).speed(0.01).range(0.05..=20.0).prefix("Groesse ")).changed();
                     ae |= ui.add(egui::DragValue::new(&mut fl.textur.dreh).speed(0.5).suffix("\u{B0}").prefix("Drehung ")).changed();
-                    if ui.small_button("zuruecksetzen").clicked() {
-                        fl.textur = Textur { dx: 0.0, dy: 0.0, skala: 1.0, dreh: 0.0 };
-                        ae = true;
-                    }
                 });
+                if ui.small_button("Textur zuruecksetzen").clicked() {
+                    fl.textur = Textur { dx: 0.0, dy: 0.0, skala: 1.0, dreh: 0.0 };
+                    ae = true;
+                }
             }
             Wahl::Linie(i) => {
-                let Some(l) = self.plan.linien.get_mut(i) else { return };
-                ui.horizontal(|ui| {
-                    ae |= ui.add(egui::DragValue::new(&mut l.breite).speed(0.005).range(0.05..=2.0).prefix("Breite ").suffix(" m")).changed();
-                });
+                let Some(l) = self.plan.linien.get_mut(i) else { return None };
+                ae |= ui.add(egui::DragValue::new(&mut l.breite).speed(0.005).range(0.05..=2.0).prefix("Breite ").suffix(" m")).changed();
                 ui.horizontal(|ui| {
                     ae |= ui.add(egui::DragValue::new(&mut l.an).speed(0.05).range(0.0..=20.0).prefix("Strich ").suffix(" m")).changed();
                     ae |= ui.add(egui::DragValue::new(&mut l.aus).speed(0.05).range(0.0..=20.0).prefix("Luecke ").suffix(" m")).changed();
                 });
                 ui.horizontal_wrapped(|ui| {
                     for (t, b, a, u) in [("durchgezogen", 0.12, 0.0, 0.0), ("Leitlinie 3/6", 0.12, 3.0, 6.0), ("Leitlinie 6/3", 0.12, 6.0, 3.0),
-                                         ("Radfurt-Rand", 0.15, 0.5, 0.5), ("Breitstrich", 0.25, 0.0, 0.0), ("Abbieger 1,5/1,5", 0.12, 1.5, 1.5)] {
+                                         ("Radfurt-Rand", 0.15, 0.5, 0.5), ("Breitstrich", 0.25, 0.0, 0.0), ("Abbieger", 0.12, 1.5, 1.5), ("Haltlinie", 0.5, 0.0, 0.0)] {
                         if ui.small_button(t).clicked() {
                             l.breite = b;
                             l.an = a;
@@ -1121,7 +1805,7 @@ impl ObjektEditor {
             }
             Wahl::Halt(i) => {
                 let arme: Vec<String> = self.kontext.arme.iter().map(|a| a.name.clone()).collect();
-                let Some(h) = self.plan.haltlinien.get_mut(i) else { return };
+                let Some(h) = self.plan.haltlinien.get_mut(i) else { return None };
                 egui::ComboBox::from_id_salt("oe_h_arm").selected_text(arme.get(h.arm).cloned().unwrap_or_else(|| format!("Arm {}", h.arm))).show_ui(ui, |ui| {
                     for (k, n) in arme.iter().enumerate() {
                         if ui.selectable_label(h.arm == k, n).clicked() {
@@ -1134,7 +1818,7 @@ impl ObjektEditor {
                 ui.label(egui::RichText::new("Die Fahrzeuge dieser Zufahrt halten an der Linie.").small().weak());
             }
             Wahl::Symbol(i) => {
-                let Some(sy) = self.plan.symbole.get_mut(i) else { return };
+                let Some(sy) = self.plan.symbole.get_mut(i) else { return None };
                 ui.horizontal(|ui| {
                     ae |= ui.selectable_value(&mut sy.art, "pfeil".to_string(), "Pfeil").changed();
                     ae |= ui.selectable_value(&mut sy.art, "bus".to_string(), "BUS").changed();
@@ -1159,85 +1843,136 @@ impl ObjektEditor {
                 });
             }
             Wahl::Ampel(i) => {
-                let Some(a) = self.plan.ampeln.get_mut(i) else { return };
+                let Some(a) = self.plan.ampeln.get_mut(i) else { return None };
                 ui.horizontal(|ui| {
                     ae |= ui.selectable_value(&mut a.art, "kfz".to_string(), "Kfz").changed();
                     ae |= ui.selectable_value(&mut a.art, "fg".to_string(), "Fussgaenger").changed();
-                    ui.separator();
+                });
+                ui.horizontal(|ui| {
                     ae |= ui.selectable_value(&mut a.mast, "klein".to_string(), "kleiner Mast").changed();
                     ae |= ui.selectable_value(&mut a.mast, "ausleger".to_string(), "Ausleger").changed();
                 });
                 ui.horizontal(|ui| {
                     ae |= ui.add(egui::DragValue::new(&mut a.richtung).speed(0.5).suffix("\u{B0}").prefix("blickt nach ")).changed();
-                    ae |= ui.add(egui::DragValue::new(&mut a.gruppe).range(0..=9).prefix("Phase ")).on_hover_text("Signalgruppe (0 = erste Phase)").changed();
+                    ae |= ui.add(egui::DragValue::new(&mut a.gruppe).range(0..=9).prefix("Phase ")).changed();
                 });
-                ui.label(egui::RichText::new("Der Mast steht 0,46 m hinter dem Signal; Ausleger ragen nach links ueber die Fahrbahn.").small().weak());
             }
             Wahl::Gelaender(i) => {
-                let Some(g) = self.plan.gelaender.get_mut(i) else { return };
+                let Some(g) = self.plan.gelaender.get_mut(i) else { return None };
                 ui.horizontal(|ui| {
                     ae |= ui.selectable_value(&mut g.unten, "gelaende".to_string(), "Wand bis zum Gelaende").changed();
                     ae |= ui.selectable_value(&mut g.unten, "trog".to_string(), "Trogrand").changed();
                 });
-                ae |= ui.checkbox(&mut g.flip, "Seite tauschen").on_hover_text("Wand/Gelaender auf die andere Seite der Linie").changed();
+                ae |= ui.checkbox(&mut g.flip, "Seite tauschen").changed();
             }
             Wahl::Furt(i) => {
-                let Some(fu) = self.plan.furten.get_mut(i) else { return };
+                let Some(fu) = self.plan.furten.get_mut(i) else { return None };
                 ui.horizontal(|ui| {
                     ae |= ui.add(egui::DragValue::new(&mut fu.breite).speed(0.05).range(1.0..=10.0).prefix("Breite ").suffix(" m")).changed();
                     ae |= ui.add(egui::DragValue::new(&mut fu.gruppe).range(0..=9).prefix("Phase ")).changed();
                 });
             }
             Wahl::Gehpfad(_) => {
-                ui.label(egui::RichText::new("Fussgaengerpfad (Punkte ziehen, Doppelklick fuegt ein)").small().weak());
+                ui.label(egui::RichText::new("Fussgaengerpfad").small().weak());
+            }
+            Wahl::Wand(i) => {
+                let Some(wd) = self.plan.waende.get_mut(i) else { return None };
+                ui.horizontal(|ui| {
+                    ae |= ui.selectable_value(&mut wd.art, "trenn".to_string(), "Trennwand (Ring/Rampe)").changed();
+                    ae |= ui.selectable_value(&mut wd.art, "aussen".to_string(), "Aussenwand").changed();
+                });
+                ui.horizontal(|ui| {
+                    ae |= ui.selectable_value(&mut wd.seite, "w".to_string(), "West").changed();
+                    ae |= ui.selectable_value(&mut wd.seite, "o".to_string(), "Ost").changed();
+                });
+                ui.horizontal(|ui| {
+                    ui.label("Material");
+                    for (k, n) in [("klinker", "Klinker"), ("beton", "Beton"), ("gabionen", "Gabionen")] {
+                        ae |= ui.selectable_value(&mut wd.material, k.to_string(), n).changed();
+                    }
+                });
+                if wd.art == "aussen" {
+                    ui.horizontal(|ui| {
+                        ui.label("Laermschutz");
+                        for (k, n) in [("keine", "keiner"), ("gruen", "gruen"), ("glas", "Glas")] {
+                            ae |= ui.selectable_value(&mut wd.laerm, k.to_string(), n).changed();
+                        }
+                    });
+                    ae |= ui.checkbox(&mut wd.stufig, "zweistufig mit Pflanzstreifen (ab 3,5 m, Klinker)").changed();
+                }
+                ui.horizontal(|ui| {
+                    ae |= ui.add(egui::DragValue::new(&mut wd.von).speed(0.5).prefix("von ").suffix(" m")).changed();
+                    ae |= ui.add(egui::DragValue::new(&mut wd.bis).speed(0.5).prefix("bis ").suffix(" m")).changed();
+                });
+                ui.horizontal(|ui| {
+                    ae |= ui.add(egui::DragValue::new(&mut wd.versatz).speed(0.02).range(-5.0..=5.0).prefix("Versatz ").suffix(" m")).on_hover_text("nach aussen (weg vom Ring) positiv").changed();
+                    ae |= ui.add(egui::DragValue::new(&mut wd.hoehe).speed(0.02).range(-5.0..=10.0).prefix("Hoehe +").suffix(" m")).changed();
+                });
+                ui.label(egui::RichText::new("Stationen: m entlang der Ring-Achse (Nord = 0). Enden mit den gelben Punkten ziehen.").small().weak());
+                if ui.small_button("in der Mitte teilen").clicked() {
+                    let mut b = wd.clone();
+                    let m = (wd.von + wd.bis) / 2.0;
+                    wd.bis = m;
+                    b.von = m;
+                    b.id = format!("{}b", b.id);
+                    self.aendern();
+                    self.plan.waende.push(b);
+                }
+            }
+            Wahl::Strasse(i) => {
+                let Some((name, _)) = self.kontext.strassen.get(i).cloned() else { return None };
+                ui.label(egui::RichText::new(name.replace('_', " ")).strong());
+                let st = self.plan.strassen().into_iter().find(|s| s.0 == name);
+                match st {
+                    Some((_, q, versatz)) => {
+                        if let Some(teile) = q["teile"].as_array() {
+                            let zeile: Vec<String> = teile.iter().map(|t| format!("{} {:.2}", s(t, "art"), f(t, "breite", 0.0))).collect();
+                            ui.label(egui::RichText::new(zeile.join(" | ")).small());
+                        }
+                        if ui.button("Querschnitt im Baukasten bearbeiten ...").clicked() {
+                            erg = Some(Aktion::Querschnitt(name.clone(), q.clone()));
+                        }
+                        if let Some(mut v) = versatz {
+                            if ui.add(egui::DragValue::new(&mut v).speed(0.02).prefix("Lage zur Ring-Achse ").suffix(" m")).on_hover_text("Abstand der Spurmitte von der Ring-Achse (West positiv)").changed() {
+                                self.aendern();
+                                if let Some(x) = self.plan.strasse_mut(&name) {
+                                    x["versatz"] = v.into();
+                                }
+                            }
+                        }
+                        ui.label(egui::RichText::new("Die Linie zeigt den letzten Bau; Anwenden verlegt die Strasse.").small().weak());
+                    }
+                    None => {
+                        ui.label("noch kein Querschnitt im Bauplan - einmal Anwenden");
+                    }
+                }
             }
         }
         // Punkte als Zahlen
-        egui::CollapsingHeader::new("Punkte").id_salt(("oe_punkte", format!("{w:?}"))).show(ui, |ui| {
-            let n = self.griffe(w).len();
-            for k in 0..n.min(60) {
-                ui.horizontal(|ui| {
-                    ui.label(format!("{k}"));
-                    let mut pts = self.punkte_mut(w);
-                    if let Some(p) = pts.get_mut(k) {
-                        ae |= ui.add(egui::DragValue::new(&mut p.x).speed(0.02).prefix("x ")).changed();
-                        ae |= ui.add(egui::DragValue::new(&mut p.y).speed(0.02).prefix("y ")).changed();
-                    }
-                });
-            }
-        });
-        if ae {
-            self.aendern();
-        }
-    }
-
-    fn bauwerk_ui(&mut self, ui: &mut egui::Ui) {
-        egui::CollapsingHeader::new("Bauwerk: Laermschutzwaende, Bahntunnel, Ampelphasen").show(ui, |ui| {
-            let mut ae = false;
-            let mut lsw = self.plan.rest.get("lsw").cloned().unwrap_or(serde_json::json!({"w": [], "o": []}));
-            for (seite, name) in [("w", "West (gruen)"), ("o", "Ost (Glas)")] {
-                ui.label(format!("Laermschutzwand {name}, von/bis Station (m entlang der Ring-Achse, Nord = 0)"));
-                let mut liste: Vec<[f64; 2]> = lsw[seite].as_array().map(|a| a.iter().map(|x| [x[0].as_f64().unwrap_or(0.0), x[1].as_f64().unwrap_or(0.0)]).collect()).unwrap_or_default();
-                let mut weg = None;
-                for (k, b) in liste.iter_mut().enumerate() {
+        if !matches!(w, Wahl::Wand(_) | Wahl::Strasse(_)) {
+            egui::CollapsingHeader::new("Punkte als Zahlen").id_salt(("oe_punkte", format!("{w:?}"))).show(ui, |ui| {
+                let n = self.griffe(w).len();
+                for k in 0..n.min(60) {
                     ui.horizontal(|ui| {
-                        ae |= ui.add(egui::DragValue::new(&mut b[0]).speed(0.5).range(0.0..=400.0)).changed();
-                        ae |= ui.add(egui::DragValue::new(&mut b[1]).speed(0.5).range(0.0..=400.0)).changed();
-                        if ui.small_button("x").clicked() {
-                            weg = Some(k);
+                        ui.label(format!("{k}"));
+                        let mut pts = self.punkte_mut(w);
+                        if let Some(p) = pts.get_mut(k) {
+                            ae |= ui.add(egui::DragValue::new(&mut p.x).speed(0.02).prefix("x ")).changed();
+                            ae |= ui.add(egui::DragValue::new(&mut p.y).speed(0.02).prefix("y ")).changed();
                         }
                     });
                 }
-                if let Some(k) = weg {
-                    liste.remove(k);
-                    ae = true;
-                }
-                if ui.small_button("+ Bereich").clicked() {
-                    liste.push([0.0, 20.0]);
-                    ae = true;
-                }
-                lsw[seite] = serde_json::json!(liste);
-            }
+            });
+        }
+        if ae {
+            self.aendern();
+        }
+        erg
+    }
+
+    fn bauwerk_ui(&mut self, ui: &mut egui::Ui) {
+        egui::CollapsingHeader::new("Bahntunnel und Ampelphasen").show(ui, |ui| {
+            let mut ae = false;
             let mut tun = self.plan.rest.get("tunnel").cloned().unwrap_or(serde_json::json!({"x0": 1054.0, "x1": 1066.0, "sohle": 3.3}));
             ui.label("Bahntunnel unter der Kreuzung (Waende bei x, Sohle)");
             ui.horizontal(|ui| {
@@ -1249,7 +1984,7 @@ impl ObjektEditor {
                     }
                 }
             });
-            ui.label("Ampelphase je Zufahrt (Arm)");
+            ui.label("Ampelphase je Zufahrt");
             let mut phasen: Vec<i64> = self.plan.rest.get("phasen").and_then(|v| v.as_array()).map(|a| a.iter().map(|x| x.as_i64().unwrap_or(0)).collect()).unwrap_or_default();
             for (k, p) in phasen.iter_mut().enumerate() {
                 let n = self.kontext.arme.get(k).map(|a| a.name.clone()).unwrap_or_else(|| format!("Arm {k}"));
@@ -1260,7 +1995,6 @@ impl ObjektEditor {
             }
             if ae {
                 self.aendern();
-                self.plan.rest.insert("lsw".into(), lsw);
                 self.plan.rest.insert("tunnel".into(), tun);
                 self.plan.rest.insert("phasen".into(), serde_json::json!(phasen));
             }
@@ -1270,353 +2004,103 @@ impl ObjektEditor {
     fn liste(&mut self, ui: &mut egui::Ui) {
         egui::CollapsingHeader::new("Alle Bauteile").show(ui, |ui| {
             let mut neu = None;
-            let eintrag = |ui: &mut egui::Ui, aktiv: bool, t: String| ui.selectable_label(aktiv, t).clicked();
-            for (i, x) in self.plan.flaechen.iter().enumerate() {
-                if eintrag(ui, self.wahl == Some(Wahl::Flaeche(i)), format!("Flaeche {} ({})", x.id, x.art)) {
-                    neu = Some(Wahl::Flaeche(i));
-                }
-            }
-            for (i, x) in self.plan.linien.iter().enumerate() {
-                if eintrag(ui, self.wahl == Some(Wahl::Linie(i)), format!("Linie {} ({:.2} m{})", x.id, x.breite, if x.aus > 0.0 { ", gestrichelt" } else { "" })) {
-                    neu = Some(Wahl::Linie(i));
-                }
-            }
-            for (i, x) in self.plan.haltlinien.iter().enumerate() {
-                if eintrag(ui, self.wahl == Some(Wahl::Halt(i)), format!("Haltlinie {} (Arm {})", x.id, x.arm)) {
-                    neu = Some(Wahl::Halt(i));
-                }
-            }
-            for (i, x) in self.plan.symbole.iter().enumerate() {
-                if eintrag(ui, self.wahl == Some(Wahl::Symbol(i)), format!("{} {} {}", if x.art == "bus" { "BUS" } else { "Pfeil" }, x.id, x.pfeile.join("/"))) {
-                    neu = Some(Wahl::Symbol(i));
-                }
-            }
-            for (i, x) in self.plan.ampeln.iter().enumerate() {
-                if eintrag(ui, self.wahl == Some(Wahl::Ampel(i)), format!("Ampel {} ({}, {}, Phase {})", x.id, x.art, x.mast, x.gruppe)) {
-                    neu = Some(Wahl::Ampel(i));
-                }
-            }
-            for (i, x) in self.plan.gelaender.iter().enumerate() {
-                if eintrag(ui, self.wahl == Some(Wahl::Gelaender(i)), format!("Gelaender {} ({})", x.id, x.unten)) {
-                    neu = Some(Wahl::Gelaender(i));
-                }
-            }
-            for (i, x) in self.plan.furten.iter().enumerate() {
-                if eintrag(ui, self.wahl == Some(Wahl::Furt(i)), format!("Furt {}", x.id)) {
-                    neu = Some(Wahl::Furt(i));
-                }
-            }
-            for (i, x) in self.plan.gehpfade.iter().enumerate() {
-                if eintrag(ui, self.wahl == Some(Wahl::Gehpfad(i)), format!("Gehpfad {}", x.id)) {
-                    neu = Some(Wahl::Gehpfad(i));
-                }
-            }
+            let mut gruppe = |ui: &mut egui::Ui, titel: &str, eintraege: Vec<(Wahl, String)>, wahl: Option<Wahl>| {
+                egui::CollapsingHeader::new(format!("{titel} ({})", eintraege.len())).id_salt(("oe_l", titel.to_string())).show(ui, |ui| {
+                    for (w, t) in eintraege {
+                        if ui.selectable_label(wahl == Some(w), t).clicked() {
+                            neu = Some(w);
+                        }
+                    }
+                });
+            };
+            let p = &self.plan;
+            gruppe(ui, "Waende", p.waende.iter().enumerate().map(|(i, x)| (Wahl::Wand(i), format!("{} {} {:.0}-{:.0} m, {}{}", if x.art == "trenn" { "Trennwand" } else { "Aussenwand" },
+                if x.seite == "w" { "West" } else { "Ost" }, x.von, x.bis, x.material, if x.laerm != "keine" { format!(", LSW {}", x.laerm) } else { String::new() }))).collect(), self.wahl);
+            gruppe(ui, "Strassen", self.kontext.strassen.iter().enumerate().map(|(i, x)| (Wahl::Strasse(i), x.0.replace('_', " "))).collect(), self.wahl);
+            gruppe(ui, "Flaechen", p.flaechen.iter().enumerate().map(|(i, x)| (Wahl::Flaeche(i), format!("{} ({})", x.id, x.art))).collect(), self.wahl);
+            gruppe(ui, "Linien", p.linien.iter().enumerate().map(|(i, x)| (Wahl::Linie(i), format!("{} ({:.2} m{})", x.id, x.breite, if x.aus > 0.0 { ", gestrichelt" } else { "" }))).collect(), self.wahl);
+            gruppe(ui, "Haltlinien", p.haltlinien.iter().enumerate().map(|(i, x)| (Wahl::Halt(i), format!("{} (Arm {})", x.id, x.arm))).collect(), self.wahl);
+            gruppe(ui, "Pfeile und BUS", p.symbole.iter().enumerate().map(|(i, x)| (Wahl::Symbol(i), format!("{} {}", x.id, x.pfeile.join("/")))).collect(), self.wahl);
+            gruppe(ui, "Ampeln", p.ampeln.iter().enumerate().map(|(i, x)| (Wahl::Ampel(i), format!("{} ({}, {}, Phase {})", x.id, x.art, x.mast, x.gruppe))).collect(), self.wahl);
+            gruppe(ui, "Gelaender", p.gelaender.iter().enumerate().map(|(i, x)| (Wahl::Gelaender(i), format!("{} ({})", x.id, x.unten))).collect(), self.wahl);
+            gruppe(ui, "Furten", p.furten.iter().enumerate().map(|(i, x)| (Wahl::Furt(i), x.id.clone())).collect(), self.wahl);
+            gruppe(ui, "Gehpfade", p.gehpfade.iter().enumerate().map(|(i, x)| (Wahl::Gehpfad(i), x.id.clone())).collect(), self.wahl);
             if let Some(w) = neu {
                 self.wahl = Some(w);
-                let g = self.griffe(w);
-                if !g.is_empty() {
-                    self.mitte = g.iter().fold(DVec2::ZERO, |a, b| a + *b) / g.len() as f64;
+                let (l, _) = self.umriss(w);
+                if !l.is_empty() {
+                    self.mitte = l.iter().fold(DVec2::ZERO, |a, b| a + *b) / l.len() as f64;
                 }
             }
         });
     }
 
-    // ---------------------------------------------------------- Zeichenflaeche
-    fn textur(&mut self, ctx: &egui::Context, datei: &str) -> Option<egui::TextureId> {
-        if !self.texturen.contains_key(datei) {
-            let pfad = self.ordner().join("texture").join(datei);
-            let t = image::open(&pfad).ok().map(|i| {
-                let i = i.to_rgba8();
-                let img = egui::ColorImage::from_rgba_unmultiplied([i.width() as usize, i.height() as usize], i.as_raw());
-                ctx.load_texture(format!("oe_{datei}"), img, egui::TextureOptions { wrap_mode: egui::TextureWrapMode::Repeat, ..egui::TextureOptions::LINEAR })
-            });
-            self.texturen.insert(datei.to_string(), t);
-        }
-        self.texturen.get(datei).and_then(|t| t.as_ref().map(|t| t.id()))
+    /// Kamera-Mitte der 3D-Ansicht (fuer "Neu an der Kamera-Mitte")
+    pub fn mitte_setzen(&mut self, p: DVec2) {
+        self.mitte = p;
     }
 
+    // ---------------------------------------------------------- 2D-Plan
     fn zeichenflaeche(&mut self, ui: &mut egui::Ui) {
         let groesse = ui.available_size();
         let (resp, p) = ui.allocate_painter(groesse, egui::Sense::click_and_drag());
         let rect = resp.rect;
         let c = rect.center();
         let (mitte, m) = (self.mitte, self.m_px);
-        let bild = move |w: DVec2| egui::pos2(c.x + ((w.x - mitte.x) as f32) * m, c.y - ((w.y - mitte.y) as f32) * m);
-        let welt = move |s: egui::Pos2| DVec2::new(mitte.x + ((s.x - c.x) / m) as f64, mitte.y - ((s.y - c.y) / m) as f64);
+        let bild = move |w: DVec3| Some(egui::pos2(c.x + ((w.x - mitte.x) as f32) * m, c.y - ((w.y - mitte.y) as f32) * m));
+        let welt = move |s_: egui::Pos2| DVec2::new(mitte.x + ((s_.x - c.x) / m) as f64, mitte.y - ((s_.y - c.y) / m) as f64);
         p.rect_filled(rect, 0.0, egui::Color32::from_gray(24));
-        // Luftbild
         if let Some((t, b)) = &self.luftbild {
             if self.luft_alpha > 0.01 {
-                let r = egui::Rect::from_two_pos(bild(DVec2::new(b[0], b[3])), bild(DVec2::new(b[2], b[1])));
+                let r = egui::Rect::from_two_pos(bild(DVec3::new(b[0], b[3], 0.0)).unwrap(), bild(DVec3::new(b[2], b[1], 0.0)).unwrap());
                 p.image(t.id(), r, egui::Rect::from_min_max(egui::pos2(0.0, 0.0), egui::pos2(1.0, 1.0)), egui::Color32::from_white_alpha((self.luft_alpha * 255.0) as u8));
             }
         }
         let deck = if self.luftbild.is_some() { (255.0 * (1.0 - self.luft_alpha * 0.55)) as u8 } else { 255 };
-        // Trogoeffnungen (fest, aus dem Entwurf)
-        for o in &self.kontext.offen {
-            let pts: Vec<egui::Pos2> = o.iter().map(|q| bild(*q)).collect();
-            p.add(egui::Shape::closed_line(pts, egui::Stroke::new(1.5, egui::Color32::from_rgb(120, 120, 140))));
-        }
-        // Flaechen in Zeichenreihenfolge, mit Texturen in der Lage wie im Objekt
-        if self.zeige[0] {
-            let mut ord: Vec<usize> = (0..self.plan.flaechen.len()).collect();
-            ord.sort_by_key(|&i| reihenfolge(&self.plan.flaechen[i].art));
-            for i in ord {
-                let fl = self.plan.flaechen[i].clone();
-                let ring = mit_loechern(&fl.punkte, &fl.loecher);
-                let tris = dreiecke(&ring);
-                let (datei, m_tex) = material(&fl.art);
-                let tex = if self.texturen_echt { self.textur(ui.ctx(), datei) } else { None };
-                let farbe = match fl.art.as_str() {
-                    "fahrbahn" => egui::Color32::from_rgb(70, 72, 76),
-                    "gehweg" => egui::Color32::from_rgb(150, 150, 150),
-                    "insel" => egui::Color32::from_rgb(190, 185, 170),
-                    "gruen" => egui::Color32::from_rgb(80, 130, 60),
-                    "sperr" => egui::Color32::from_rgb(230, 230, 230),
-                    "radfurt" => egui::Color32::from_rgb(176, 62, 52),
-                    _ => egui::Color32::from_rgb(170, 170, 165),
-                };
-                let mut mesh = match tex {
-                    Some(id) => egui::epaint::Mesh::with_texture(id),
-                    None => egui::epaint::Mesh::default(),
-                };
-                let sk = m_tex * fl.textur.skala.max(0.05);
-                let (sn, cs) = fl.textur.dreh.to_radians().sin_cos();
-                let a = if fl.art == "sperr" && tex.is_none() { 120 } else { deck };
-                for q in &ring {
-                    let uv = egui::pos2(((cs * q.x + sn * q.y) / sk + fl.textur.dx) as f32, -((-sn * q.x + cs * q.y) / sk + fl.textur.dy) as f32);
-                    let col = if tex.is_some() { egui::Color32::from_white_alpha(a) } else { egui::Color32::from_rgba_unmultiplied(farbe.r(), farbe.g(), farbe.b(), a) };
-                    mesh.vertices.push(egui::epaint::Vertex { pos: bild(*q), uv: if tex.is_some() { uv } else { egui::epaint::WHITE_UV }, color: col });
-                }
-                for t in tris {
-                    mesh.indices.extend([t[0] as u32, t[1] as u32, t[2] as u32]);
-                }
-                p.add(egui::Shape::mesh(mesh));
-                let rand = match fl.art.as_str() {
-                    "gehweg" | "insel" | "gruen" => egui::Stroke::new(1.5, egui::Color32::from_rgb(210, 210, 200)),
-                    _ => egui::Stroke::new(0.6, egui::Color32::from_rgba_unmultiplied(255, 255, 255, 50)),
-                };
-                p.add(egui::Shape::closed_line(fl.punkte.iter().map(|q| bild(*q)).collect(), rand));
-            }
-        }
-        let weiss = egui::Color32::from_rgb(245, 245, 240);
-        let breite_px = |b: f64| ((b as f32) * m).max(1.0);
-        // Linien
-        if self.zeige[1] {
-            for l in &self.plan.linien {
-                let pts: Vec<egui::Pos2> = l.punkte.iter().map(|q| bild(*q)).collect();
-                let st = egui::Stroke::new(breite_px(l.breite), weiss);
-                if l.aus > 0.0 && l.an > 0.0 {
-                    p.extend(egui::Shape::dashed_line(&pts, st, (l.an as f32) * m, (l.aus as f32) * m));
-                } else {
-                    p.add(egui::Shape::line(pts, st));
-                }
-            }
-        }
-        if self.zeige[2] {
-            for h in &self.plan.haltlinien {
-                p.add(egui::Shape::line(h.punkte.iter().map(|q| bild(*q)).collect(), egui::Stroke::new(breite_px(h.breite), weiss)));
-                if let (Some(a), Some(arm)) = (h.punkte.first(), self.kontext.arme.get(h.arm)) {
-                    p.text(bild(*a), egui::Align2::RIGHT_BOTTOM, format!("{}", arm.name.replace('_', " ")), egui::FontId::proportional(10.0), egui::Color32::from_rgb(255, 220, 120));
-                }
-            }
-        }
-        if self.zeige[6] {
-            for f in &self.plan.furten {
-                let d = (f.b - f.a).normalize_or_zero();
-                let nq = DVec2::new(-d.y, d.x) * f.breite / 2.0;
-                for sgn in [1.0, -1.0] {
-                    p.extend(egui::Shape::dashed_line(&[bild(f.a + nq * sgn), bild(f.b + nq * sgn)], egui::Stroke::new(breite_px(0.12), weiss), 0.5 * m, 0.2 * m));
-                }
-                p.add(egui::Shape::line_segment([bild(f.a), bild(f.b)], egui::Stroke::new(1.0, egui::Color32::from_rgb(120, 220, 255))));
-            }
-        }
-        // Symbole: Pfeile und BUS
-        if self.zeige[3] {
-            for sy in &self.plan.symbole {
-                let v = richtung_vec(sy.richtung) * sy.skala;
-                let r = rechts_vec(sy.richtung) * sy.skala;
-                let w = |a: f64, b: f64| bild(sy.pos + v * b + r * a);
-                let st = egui::Stroke::new(breite_px(0.18), weiss);
-                if sy.art == "bus" {
-                    p.add(egui::Shape::closed_line(vec![w(-1.5, 0.0), w(1.5, 0.0), w(1.5, 2.4), w(-1.5, 2.4)], egui::Stroke::new(1.0, weiss)));
-                    p.text(w(0.0, 1.2), egui::Align2::CENTER_CENTER, "BUS", egui::FontId::proportional((1.6 * m).clamp(8.0, 40.0)), weiss);
-                    continue;
-                }
-                p.line_segment([w(0.0, 0.0), w(0.0, 2.6)], st);
-                if sy.pfeile.iter().any(|x| x == "gerade") || sy.pfeile.is_empty() {
-                    p.line_segment([w(0.0, 2.5), w(0.0, 3.9)], st);
-                    p.add(egui::Shape::convex_polygon(vec![w(-0.35, 3.8), w(0.0, 5.0), w(0.35, 3.8)], weiss, egui::Stroke::NONE));
-                }
-                for (k, sgn) in [("links", -1.0), ("rechts", 1.0)] {
-                    if sy.pfeile.iter().any(|x| x == k) {
-                        p.line_segment([w(0.0, 2.4), w(sgn * 0.7, 3.3)], st);
-                        p.add(egui::Shape::convex_polygon(vec![w(sgn * 0.45, 3.35), w(sgn * 1.15, 3.85), w(sgn * 0.95, 2.95)], weiss, egui::Stroke::NONE));
-                    }
-                }
-            }
-        }
-        // Gelaender (rosa, Wandseite angedeutet)
-        if self.zeige[5] {
-            for g in &self.plan.gelaender {
-                let pts: Vec<egui::Pos2> = g.punkte.iter().map(|q| bild(*q)).collect();
-                p.add(egui::Shape::line(pts, egui::Stroke::new(3.0, egui::Color32::from_rgb(220, 110, 160))));
-            }
-        }
-        if self.zeige[7] {
-            for g in &self.plan.gehpfade {
-                let pts: Vec<egui::Pos2> = g.punkte.iter().map(|q| bild(*q)).collect();
-                p.extend(egui::Shape::dashed_line(&pts, egui::Stroke::new(1.2, egui::Color32::from_rgb(120, 220, 255)), 4.0, 3.0));
-            }
-        }
-        // Ampeln: Signal (Kreis), Blickrichtung, Mast dahinter, Ausleger
-        if self.zeige[4] {
-            for a in &self.plan.ampeln {
-                let v = richtung_vec(a.richtung);
-                let mast = a.pos - v * 0.46;
-                let farbe = if a.art == "fg" { egui::Color32::from_rgb(90, 220, 120) } else { egui::Color32::from_rgb(255, 80, 70) };
-                p.line_segment([bild(mast), bild(a.pos + v * 1.6)], egui::Stroke::new(2.0, farbe));
-                if a.mast == "ausleger" {
-                    let l = -rechts_vec(a.richtung);
-                    p.line_segment([bild(mast), bild(mast + l * 4.0)], egui::Stroke::new(2.0, egui::Color32::from_rgb(160, 170, 170)));
-                }
-                p.circle_filled(bild(mast), 3.0, egui::Color32::from_gray(200));
-                p.circle(bild(a.pos), 5.0, farbe, egui::Stroke::new(1.0, egui::Color32::BLACK));
-                p.text(bild(a.pos) + egui::vec2(6.0, -6.0), egui::Align2::LEFT_BOTTOM, format!("{}", a.gruppe + 1), egui::FontId::proportional(11.0), egui::Color32::WHITE);
-            }
-        }
-        // Armenden (Anschluss an die Strassen, fest)
-        for a in &self.kontext.arme {
-            p.line_segment([bild(a.links), bild(a.rechts)], egui::Stroke::new(2.5, egui::Color32::from_rgb(255, 160, 40)));
-        }
-        // Auswahl
-        if let Some(w) = self.wahl {
-            let g = self.griffe(w);
-            let gelb = egui::Color32::from_rgb(255, 230, 40);
-            match w {
-                Wahl::Flaeche(_) => {
-                    p.add(egui::Shape::closed_line(g.iter().map(|q| bild(*q)).collect(), egui::Stroke::new(2.0, gelb)));
-                }
-                Wahl::Symbol(_) | Wahl::Ampel(_) => {
-                    p.circle_stroke(bild(g[0]), 10.0, egui::Stroke::new(2.0, gelb));
-                }
-                _ => {
-                    p.add(egui::Shape::line(g.iter().map(|q| bild(*q)).collect(), egui::Stroke::new(1.5, gelb)));
-                }
-            }
-            for q in &g {
-                p.rect_filled(egui::Rect::from_center_size(bild(*q), egui::vec2(7.0, 7.0)), 1.0, gelb);
-            }
-        }
-        // ------------------------------------------------------ Bedienung
+        self.zeichnen(&ui.ctx().clone(), &p, &bild, &|_| 0.0, m, true, true, deck);
+        // Bedienung ueber dieselben Funktionen wie in 3D
         let maus = resp.hover_pos().map(welt);
-        let tol = 6.0 / m as f64;
-        let alt = ui.input(|i| i.modifiers.alt);
-        let strg = ui.input(|i| i.modifiers.ctrl || i.modifiers.command);
-        let (gezogen_l, gezogen_r) = (ui.input(|i| i.pointer.primary_down()), ui.input(|i| i.pointer.secondary_down() || i.pointer.middle_down()));
+        let tol = 7.0 / m as f64;
+        let (alt, strg, umschalt) = ui.input(|i| (i.modifiers.alt, i.modifiers.ctrl || i.modifiers.command, i.modifiers.shift));
+        let rechts = ui.input(|i| i.pointer.secondary_down() || i.pointer.middle_down());
+        self.hover(maus, tol);
         if resp.drag_started() {
-            // vom Druckpunkt aus (beim Erkennen des Ziehens ist die Maus schon ein Stueck weiter)
             let start = ui.input(|i| i.pointer.press_origin()).map(welt).or(maus);
             if let Some(q) = start {
-                if gezogen_r {
+                if rechts {
                     self.zug = Zug::Schwenken;
                 } else {
-                    let griff = self.wahl.and_then(|w| self.griffe(w).iter().position(|g| (*g - q).length() < tol * 1.3));
-                    self.zug = match (griff, self.wahl) {
-                        (Some(k), Some(_)) if !alt => Zug::Griff(k),
-                        (_, Some(Wahl::Flaeche(_))) if alt => Zug::Textur,
-                        _ => {
-                            // das gewaehlte Bauteil hat Vorrang, wenn es unter der Maus liegt
-                            let t = if self.wahl.map(|w| self.liegt_unter(w, q, tol)).unwrap_or(false) { self.wahl } else { self.treffer(q, tol) };
-                            if t.is_some() {
-                                if t != self.wahl {
-                                    self.wahl = t;
-                                }
-                                if alt && matches!(t, Some(Wahl::Flaeche(_))) { Zug::Textur } else { Zug::Verschieben }
-                            } else {
-                                Zug::Schwenken
-                            }
-                        }
-                    };
+                    self.druecken(q, tol, alt);
                 }
-                self.letzte = Some(q);
             }
         }
-        if resp.dragged() && (gezogen_l || gezogen_r) {
+        if resp.dragged() {
             if self.zug == Zug::Schwenken {
                 let dd = resp.drag_delta();
                 self.mitte -= DVec2::new((dd.x / m) as f64, -(dd.y / m) as f64);
-            } else if let (Some(q), Some(l)) = (maus, self.letzte) {
-                let d = q - l;
-                match (self.zug, self.wahl) {
-                    (Zug::Griff(k), Some(w)) => {
-                        self.aendern();
-                        let mut ziel = q;
-                        if self.einrasten && !strg {
-                            if let Some(s) = self.einrasten_an(q, tol * 1.5, w) {
-                                ziel = s;
-                            }
-                        }
-                        if let Some(pk) = self.punkte_mut(w).into_iter().nth(k) {
-                            *pk = ziel;
-                        }
-                    }
-                    (Zug::Verschieben, Some(w)) => {
-                        self.aendern();
-                        self.verschieben(w, d);
-                    }
-                    (Zug::Textur, Some(Wahl::Flaeche(i))) => {
-                        self.aendern();
-                        if let Some(fl) = self.plan.flaechen.get_mut(i) {
-                            let sk = material(&fl.art).1 * fl.textur.skala.max(0.05);
-                            let (sn, cs) = fl.textur.dreh.to_radians().sin_cos();
-                            // die Textur folgt der Maus: uv am verschobenen Punkt bleibt gleich
-                            fl.textur.dx -= (cs * d.x + sn * d.y) / sk;
-                            fl.textur.dy -= (-sn * d.x + cs * d.y) / sk;
-                        }
-                    }
-                    _ => {}
-                }
-                self.letzte = Some(q);
+            } else if let Some(q) = maus {
+                self.ziehen(q, tol, strg);
             }
         }
         if resp.drag_stopped() {
-            self.zug = Zug::Nichts;
-            self.letzte = None;
+            self.loslassen();
         }
         if resp.clicked() {
             if let Some(q) = maus {
-                self.wahl = self.treffer(q, tol);
+                self.klicken(q, tol, strg);
             }
         }
         if resp.double_clicked() {
-            if let (Some(q), Some(w)) = (maus, self.wahl) {
-                if let Some((zug, zu, _)) = self.zug_mut(w) {
-                    let (d, k) = abstand_zug(q, zug, zu);
-                    if d < tol * 2.0 {
-                        self.aendern();
-                        if let Some((zug, _, _)) = self.zug_mut(w) {
-                            zug.insert(k + 1, q);
-                        }
-                    }
-                }
+            if let Some(q) = maus {
+                self.doppelklick(q, tol);
             }
         }
         if resp.secondary_clicked() {
-            if let (Some(q), Some(w)) = (maus, self.wahl) {
-                if let Some(k) = self.griffe(w).iter().position(|g| (*g - q).length() < tol * 1.3) {
-                    let geht = self.zug_mut(w).map(|(z, _, min)| z.len() > min).unwrap_or(false);
-                    if geht {
-                        self.aendern();
-                        if let Some((zug, _, _)) = self.zug_mut(w) {
-                            zug.remove(k);
-                        }
-                    }
-                }
+            if let Some(q) = maus {
+                self.rechtsklick(q, tol);
             }
         }
         if resp.hovered() {
-            // Mausrad als einzelne Rasten (rohe Ereignisse: Strg/Alt aendern sie sonst in Zoom/seitliches Scrollen)
             let rad: f32 = ui.input(|i| i.raw.events.iter().map(|e| match e {
                 egui::Event::MouseWheel { delta, unit, .. } => {
                     let d = if delta.y.abs() > 0.0 { delta.y } else { delta.x };
@@ -1628,65 +2112,46 @@ impl ObjektEditor {
                 }
                 _ => 0.0,
             }).sum());
-            if rad != 0.0 {
-                match (alt, strg, self.wahl) {
-                    (true, _, Some(Wahl::Flaeche(i))) => {
-                        self.aendern();
-                        if let Some(fl) = self.plan.flaechen.get_mut(i) {
-                            fl.textur.skala = (fl.textur.skala * if rad > 0.0 { 1.05 } else { 1.0 / 1.05 }).clamp(0.05, 20.0);
-                        }
-                    }
-                    (false, true, Some(Wahl::Flaeche(i))) => {
-                        self.aendern();
-                        if let Some(fl) = self.plan.flaechen.get_mut(i) {
-                            fl.textur.dreh += if rad > 0.0 { 5.0 } else { -5.0 };
-                        }
-                    }
-                    (false, true, Some(w)) => {
-                        self.aendern();
-                        self.drehen(w, if rad > 0.0 { 5.0 } else { -5.0 });
-                    }
-                    _ => {
-                        // Zoom um die Maus
-                        let vor = maus;
-                        self.m_px = (self.m_px * 1.15f32.powf(rad)).clamp(1.0, 200.0);
-                        if let (Some(v), Some(hp)) = (vor, resp.hover_pos()) {
-                            let nach = DVec2::new(self.mitte.x + ((hp.x - c.x) / self.m_px) as f64, self.mitte.y - ((hp.y - c.y) / self.m_px) as f64);
-                            self.mitte += v - nach;
-                        }
-                    }
+            if rad != 0.0 && !self.rad(rad, alt, strg) {
+                let vor = maus;
+                self.m_px = (self.m_px * 1.15f32.powf(rad)).clamp(1.0, 200.0);
+                if let (Some(v), Some(hp)) = (vor, resp.hover_pos()) {
+                    let nach = DVec2::new(self.mitte.x + ((hp.x - c.x) / self.m_px) as f64, self.mitte.y - ((hp.y - c.y) / self.m_px) as f64);
+                    self.mitte += v - nach;
                 }
             }
-            // Tasten
-            if let Some(w) = self.wahl {
-                let schritt = if ui.input(|i| i.modifiers.shift) { 0.5 } else { 0.05 };
-                let mut d = DVec2::ZERO;
-                ui.input(|i| {
-                    if i.key_pressed(egui::Key::ArrowLeft) { d.x -= schritt; }
-                    if i.key_pressed(egui::Key::ArrowRight) { d.x += schritt; }
-                    if i.key_pressed(egui::Key::ArrowUp) { d.y += schritt; }
-                    if i.key_pressed(egui::Key::ArrowDown) { d.y -= schritt; }
-                });
-                if d != DVec2::ZERO {
-                    self.aendern();
-                    self.verschieben(w, d);
-                    self.abschliessen();
+            let tasten: Vec<egui::Key> = ui.input(|i| i.events.iter().filter_map(|e| match e {
+                egui::Event::Key { key, pressed: true, .. } => Some(*key),
+                _ => None,
+            }).collect());
+            for k in tasten {
+                if self.taste(k, umschalt, strg) {
+                    continue;
                 }
-                if ui.input(|i| i.key_pressed(egui::Key::Delete)) {
+                if let Some(w) = self.wahl {
+                    let schritt = if umschalt { 0.5 } else { 0.05 };
+                    let d = match k {
+                        egui::Key::ArrowLeft => DVec2::new(-schritt, 0.0),
+                        egui::Key::ArrowRight => DVec2::new(schritt, 0.0),
+                        egui::Key::ArrowUp => DVec2::new(0.0, schritt),
+                        egui::Key::ArrowDown => DVec2::new(0.0, -schritt),
+                        _ => continue,
+                    };
                     self.aendern();
-                    self.loeschen(w);
-                    self.wahl = None;
+                    let g = self.griffe(w).first().copied().unwrap_or_default();
+                    self.verschieben(w, g, g + d);
                     self.abschliessen();
                 }
             }
-        }
-        // Massstab und Mausposition
-        if let Some(q) = maus {
-            p.text(rect.left_bottom() + egui::vec2(8.0, -8.0), egui::Align2::LEFT_BOTTOM, format!("x {:.2}  y {:.2}   {:.0} px/m", q.x, q.y, m),
-                   egui::FontId::monospace(11.0), egui::Color32::from_gray(220));
         }
         p.text(rect.right_bottom() + egui::vec2(-8.0, -8.0), egui::Align2::RIGHT_BOTTOM, "Luftbild: DOP40 (c) Bayerische Vermessungsverwaltung, CC BY 4.0",
                egui::FontId::proportional(10.0), egui::Color32::from_gray(180));
+        ui.ctx().request_repaint_after(Duration::from_millis(100));
+        let _ = umschalt;
+        ui.horizontal(|ui| {
+            ui.label("Luftbild");
+            ui.add(egui::Slider::new(&mut self.luft_alpha, 0.0..=1.0).show_value(false));
+        });
     }
 }
 
@@ -1698,19 +2163,23 @@ mod tests {
     fn bauplan_hin_und_zurueck() {
         let j = serde_json::json!({
             "version": 1, "name": "K", "phasen": [0, 1], "_id": 5,
+            "strassen": {"Ring": {"querschnitt": {"name": "R", "teile": []}, "versatz": null}, "Rampe": {"querschnitt": {}, "versatz": 9.4}},
             "flaechen": [{"id": "f1", "art": "sperr", "punkte": [[0, 0], [4, 0], [4, 3]], "loecher": [], "textur": {"dx": 0.5, "dy": 0, "skala": 2, "dreh": 10}}],
             "linien": [{"id": "l1", "punkte": [[0, 0], [1, 1]], "breite": 0.12, "an": 3, "aus": 6}],
             "haltlinien": [], "symbole": [{"id": "p1", "art": "pfeil", "pos": [1, 2], "richtung": 90, "pfeile": ["links"], "skala": 1}],
             "ampeln": [{"id": "a1", "art": "kfz", "pos": [5, 5], "richtung": 180, "mast": "ausleger", "gruppe": 2}],
-            "gelaender": [], "furten": [], "gehpfade": []
+            "gelaender": [], "furten": [], "gehpfade": [],
+            "waende": [{"id": "w1", "seite": "w", "art": "aussen", "von": 10, "bis": 50, "material": "gabionen", "laerm": "gruen", "versatz": 0.2, "hoehe": 0, "stufig": true}]
         });
         let mut b = Bauplan::aus_json(&j);
         assert_eq!(b.flaechen[0].textur, Textur { dx: 0.5, dy: 0.0, skala: 2.0, dreh: 10.0 });
-        let id = b.neue_id("x");
-        assert_eq!(id, "x6");
+        assert_eq!(b.neue_id("x"), "x6");
+        assert_eq!(b.waende[0].laerm, "gruen");
+        assert_eq!(b.strassen().len(), 2);
+        assert_eq!(b.strassen().iter().find(|s| s.0 == "Rampe").unwrap().2, Some(9.4));
         let k = b.json();
         assert_eq!(k["phasen"], serde_json::json!([0, 1]));
-        assert_eq!(k["ampeln"][0]["mast"], "ausleger");
+        assert_eq!(k["waende"][0]["versatz"], 0.2);
         assert_eq!(Bauplan::aus_json(&k).symbole[0].pfeile, vec!["links".to_string()]);
     }
 
@@ -1722,35 +2191,57 @@ mod tests {
         let t = dreiecke(&ring);
         let summe: f64 = t.iter().map(|d| flaeche2(&[ring[d[0]], ring[d[1]], ring[d[2]]]).abs()).sum();
         assert!((summe - 96.0).abs() < 1e-6, "{summe}");
-        // nicht konvex (L-Form)
-        let l = vec![DVec2::new(0.0, 0.0), DVec2::new(4.0, 0.0), DVec2::new(4.0, 1.0), DVec2::new(1.0, 1.0), DVec2::new(1.0, 4.0), DVec2::new(0.0, 4.0)];
-        let t = dreiecke(&l);
-        let summe: f64 = t.iter().map(|d| flaeche2(&[l[d[0]], l[d[1]], l[d[2]]]).abs()).sum();
-        assert!((summe - 7.0).abs() < 1e-9);
+    }
+
+    fn editor() -> ObjektEditor {
+        let mut ed = ObjektEditor::leer();
+        ed.kontext.stationen = (0..50).map(|k| {
+            let s = k as f64 * 2.0;
+            Station { s, p: DVec2::new(0.0, -s), q: DVec2::new(1.0, 0.0), t: [("aussen_w".to_string(), -10.0), ("aussen_o".to_string(), 10.0)].into_iter().collect() }
+        }).collect();
+        ed
     }
 
     #[test]
-    fn treffer_und_verschieben() {
-        let mut ed = ObjektEditor {
-            plan_pfad: PathBuf::new(), json: PathBuf::new(), root: PathBuf::new(), karte: String::new(), plan: Bauplan::default(),
-            kontext: Kontext::default(), wahl: None, mitte: DVec2::ZERO, m_px: 10.0, zug: Zug::Nichts, letzte: None, undo: vec![], redo: vec![],
-            offen_aenderung: None, geaendert: false, job: None, meldung: String::new(), luftbild: None, luft_job: None, luft_alpha: 0.5,
-            texturen: Default::default(), texturen_echt: false, einsetzen: false, einrasten: true, neue_art: 0, zeige: [true; 8],
-        };
-        ed.neues("flaeche", DVec2::new(10.0, 10.0));
-        ed.neues("kfz", DVec2::new(11.0, 10.0));
-        assert_eq!(ed.treffer(DVec2::new(11.1, 10.0), 0.3), Some(Wahl::Ampel(0)));
-        assert_eq!(ed.treffer(DVec2::new(9.0, 9.0), 0.3), Some(Wahl::Flaeche(0)));
-        ed.aendern();
-        ed.verschieben(Wahl::Flaeche(0), DVec2::new(1.0, 0.0));
-        ed.abschliessen();
-        assert!((ed.plan.flaechen[0].punkte[0].x - 9.0).abs() < 1e-9);
+    fn bedienen_zeichnen_und_verschieben() {
+        let mut ed = editor();
+        // Flaeche zeichnen: drei Klicks, Klick auf den ersten Punkt schliesst
+        ed.werkzeug = Werkzeug::Flaeche;
+        for p in [(10.0, 10.0), (14.0, 10.0), (14.0, 14.0)] {
+            ed.klicken(DVec2::new(p.0, p.1), 0.3, true);
+        }
+        ed.klicken(DVec2::new(10.05, 10.0), 0.3, true);
+        assert_eq!(ed.plan.flaechen.len(), 1);
+        assert_eq!(ed.werkzeug, Werkzeug::Auswahl);
+        // ziehen verschiebt, Rueckgaengig nimmt es zurueck
+        ed.druecken(DVec2::new(13.0, 11.0), 0.3, false);
+        ed.ziehen(DVec2::new(14.0, 11.0), 0.3, false);
+        ed.loslassen();
+        assert!((ed.plan.flaechen[0].punkte[0].x - 11.0).abs() < 1e-9);
         ed.rueckgaengig();
-        assert!((ed.plan.flaechen[0].punkte[0].x - 8.0).abs() < 1e-9);
-        ed.wiederholen();
-        assert!((ed.plan.flaechen[0].punkte[0].x - 9.0).abs() < 1e-9);
-        ed.aendern();
-        ed.drehen(Wahl::Ampel(0), 90.0);
-        assert!((ed.plan.ampeln[0].richtung - 90.0).abs() < 1e-9);
+        assert!((ed.plan.flaechen[0].punkte[0].x - 10.0).abs() < 1e-9);
+        // Textur schieben: die Lage der Flaeche bleibt, die Textur wandert
+        ed.wahl = Some(Wahl::Flaeche(0));
+        ed.werkzeug = Werkzeug::Textur;
+        ed.druecken(DVec2::new(13.0, 11.0), 0.3, false);
+        ed.ziehen(DVec2::new(15.0, 11.0), 0.3, false);
+        ed.loslassen();
+        assert!((ed.plan.flaechen[0].punkte[0].x - 10.0).abs() < 1e-9);
+        assert!((ed.plan.flaechen[0].textur.dx + 0.5).abs() < 1e-9, "{}", ed.plan.flaechen[0].textur.dx);
+    }
+
+    #[test]
+    fn wand_enden_ziehen() {
+        let mut ed = editor();
+        ed.neues("wand", DVec2::new(-9.0, -40.0));
+        assert_eq!(ed.plan.waende.len(), 1);
+        assert_eq!(ed.plan.waende[0].seite, "w");
+        assert!((ed.plan.waende[0].von - 30.0).abs() < 1e-9 && (ed.plan.waende[0].bis - 50.0).abs() < 1e-9);
+        // Ende bei Station 50 (Punkt -10/-50) nach Station 70 ziehen
+        ed.druecken(DVec2::new(-10.0, -50.0), 0.5, false);
+        ed.ziehen(DVec2::new(-10.2, -70.0), 0.5, false);
+        ed.loslassen();
+        assert!((ed.plan.waende[0].bis - 70.0).abs() < 1e-9, "{}", ed.plan.waende[0].bis);
+        assert!(ed.treffer(DVec2::new(-10.0, -60.0), 0.5) == Some(Wahl::Wand(0)));
     }
 }

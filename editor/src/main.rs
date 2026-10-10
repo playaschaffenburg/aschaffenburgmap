@@ -202,6 +202,12 @@ struct App {
     bearb: Bearbeiten,
     strg: bool,
     umschalt: bool,
+    alt_taste: bool,
+    /// Objekt-Editor in 3D: Druckpunkt (Bildschirm) der linken Taste und letzter Klick (Doppelklick)
+    oe_druck: Option<(f32, f32)>,
+    oe_letzter_klick: Option<((f32, f32), std::time::Instant)>,
+    /// Baukasten bearbeitet den Querschnitt dieser Sonderbau-Strasse
+    qs_fuer_sonderbau: Option<String>,
     /// Speichern-Dialog offen: Name der neuen Karte
     speichern_name: Option<String>,
     /// Speichern im Hintergrund -> (Ergebnis-Ordner, true wenn die Karte selbst ueberschrieben wurde)
@@ -430,6 +436,8 @@ enum UiAktion {
     ObjektEditor,
     /// Objekt-Editor hat neu gebaut: (sonderbau_ring.json, in die Karte setzen?)
     SonderbauGebaut(PathBuf, bool),
+    /// Querschnitt einer Sonderbau-Strasse im Baukasten bearbeiten
+    SonderbauQuerschnitt(String, serde_json::Value),
     /// Strasse bauen mit diesem Querschnitt (Pipette)
     StrasseUebernehmen(String),
     SplineLoeschen,
@@ -483,6 +491,10 @@ impl App {
             bearb: Bearbeiten::default(),
             strg: false,
             umschalt: false,
+            alt_taste: false,
+            oe_druck: None,
+            oe_letzter_klick: None,
+            qs_fuer_sonderbau: None,
             speichern_name: None,
             speichern_job: None,
             start: None,
@@ -1339,9 +1351,11 @@ impl App {
             }
             if let Some(oe) = self.objekteditor.as_mut() {
                 let mut offen = true;
+                oe.mitte_setzen(self.kam.ziel.truncate());
                 match oe.ui(ctx, &mut offen) {
                     Some(objekteditor::Aktion::Gebaut { json, einsetzen }) => aktionen.push(UiAktion::SonderbauGebaut(json, einsetzen)),
                     Some(objekteditor::Aktion::Kamera(p)) => aktionen.push(UiAktion::Hinfahren(p)),
+                    Some(objekteditor::Aktion::Querschnitt(name, q)) => aktionen.push(UiAktion::SonderbauQuerschnitt(name, q)),
                     None => {}
                 }
                 if !offen {
@@ -1358,6 +1372,7 @@ impl App {
                 }
                 if !offen {
                     self.baukasten = None;
+                    self.qs_fuer_sonderbau = None;
                 }
             }
             if self.bearb.werkzeug == Werkzeug::Objekte {
@@ -2121,6 +2136,17 @@ impl App {
             });
             // Markierungen ueber dem 3D-Bild (unter den Panels)
             let maler = ui_maler(ctx);
+            if let (Some(oe), Some(v)) = (self.objekteditor.as_mut(), self.viewer.as_ref()) {
+                if oe.drei_d && !self.markierer.an {
+                    let kam = self.kam.clone();
+                    let bild = |w: DVec3| bearbeiten::projizieren(&kam, w, bw, bh).map(|(x, y, _)| egui::pos2(x, y));
+                    let boden = |q: glam::DVec2| v.ground_height(q.x, q.y).unwrap_or(0.0);
+                    let m = (1.0 / kam.m_pro_px(bh).max(1e-3)) as f32;
+                    let ctx2 = ctx.ctx().clone();
+                    let fuellen = oe.fuellen_3d;
+                    oe.zeichnen(&ctx2, &maler, &bild, &boden, m, fuellen, false, 110);
+                }
+            }
             if self.markierer.an {
                 if let Some(v) = self.viewer.as_ref() {
                     let kam = self.kam.clone();
@@ -3202,8 +3228,22 @@ impl App {
             }
             UiAktion::Baukasten(q) => {
                 self.baukasten = Some(baukasten::Baukasten::neu(&self.root, q));
+                self.qs_fuer_sonderbau = None;
             }
+            UiAktion::SonderbauQuerschnitt(name, q) => match querschnitt::Querschnitt::aus_json(&q) {
+                Some(q) => {
+                    self.baukasten = Some(baukasten::Baukasten::neu(&self.root, Some(q)));
+                    self.meldung = format!("Querschnitt von {} im Baukasten - Speichern uebernimmt ihn in den Sonderbau", name.replace('_', " "));
+                    self.qs_fuer_sonderbau = Some(name);
+                }
+                None => self.meldung = format!("Querschnitt von {name} unlesbar"),
+            },
             UiAktion::QsGespeichert(rel, q, bauen) => {
+                let sonderbau = self.qs_fuer_sonderbau.take();
+                if let (Some(name), Some(oe)) = (sonderbau.as_ref(), self.objekteditor.as_mut()) {
+                    oe.querschnitt_setzen(name, q.json());
+                }
+                let bauen = bauen && sonderbau.is_none();
                 if let Some(v) = self.viewer.as_mut() {
                     v.forget_spline_type(&rel);
                 }
@@ -3690,6 +3730,24 @@ impl App {
 
     /// Tasten des Bearbeitens (nur beim Druecken, nicht wenn egui die Tastatur hat)
     fn taste(&mut self, k: KeyCode) {
+        if self.oe_aktiv() {
+            let ek = match k {
+                KeyCode::Escape => Some(egui::Key::Escape),
+                KeyCode::Enter | KeyCode::NumpadEnter => Some(egui::Key::Enter),
+                KeyCode::Backspace => Some(egui::Key::Backspace),
+                KeyCode::Delete => Some(egui::Key::Delete),
+                KeyCode::KeyD => Some(egui::Key::D),
+                KeyCode::KeyZ => Some(egui::Key::Z),
+                KeyCode::KeyY => Some(egui::Key::Y),
+                _ => None,
+            };
+            let (u, st) = (self.umschalt, self.strg);
+            if let (Some(ek), Some(oe)) = (ek, self.objekteditor.as_mut()) {
+                if oe.taste(ek, u, st) {
+                    return;
+                }
+            }
+        }
         let fein = self.umschalt;
         let akt = match k {
             KeyCode::KeyO if !self.strg => {
@@ -3827,6 +3885,26 @@ impl App {
         if let Some(a) = akt {
             self.ausfuehren(a);
         }
+    }
+
+    /// Objekt-Editor bedient die 3D-Ansicht
+    fn oe_aktiv(&self) -> bool {
+        !self.markierer.an && self.objekteditor.as_ref().map(|o| o.drei_d).unwrap_or(false)
+    }
+
+    /// Fangweite des Objekt-Editors in m (10 Pixel)
+    fn oe_toleranz(&self) -> f64 {
+        let (_, bh) = self.bildgroesse();
+        (10.0 * self.kam.m_pro_px(bh)).clamp(0.15, 20.0)
+    }
+
+    /// Punkt unter der Maus auf der Kreuzungsflaeche (Hoehenraster des Sonderbaus) oder dem Boden
+    fn oe_punkt(&self) -> Option<glam::DVec2> {
+        let p = self.maus?;
+        let oe = self.objekteditor.as_ref()?;
+        let (bw, bh) = self.bildgroesse();
+        let (o, d) = self.kam.strahl(p.0, p.1, bw, bh);
+        treffer(o, d, |x, y| oe.hoehe(glam::DVec2::new(x, y)).map(|z| z + 0.1).or_else(|| self.boden(x, y)), 6000.0).map(|g| g.truncate())
     }
 
     /// Bildgroesse in logischen Punkten (wie die Mauskoordinaten)
@@ -4233,10 +4311,18 @@ impl ApplicationHandler for App {
             WindowEvent::ModifiersChanged(m) => {
                 self.strg = m.state().control_key();
                 self.umschalt = m.state().shift_key();
+                self.alt_taste = m.state().alt_key();
             }
             WindowEvent::KeyboardInput { event, .. } => {
-                let tastatur_bei_egui = self.gui.as_ref().map(|g| g.ctx.egui_wants_keyboard_input()).unwrap_or(false);
+                // nur beim Tippen (Textfeld, Zahlenfeld) gehoeren die Tasten egui - ein angeklickter Knopf behaelt sonst den Fokus und schluckt alle Kuerzel
+                let tastatur_bei_egui = self.gui.as_ref().map(|g| g.ctx.text_edit_focused()).unwrap_or(false);
                 if let PhysicalKey::Code(k) = event.physical_key {
+                    // Z und Y nach dem Zeichen der Taste (QWERTZ: Strg+Z ist physisch KeyY), alles andere nach der Lage (WASD)
+                    let k = match &event.logical_key {
+                        winit::keyboard::Key::Character(c) if c.eq_ignore_ascii_case("z") || c.as_str() == "\u{1a}" => KeyCode::KeyZ,
+                        winit::keyboard::Key::Character(c) if c.eq_ignore_ascii_case("y") || c.as_str() == "\u{19}" => KeyCode::KeyY,
+                        _ => k,
+                    };
                     if event.state == ElementState::Pressed && !tastatur_bei_egui {
                         if !event.repeat || matches!(k, KeyCode::Comma | KeyCode::Period | KeyCode::PageUp | KeyCode::PageDown) {
                             self.taste(k);
@@ -4266,6 +4352,18 @@ impl ApplicationHandler for App {
                 }
                 self.maus = Some(p);
                 self.markierer.bewegen(p);
+                if self.oe_aktiv() && self.surface.is_some() {
+                    let (q, tol, strg) = (self.oe_punkt(), self.oe_toleranz(), self.strg);
+                    if let Some(oe) = self.objekteditor.as_mut() {
+                        if oe.greift() {
+                            if let Some(q) = q {
+                                oe.ziehen(q, tol, strg);
+                            }
+                        } else {
+                            oe.hover(if egui_will { None } else { q }, tol);
+                        }
+                    }
+                }
                 if self.surface.is_some() {
                     let (bw, bh) = self.bildgroesse();
                     let (o, d) = self.kam.strahl(p.0, p.1, bw, bh);
@@ -4368,6 +4466,55 @@ impl ApplicationHandler for App {
                 }
             }
             WindowEvent::MouseInput { state, button, .. } => {
+                // Objekt-Editor in 3D: linke Taste waehlt/zieht/zeichnet, ins Leere gezogen schwenkt die Kamera
+                if self.oe_aktiv() && button == MouseButton::Left {
+                    if state == ElementState::Pressed && !egui_will {
+                        if let (Some(p), Some(q)) = (self.maus, self.oe_punkt()) {
+                            let (tol, alt) = (self.oe_toleranz(), self.alt_taste);
+                            if let Some(oe) = self.objekteditor.as_mut() {
+                                oe.druecken(q, tol, alt);
+                                if !(oe.greift() || oe.zeichnet()) {
+                                    self.ziehen = Some((MouseButton::Left, p));
+                                }
+                            }
+                            self.oe_druck = Some(p);
+                        }
+                        return;
+                    }
+                    if state == ElementState::Released && self.oe_druck.is_some() {
+                        let start = self.oe_druck.take().unwrap();
+                        if self.ziehen.map(|z| z.0) == Some(MouseButton::Left) {
+                            self.ziehen = None;
+                        }
+                        let (q, tol, strg) = (self.oe_punkt(), self.oe_toleranz(), self.strg);
+                        let jetzt = self.maus.unwrap_or(start);
+                        let klick = (jetzt.0 - start.0).abs() + (jetzt.1 - start.1).abs() < 5.0;
+                        let doppel = klick && self.oe_letzter_klick.map(|(a, t)| t.elapsed().as_millis() < 400 && (a.0 - jetzt.0).abs() + (a.1 - jetzt.1).abs() < 6.0).unwrap_or(false);
+                        if let Some(oe) = self.objekteditor.as_mut() {
+                            oe.loslassen();
+                            if let (true, Some(q)) = (klick, q) {
+                                oe.klicken(q, tol, strg);
+                                if doppel {
+                                    oe.doppelklick(q, tol);
+                                }
+                            }
+                        }
+                        self.oe_letzter_klick = if klick && !doppel { Some((jetzt, std::time::Instant::now())) } else { None };
+                        return;
+                    }
+                }
+                if self.oe_aktiv() && button == MouseButton::Right && state == ElementState::Released {
+                    let ohne_ziehen = match (self.rechts_start, self.maus) {
+                        (Some(a), Some(b)) => (a.0 - b.0).abs() + (a.1 - b.1).abs() < 5.0,
+                        _ => false,
+                    };
+                    if ohne_ziehen {
+                        let (q, tol) = (self.oe_punkt(), self.oe_toleranz());
+                        if let (Some(q), Some(oe)) = (q, self.objekteditor.as_mut()) {
+                            oe.rechtsklick(q, tol);
+                        }
+                    }
+                }
                 if state == ElementState::Pressed && !egui_will && button == MouseButton::Left && self.messen {
                     if let Some(g) = self.boden_unter_maus {
                         if self.mess_a.is_none() || self.mess_b.is_some() {
@@ -4662,6 +4809,16 @@ impl ApplicationHandler for App {
                             self.ausfuehren(UiAktion::ZugBeenden);
                         }
                     }
+                }
+            }
+            WindowEvent::MouseWheel { delta, .. } if !egui_will && self.oe_aktiv() && (self.alt_taste || self.strg) && self.objekteditor.as_ref().map(|o| o.wahl.is_some()).unwrap_or(false) => {
+                let y = match delta {
+                    MouseScrollDelta::LineDelta(x, y) => if y != 0.0 { y } else { x },
+                    MouseScrollDelta::PixelDelta(p) => (if p.y != 0.0 { p.y } else { p.x }) as f32 / 60.0,
+                };
+                let (alt, strg) = (self.alt_taste, self.strg);
+                if let Some(oe) = self.objekteditor.as_mut() {
+                    oe.rad(y, alt, strg);
                 }
             }
             WindowEvent::MouseWheel { delta, .. } if !egui_will && (self.strg || self.umschalt) && self.bearb.werkzeug == Werkzeug::Welt && self.welt_modus == WeltModus::Gelaende => {

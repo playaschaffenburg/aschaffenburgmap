@@ -60,5 +60,6 @@ im Straßenbau (`omsigen/sonderbau_entwurf.py`, `python -m omsigen.ring_entwurf 
    - Trog endet halbrund (Apsis) an der Decke; Bahnbrücke endet an den Eckbrüstungen.
 
    **Objekt-Editor:** seit 10/2026 entsteht die Kreuzung aus `bauplan.json` (alle Bauteile einzeln), bearbeitbar im
-   Rust-Editor (Knopf „Objekt-Editor“), „Anwenden“ baut neu und setzt den Sonderbau ein (`sonderbau::einsetzen`).
+   Rust-Editor (Knopf „Objekt-Editor“), „Anwenden“ baut neu und setzt den Sonderbau ein (`sonderbau::einsetzen`). Seit 10.10.2026 auch die Wände (`waende`: Art, Seite, Bereich, Material, Lärmschutz, Versatz, Höhe) und je Straße
+   Querschnitt und Versatz (`strassen`); bedient wird direkt in der 3D-Ansicht.
 4. **Einbau:** als Einzelstück in die Karte (ein Rückgängig-Schritt, Speichern wie gewohnt).

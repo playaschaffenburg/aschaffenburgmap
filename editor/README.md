@@ -317,19 +317,33 @@ Namen je Sitzung, nichts Vorhandenes wird ersetzt).
 darüber, neue Objekte stehen als `[object]`-Einträge mit eindeutigen IDs in ihrer Kachel, `global.cfg` bekommt den
 neuen Namen und `[NextIDCode]`; die geöffnete Karte bleibt unverändert.
 
-**Objekt-Editor** (Knopf oben, bei Karten mit Ort): bearbeitet den Sonderbau Ring/Ludwigsallee Bauteil für Bauteil.
-Grundlage ist der Bauplan `sonderbau/ring/bauplan.json` (Format in `omsigen/ring_bauplan.py`); die Draufsicht zeigt
-das Luftbild (DOP40) und die Flächen mit ihren echten Texturen in derselben Lage wie im Objekt. Bauteile: Flächen
-(Fahrbahn, Gehweg, Insel Beton, Insel bepflanzt, Sperrfläche, Radfurt, Busspur Beton – erhöhte schneiden die Fahrbahn
-aus, Bordsteine entstehen von selbst), Linien (Breite, Strich/Lücke), Haltlinien (je Zufahrt; dort halten die
-Fahrzeuge), Pfeile und BUS, Ampeln (Kfz/Fußgänger, kleiner Mast/Ausleger, Phase), Geländer, Fußgängerfurten,
-Gehpfade; dazu Lärmschutzwände (Bereiche entlang der Ring-Achse), Bahntunnel und Ampelphasen.
-Bedienung: Klick wählt, Ziehen verschiebt, Eckpunkte ziehen (rastet an Punkten ein, Strg ohne), Doppelklick auf eine
-Kante fügt einen Punkt ein, Rechtsklick löscht ihn; **Alt+Ziehen verschiebt die Textur** einer Fläche, Alt+Rad
-skaliert sie, Strg+Rad dreht (Textur bzw. Pfeil/Ampel); rechte/mittlere Maustaste schiebt die Ansicht, Rad zoomt,
-Pfeiltasten 5 cm (Umschalt 50 cm), Entf löscht; eigene Rückgängig-Liste. **Anwenden** speichert den Bauplan, baut mit
-omsigen alle Objekte neu (`python -m omsigen.sonderbau_ring … --bauplan …`) und setzt den Sonderbau in die Karte
-(Sitzung: ersetzt Straßen und Objekte an der Stelle, Gelände abgesenkt; Rückgängig und Speichern wie gewohnt).
+**Objekt-Editor** (Knopf oben, bei Karten mit Ort): bearbeitet den Sonderbau Ring/Ludwigsallee Bauteil für Bauteil,
+**direkt in der 3D-Ansicht** (Leiste rechts mit Werkzeugen, Eigenschaften und Liste aller Bauteile; auf Wunsch
+zusätzlich ein 2D-Plan mit Luftbild DOP40 und den echten Texturen, „Ansicht“). Grundlage ist der Bauplan
+`sonderbau/ring/bauplan.json` (Format in `omsigen/ring_bauplan.py`). Bauteile: Flächen (Fahrbahn, Gehweg, Insel Beton,
+Insel bepflanzt, Sperrfläche, Radfurt, Busspur Beton – erhöhte schneiden die Fahrbahn aus, Bordsteine entstehen von
+selbst), Linien (Breite, Strich/Lücke, Vorlagen), Haltlinien (je Zufahrt), Pfeile und BUS, Ampeln (Kfz/Fußgänger,
+kleiner Mast/Ausleger, Phase), Geländer, Fußgängerfurten, Gehpfade, **Wände** des Bauwerks (Trenn- und Außenwände je
+Seite: Bereich entlang der Ring-Achse, Material Klinker/Beton/Gabionen, Lärmschutz keiner/grün/Glas, Versatz, Höhe,
+zweistufig; Enden mit den gelben Punkten entlang der Achse ziehen, „in der Mitte teilen“) und **Straßen** (Querschnitt
+„im Baukasten bearbeiten“ – Speichern im Baukasten übernimmt ihn in den Bauplan –, Lage zur Ring-Achse); dazu
+Bahntunnel und Ampelphasen.
+Werkzeuge: **Auswählen** (weiß = unter der Maus, gelb = gewählt; Ziehen verschiebt, gelbe Punkte ziehen, rastet an
+Eckpunkten ein – Strg ohne –, Doppelklick auf eine Kante fügt einen Punkt ein, Rechtsklick löscht ihn; ins Leere
+gezogen schwenkt die Kamera), **Textur schieben** (Ziehen verschiebt die Textur der gewählten Fläche, auch Alt+Ziehen;
+Alt+Rad skaliert, Strg+Rad dreht Textur bzw. Pfeil/Ampel), **Fläche/Linie/Geländer/Gehpfad zeichnen** (Punkte klicken;
+Klick auf den ersten Punkt, Doppelklick oder Enter beendet, Rechtsklick/Rücktaste nimmt den letzten zurück, Esc bricht
+ab). „+ Haltlinie/Pfeil/…/Wand“ setzt ein neues Bauteil an die Kamera-Mitte. Entf löscht, Strg+D dupliziert, eigene
+Rückgängig-Liste (Strg+Z/Strg+Y). **Anwenden** speichert den Bauplan, baut mit omsigen alle Objekte neu
+(`python -m omsigen.sonderbau_ring … --bauplan …`) und setzt den Sonderbau in die Karte (Sitzung: ersetzt Straßen und
+Objekte an der Stelle, Gelände abgesenkt; Rückgängig und Speichern wie gewohnt); „automatisch“ baut 1,5 s nach jeder
+Änderung von selbst neu.
+
+**Fläche markieren** (L): Rechteck ziehen oder Vieleck klicken, alles darin (Objekte/Bäume, Straßen-Splines, wählbar)
+mit Entf löschen – ein Rückgängig-Schritt.
+
+Tastenkürzel: Strg+Z/Strg+Y richten sich nach dem Zeichen der Taste (auch auf QWERTZ richtig), alle anderen nach der
+Lage (WASD). Ein angeklickter Knopf behält die Tasten nicht mehr – nur beim Tippen in ein Feld gehen sie an die Leiste.
 
 **Protokoll und Berichte** (Knopf „Protokolle“ oben öffnet den Ordner `%LOCALAPPDATA%\omsi-editor\logs`): jede
 Sitzung schreibt eine Logdatei (die letzten 10 bleiben; Stufe über `RUST_LOG`, Standard `warn,omsi_editor=info`),
