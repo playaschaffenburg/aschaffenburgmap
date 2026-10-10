@@ -976,14 +976,17 @@ def bauen(omsi, karte, osm_pfad, entwurf_pfad, nn0, ost0, nord0, cache, bauplan_
     o = np.array([st_w['elemente'][0]['x'], st_w['elemente'][0]['y'], 0.0])
     bb, _ = bahnbruecke(st_w, gel, o, kz['zf'])
     schreiben(ordner, rel, 'Bahnbruecke', bb, o, liste)
-    # Waende in Stuecken von STUECK m (Ursprung je Stueck: erster Punkt auf der Ring-Achse, Hoehe 0)
+    # Waende als Spline-Ketten entlang der Wandlinien (ring_waende, wie Staedtedreieck/Ahlheim)
+    from . import ring_waende as rw
+    wand_splines, wand_dateien = rw.splines(roh, kz['zf'], omsi)
+    rw.schreiben(omsi, wand_dateien, os.path.join(ordner, 'texture'))
+    print(f'Waende: {len(wand_splines)} Spline-Ketten, {sum(len(w_["elemente"]) for w_ in wand_splines)} Elemente, '
+          f'{len(wand_dateien)} Profile')
+    # Sohle und Deckel in Stuecken von STUECK m (Ursprung je Stueck: erster Punkt auf der Ring-Achse, Hoehe 0)
     n = int(STUECK / SCHRITT)
     for k in range(0, len(roh) - 1, n):
         teil = roh[k:k + n + 1]
         o = np.array([teil[0]['p'][0], teil[0]['p'][1], 0.0])
-        for seite in ('w', 'o'):
-            schreiben(ordner, rel, f'Trennwand_{seite}_{k // n:02d}', trennwand(teil, seite, o, kz['zf']), o, liste)
-            schreiben(ordner, rel, f'Aussenwand_{seite}_{k // n:02d}', aussenwand(teil, seite, o), o, liste)
         schreiben(ordner, rel, f'Sohle_{k // n:02d}', flaechen(teil, o), o, liste)
         schreiben(ordner, rel, f'Deckel_{k // n:02d}', deckel(teil, karte_gel, o), o, liste)
     messung = [dict(s=e['s'], x=float(e['p'][0]), y=float(e['p'][1]), ring=[float(e['ra']), float(e['rb']), float(e['zr'])],
@@ -1002,7 +1005,7 @@ def bauen(omsi, karte, osm_pfad, entwurf_pfad, nn0, ost0, nord0, cache, bauplan_
                    strassen=[dict(name=st['name'], punkte=[_xy((el['x'], el['y'])) for el in st['elemente']] + [_xy(rs._ende(st['elemente'][-1])[:2])])
                              for st in strassen if st['elemente']],
                    hoehen=hoehenraster(kz['zf'], F))
-    out = dict(karte=karte, nn0=nn0, objekte=liste, strassen=strassen, kreuzungen=[kreuzung], kontext=kontext,
+    out = dict(karte=karte, nn0=nn0, objekte=liste, strassen=strassen + wand_splines, kreuzungen=[kreuzung], kontext=kontext,
                gelaende=gelaende(roh) + platte_gelaende(platte, kz['zf']) + tunnel_gelaende(kz['tunnel']), messung=messung, quellen=['OpenStreetMap (ODbL)', 'DGM1/DOP40 Bayerische Vermessungsverwaltung (CC BY 4.0)'])
     with open(os.path.join(ordner, 'sonderbau_ring.json'), 'w', encoding='utf-8') as f:
         json.dump(out, f, indent=1)

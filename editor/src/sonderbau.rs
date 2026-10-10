@@ -46,25 +46,44 @@ pub struct Element {
     pub kum: f64,
 }
 
-/// Strasse des Sonderbaus: Querschnitt (Baukasten) und Elemente in Fahrtrichtung des Splines
+/// Strasse des Sonderbaus: Querschnitt (Baukasten) oder fertige .sli (Waende, von omsigen geschrieben) und Elemente
+/// in Laufrichtung des Splines
 #[derive(Clone, Debug)]
 pub struct Strasse {
     pub name: String,
-    pub querschnitt: crate::querschnitt::Querschnitt,
+    pub querschnitt: Option<crate::querschnitt::Querschnitt>,
+    /// relativer Pfad einer fertigen .sli (statt Querschnitt)
+    pub sli: Option<String>,
     pub elemente: Vec<Element>,
+}
+
+impl Strasse {
+    /// .sli dieser Strasse (aus dem Querschnitt erst schreiben)
+    fn sli_datei(&self, root: &Path) -> Result<String> {
+        match (&self.sli, &self.querschnitt) {
+            (Some(s), _) => Ok(s.clone()),
+            (None, Some(q)) => crate::querschnitt::schreiben(root, q, &q.datei()),
+            (None, None) => anyhow::bail!("{}: weder Querschnitt noch .sli", self.name),
+        }
+    }
 }
 
 pub fn strassen_lesen(datei: &Path) -> Result<Vec<Strasse>> {
     let j: serde_json::Value = serde_json::from_slice(&std::fs::read(datei)?)?;
     let mut out = Vec::new();
     for s in j["strassen"].as_array().map(|a| a.as_slice()).unwrap_or(&[]) {
-        let q = crate::querschnitt::Querschnitt::aus_json(&s["querschnitt"]).with_context(|| format!("Querschnitt von {}", s["name"]))?;
+        let sli = s["sli"].as_str().map(|x| x.to_string());
+        let q = if sli.is_some() {
+            None
+        } else {
+            Some(crate::querschnitt::Querschnitt::aus_json(&s["querschnitt"]).with_context(|| format!("Querschnitt von {}", s["name"]))?)
+        };
         let w = |e: &serde_json::Value, k: &str| e[k].as_f64().unwrap_or(0.0);
         let elemente = s["elemente"].as_array().map(|a| a.as_slice()).unwrap_or(&[]).iter().map(|e| Element {
             pos: DVec2::new(w(e, "x"), w(e, "y")), z: w(e, "z"), richtung: w(e, "richtung"), laenge: w(e, "laenge"),
             radius: w(e, "radius"), stg_a: w(e, "stg_a"), stg_e: w(e, "stg_e"), dh: w(e, "dh"), kum: w(e, "kum"),
         }).collect();
-        out.push(Strasse { name: s["name"].as_str().unwrap_or("").to_string(), querschnitt: q, elemente });
+        out.push(Strasse { name: s["name"].as_str().unwrap_or("").to_string(), querschnitt: q, sli, elemente });
     }
     Ok(out)
 }
@@ -80,7 +99,7 @@ pub fn strassen_anlegen(ae: &mut crate::aendern::Aendern, v: &mut openomsi_game:
         if st.elemente.is_empty() {
             continue;
         }
-        let sli = crate::querschnitt::schreiben(root, &st.querschnitt, &st.querschnitt.datei())?;
+        let sli = st.sli_datei(root)?;
         let id0 = ae.neue_ids(v, st.elemente.len() as i64);
         for (i, e) in st.elemente.iter().enumerate() {
             let k = ((e.pos.x / ts).floor() as i32, (e.pos.y / ts).floor() as i32);
@@ -242,7 +261,7 @@ pub fn einsetzen(ae: &mut crate::aendern::Aendern, gel: &mut crate::gelaende::Ge
         if st.elemente.is_empty() {
             continue;
         }
-        let sli = crate::querschnitt::schreiben(root, &st.querschnitt, &st.querschnitt.datei())?;
+        let sli = st.sli_datei(root)?;
         v.forget_spline_type(&sli);
         let id0 = ae.neue_ids(v, st.elemente.len() as i64);
         for (i, e) in st.elemente.iter().enumerate() {
@@ -375,7 +394,7 @@ mod tests {
                     let (q, hq) = c.ende();
                     (q, e.z + e.dh, hq)
                 })].into_iter().flatten() {
-                    if (p - o).length() > 45.0 || st.name == "Ring" {
+                    if (p - o).length() > 45.0 || st.name == "Ring" || st.sli.is_some() {
                         continue;
                     }
                     let r = h.to_radians();

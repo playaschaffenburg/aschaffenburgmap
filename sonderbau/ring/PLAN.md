@@ -63,3 +63,16 @@ im Straßenbau (`omsigen/sonderbau_entwurf.py`, `python -m omsigen.ring_entwurf 
    Rust-Editor (Knopf „Objekt-Editor“), „Anwenden“ baut neu und setzt den Sonderbau ein (`sonderbau::einsetzen`). Seit 10.10.2026 auch die Wände (`waende`: Art, Seite, Bereich, Material, Lärmschutz, Versatz, Höhe) und je Straße
    Querschnitt und Versatz (`strassen`); bedient wird direkt in der 3D-Ansicht.
 4. **Einbau:** als Einzelstück in die Karte (ein Rückgängig-Schritt, Speichern wie gewohnt).
+
+## Umbau nach dem Vorbild der Fremdkarten (10.10.2026)
+
+Studie in docs/omsi-format.md („Wie Fremdkarten Troege, Mauern und grosse Kreuzungen bauen“). Schritte:
+1. Ring und Rampen als Strassen-Splines (war schon so).
+2. **Waende als Splines (fertig):** `omsigen/ring_waende.py` - je Wand-Bauteil eine tangentenstetige Bogenkette
+   entlang der Wandlinie, Spline-Hoehe = Mauerkrone, Profil reicht bis unter Fahrbahn/Gelaende (wie
+   `Mauer_Unterfuehrung.sli` in Staedtedreieck). Profile `Splines\Aschaffenburg\AB_SB_Wand_<art>_<material>_<variante>_<laerm>_<seite>_<tiefe>m.sli`
+   (Trennwand mit Bruestung + Stabgelaender bzw. flach unter der Decke; Aussenwand einfach/zweistufig/Gabionen,
+   Laermschutz gruen/Glas oben). Die Wand-Objekte (Trennwand_*/Aussenwand_*) entfallen.
+   Offen: Wandenden ohne Stirnflaeche; Pfeiler an der Trennwand fehlen.
+3. Kreuzung nur als ebene Platte, Ampeln auf den Inseln.
+4. Portal/Deckel, Bahnbruecke und Laermschutz (25-m-Teile) als kurze Objekte.
