@@ -8,7 +8,11 @@
 //! einem 2D-Plan ueber dem Luftbild mit den echten Texturen. Bearbeitet wird nur der Bauplan
 //! (`sonderbau/ring/bauplan.json`, Format in omsigen/ring_bauplan.py); "Anwenden" (oder automatisch) baut daraus mit
 //! omsigen alle Objekte neu und setzt den Sonderbau in die Karte (Sitzung, Rueckgaengig, Speichern wie gewohnt).
+//!
+//! Dazu die Bauaufnahme (aufnahme.rs): das echte Bauwerk, nachgezeichnet ueber dem Luftbild, und der Abgleich mit dem
+//! Gebauten (was fehlt, was daneben liegt, was zuviel ist).
 
+use crate::aufnahme::{self, ALinie, Abweichung, Aufnahme, Gebaut, Notiz};
 use glam::{DVec2, DVec3};
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver};
@@ -236,6 +240,10 @@ pub enum Wahl {
     Gehpfad(usize),
     Wand(usize),
     Strasse(usize),
+    /// Linie der Bauaufnahme
+    Aufnahme(usize),
+    /// Notiz der Bauaufnahme
+    Notiz(usize),
 }
 
 pub const FLAECHEN_ARTEN: [(&str, &str); 7] = [("fahrbahn", "Fahrbahn"), ("gehweg", "Gehweg (erhoeht)"), ("insel", "Insel Beton (erhoeht)"),
@@ -575,11 +583,15 @@ pub enum Werkzeug {
     Linie,
     Gelaender,
     Gehpfad,
+    /// Linie der Bauaufnahme (Art in der Leiste)
+    Aufnahme,
+    /// Notiz der Bauaufnahme per Klick
+    Notiz,
 }
 
 impl Werkzeug {
     fn zeichnet(self) -> bool {
-        matches!(self, Werkzeug::Flaeche | Werkzeug::Linie | Werkzeug::Gelaender | Werkzeug::Gehpfad)
+        matches!(self, Werkzeug::Flaeche | Werkzeug::Linie | Werkzeug::Gelaender | Werkzeug::Gehpfad | Werkzeug::Aufnahme | Werkzeug::Notiz)
     }
 }
 
@@ -612,7 +624,7 @@ pub struct ObjektEditor {
     pub automatisch: bool,
     einrasten: bool,
     neue_art: usize,
-    zeige: [bool; 10],
+    zeige: [bool; 11],
     /// in der 3D-Ansicht bearbeiten (sonst nur im 2D-Plan)
     pub drei_d: bool,
     /// Flaechen in der 3D-Ansicht farbig fuellen
@@ -624,9 +636,25 @@ pub struct ObjektEditor {
     /// Funde des Bauprüfers in 3D markieren
     pub funde_zeigen: bool,
     fund_wahl: Option<usize>,
+    /// Bauaufnahme (echtes Bauwerk) neben dem Bauplan
+    pub aufnahme: Aufnahme,
+    aufnahme_pfad: PathBuf,
+    /// Art fuer das Werkzeug Aufnahme (Index in aufnahme::ARTEN)
+    aufnahme_art: usize,
+    abweichungen: Vec<Abweichung>,
+    /// Stand fuer den Abgleich: zaehlt bei jeder Aenderung hoch
+    rev: u64,
+    abw_rev: u64,
+    pub abgleich_zeigen: bool,
+    abw_wahl: Option<usize>,
+    bezug: Option<crate::geo::Bezug>,
+    /// Klicks treffen zuerst die Bauaufnahme (sonst erst den Bauplan)
+    pub aufnahme_vorne: bool,
 }
 
-const EBENEN: [&str; 10] = ["Flaechen", "Linien", "Haltlinien", "Symbole", "Ampeln", "Gelaender", "Furten", "Gehpfade", "Waende", "Strassen"];
+const EBENEN: [&str; 11] = ["Flaechen", "Linien", "Haltlinien", "Symbole", "Ampeln", "Gelaender", "Furten", "Gehpfade", "Waende", "Strassen", "Bauaufnahme"];
+/// Ebene der Bauaufnahme in `zeige`
+const AUFNAHME: usize = 10;
 
 impl ObjektEditor {
     /// Editor fuer den Sonderbau Ring in Karte `karte` (Objekte in Sceneryobjects\Aschaffenburg\<karte>\Sonderbau_Ring)
@@ -645,6 +673,9 @@ impl ObjektEditor {
         ed.karte = karte.to_string();
         ed.plan = plan;
         ed.kontext = kontext;
+        ed.aufnahme_pfad = ed.plan_pfad.with_file_name("aufnahme.json");
+        ed.aufnahme = Aufnahme::lesen(&ed.aufnahme_pfad);
+        ed.bezug = crate::geo::Bezug::lesen(&root.join("maps").join(karte));
         if ed.plan.flaechen.is_empty() || ed.kontext.arme.is_empty() || ed.kontext.stationen.is_empty() {
             ed.bauen(false);
             ed.meldung = "Erzeugen des Sonderbaus laeuft (Bauplan und Kontext) ...".into();
@@ -659,8 +690,10 @@ impl ObjektEditor {
             kontext: Kontext::default(), wahl: None, unter: None, werkzeug: Werkzeug::Auswahl, entwurf: vec![], zug: Zug::Nichts,
             letzte: None, undo: vec![], redo: vec![], offen_aenderung: None, geaendert: false, zuletzt_geaendert: Instant::now(), job: None,
             meldung: String::new(), luftbild: None, luft_job: None, luft_alpha: 0.55, texturen: Default::default(), einsetzen: true,
-            automatisch: false, einrasten: true, neue_art: 0, zeige: [true; 10], drei_d: true, fuellen_3d: false, plan2d: false,
+            automatisch: false, einrasten: true, neue_art: 0, zeige: [true; 11], drei_d: true, fuellen_3d: false, plan2d: false,
             mitte: DVec2::new(1084.0, -265.0), m_px: 6.0, funde_zeigen: true, fund_wahl: None,
+            aufnahme: Aufnahme::default(), aufnahme_pfad: PathBuf::new(), aufnahme_art: 1, abweichungen: vec![], rev: 1, abw_rev: 0,
+            abgleich_zeigen: true, abw_wahl: None, bezug: None, aufnahme_vorne: true,
         }
     }
 
@@ -689,7 +722,15 @@ impl ObjektEditor {
 
     // ---------------------------------------------------------- Aenderungen und Rueckgaengig
     fn stand(&self) -> String {
-        self.plan.json().to_string()
+        serde_json::json!({"plan": self.plan.json(), "aufnahme": self.aufnahme.json()}).to_string()
+    }
+
+    fn stand_setzen(&mut self, s: &str) {
+        if let Ok(v) = serde_json::from_str::<serde_json::Value>(s) {
+            self.plan = Bauplan::aus_json(&v["plan"]);
+            self.aufnahme = Aufnahme::aus_json(&v["aufnahme"]);
+        }
+        self.rev += 1;
     }
 
     /// vor einer Aenderung aufrufen: merkt den Stand fuer Rueckgaengig (einmal je Bedienvorgang)
@@ -699,6 +740,7 @@ impl ObjektEditor {
         }
         self.geaendert = true;
         self.zuletzt_geaendert = Instant::now();
+        self.rev += 1;
     }
 
     /// Bedienvorgang abschliessen (Maus losgelassen): Stand fuer Rueckgaengig ablegen
@@ -718,9 +760,7 @@ impl ObjektEditor {
         self.abschliessen();
         if let Some(s) = self.undo.pop() {
             self.redo.push(self.stand());
-            if let Ok(v) = serde_json::from_str(&s) {
-                self.plan = Bauplan::aus_json(&v);
-            }
+            self.stand_setzen(&s);
             self.wahl = None;
             self.geaendert = true;
             self.zuletzt_geaendert = Instant::now();
@@ -730,9 +770,7 @@ impl ObjektEditor {
     pub fn wiederholen(&mut self) {
         if let Some(s) = self.redo.pop() {
             self.undo.push(self.stand());
-            if let Ok(v) = serde_json::from_str(&s) {
-                self.plan = Bauplan::aus_json(&v);
-            }
+            self.stand_setzen(&s);
             self.wahl = None;
             self.geaendert = true;
             self.zuletzt_geaendert = Instant::now();
@@ -744,7 +782,11 @@ impl ObjektEditor {
         if let Some(d) = self.plan_pfad.parent() {
             let _ = std::fs::create_dir_all(d);
         }
-        std::fs::write(&self.plan_pfad, text).map_err(|e| format!("{}: {e}", self.plan_pfad.display()))
+        std::fs::write(&self.plan_pfad, text).map_err(|e| format!("{}: {e}", self.plan_pfad.display()))?;
+        if !self.aufnahme_pfad.as_os_str().is_empty() && (self.aufnahme != Aufnahme::default() || self.aufnahme_pfad.is_file()) {
+            self.aufnahme.schreiben(&self.aufnahme_pfad)?;
+        }
+        Ok(())
     }
 
     /// Bauplan speichern und alle Objekte mit omsigen neu bauen (im Hintergrund)
@@ -808,6 +850,215 @@ impl ObjektEditor {
         self.meldung = format!("Querschnitt von {name} uebernommen - Anwenden baut neu");
     }
 
+    // ---------------------------------------------------------- Bauaufnahme
+    /// das Gebaute fuer den Abgleich: Borde (Umrisse erhoehter Flaechen), Markierungen, Haltlinien, Furten, Sperrflaechen,
+    /// Radfurten, Gelaender (auch auf den Trennwaenden) und Mauern (Wandlinien des letzten Baus)
+    fn gebaut(&self) -> Vec<Gebaut> {
+        let zu = |pts: &[DVec2]| {
+            let mut v = pts.to_vec();
+            if v.len() > 2 {
+                v.push(v[0]);
+            }
+            v
+        };
+        let mut g = Vec::new();
+        for f_ in &self.plan.flaechen {
+            let art = match f_.art.as_str() {
+                "gehweg" | "insel" | "gruen" => "bord",
+                "sperr" => "sperr",
+                "radfurt" => "radfurt",
+                _ => continue,
+            };
+            g.push(Gebaut { art, punkte: zu(&f_.punkte), name: f_.id.clone() });
+            for l in &f_.loecher {
+                g.push(Gebaut { art, punkte: zu(l), name: f_.id.clone() });
+            }
+        }
+        for l in &self.plan.linien {
+            let art = if l.breite >= 0.4 { "haltlinie" } else if l.an > 0.0 && l.aus > 0.0 { "leitlinie" } else { "randlinie" };
+            g.push(Gebaut { art, punkte: l.punkte.clone(), name: l.id.clone() });
+        }
+        for h in &self.plan.haltlinien {
+            g.push(Gebaut { art: "haltlinie", punkte: h.punkte.clone(), name: h.id.clone() });
+        }
+        for f_ in &self.plan.furten {
+            g.push(Gebaut { art: "furt", punkte: vec![f_.a, f_.b], name: f_.id.clone() });
+        }
+        for x in &self.plan.gelaender {
+            g.push(Gebaut { art: "gelaender", punkte: x.punkte.clone(), name: x.id.clone() });
+        }
+        for w in &self.plan.waende {
+            let l = self.wand_linie(w);
+            if l.len() < 2 {
+                continue;
+            }
+            if w.art == "trenn" {
+                g.push(Gebaut { art: "gelaender", punkte: l.clone(), name: w.id.clone() });
+            }
+            g.push(Gebaut { art: "mauer", punkte: l, name: w.id.clone() });
+        }
+        g
+    }
+
+    /// Abgleich neu, wenn sich Bauplan, Aufnahme oder Kontext geaendert haben
+    fn abgleich_aktuell(&mut self) {
+        if self.abw_rev == self.rev {
+            return;
+        }
+        self.abw_rev = self.rev;
+        let g = self.gebaut();
+        let platte: Vec<&Vec<DVec2>> = self.plan.flaechen.iter().map(|f_| &f_.punkte).collect();
+        let auf_platte = |q: DVec2| platte.iter().any(|f_| punkt_in(q, f_));
+        self.abweichungen = aufnahme::abgleich(&self.aufnahme, &g, &auf_platte);
+        if self.abw_wahl.is_some_and(|i| i >= self.abweichungen.len()) {
+            self.abw_wahl = None;
+        }
+    }
+
+    /// Kartenpunkt -> (Breite, Laenge), nur fuer Karten mit Ort
+    fn wgs(&self, q: DVec2) -> Option<(f64, f64)> {
+        self.bezug.as_ref().map(|b| aufnahme::utm_zu_wgs(b.ost0 + q.x, b.nord0 + q.y, b.zone))
+    }
+
+    /// Knoepfe "Mapillary" / "Panoramax": freie Strassenbilder an q im Browser
+    fn bilder_knoepfe(&self, ui: &mut egui::Ui, q: DVec2) {
+        match self.wgs(q) {
+            Some((lat, lon)) => {
+                for (name, url) in aufnahme::bilder_links(lat, lon) {
+                    if ui.small_button(format!("\u{1F4F7} {name}")).on_hover_text(format!("Strassenbilder hier im Browser oeffnen ({lat:.5}, {lon:.5})")).clicked() {
+                        ui.ctx().open_url(egui::OpenUrl::new_tab(url));
+                    }
+                }
+            }
+            None => {
+                ui.label(egui::RichText::new("Strassenbilder nur fuer Karten mit Ort").small().weak());
+            }
+        }
+    }
+
+    /// Aufnahme-Linie i als Bauteil in den Bauplan (Gelaender, Markierung, Haltlinie, Furt, Sperrflaeche, Radfurt)
+    pub fn uebernehmen(&mut self, i: usize) -> String {
+        let Some(l) = self.aufnahme.linien.get(i).cloned() else { return "keine Aufnahme-Linie".into() };
+        let pts = l.punkte.clone();
+        if pts.len() < 2 {
+            return "zu wenige Punkte".into();
+        }
+        let neu = match l.art.as_str() {
+            "gelaender" => {
+                self.aendern();
+                let id = self.plan.neue_id("gelaender");
+                self.plan.gelaender.push(Gelaender { id, punkte: pts, unten: "gelaende".into(), flip: false });
+                Wahl::Gelaender(self.plan.gelaender.len() - 1)
+            }
+            "randlinie" | "leitlinie" => {
+                self.aendern();
+                let id = self.plan.neue_id("linie");
+                let (an, aus) = if l.art == "leitlinie" { (3.0, 6.0) } else { (0.0, 0.0) };
+                self.plan.linien.push(Linie { id, punkte: pts, breite: 0.12, an, aus });
+                Wahl::Linie(self.plan.linien.len() - 1)
+            }
+            "haltlinie" => {
+                self.aendern();
+                let c = (pts[0] + pts[pts.len() - 1]) / 2.0;
+                let arm = self.kontext.arme.iter().enumerate().min_by(|a, b| (a.1.pos - c).length().total_cmp(&(b.1.pos - c).length())).map(|x| x.0).unwrap_or(0);
+                let id = self.plan.neue_id("halt");
+                self.plan.haltlinien.push(Haltlinie { id, arm, punkte: pts, breite: 0.5 });
+                Wahl::Halt(self.plan.haltlinien.len() - 1)
+            }
+            "furt" => {
+                self.aendern();
+                let id = self.plan.neue_id("furt");
+                self.plan.furten.push(Furt { id, a: pts[0], b: pts[pts.len() - 1], breite: 3.0, gruppe: 0 });
+                Wahl::Furt(self.plan.furten.len() - 1)
+            }
+            "sperr" | "radfurt" if pts.len() >= 3 => {
+                self.aendern();
+                let id = self.plan.neue_id("flaeche");
+                self.plan.flaechen.push(Flaeche { id, art: l.art.clone(), punkte: pts, loecher: vec![], textur: Textur { dx: 0.0, dy: 0.0, skala: 1.0, dreh: 0.0 } });
+                Wahl::Flaeche(self.plan.flaechen.len() - 1)
+            }
+            "bord" => return "Bordkanten: die Flaeche (Gehweg/Insel) im Bauplan an die Linie ziehen".into(),
+            "mauer" => return "Mauern: Wand im Bauplan waehlen und Bereich/Versatz anpassen".into(),
+            _ => return format!("{} baut der Generator noch nicht", aufnahme::art_name(&l.art)),
+        };
+        self.wahl = Some(neu);
+        self.abschliessen();
+        format!("{} in den Bauplan uebernommen - Anwenden baut neu", aufnahme::art_name(&l.art))
+    }
+
+    fn aufnahme_ui(&mut self, ui: &mut egui::Ui) -> Option<Aktion> {
+        let mut erg = None;
+        let n_abw = self.abweichungen.iter().filter(|a| a.was != "nicht_baubar").count();
+        let titel = if self.aufnahme.linien.is_empty() { egui::RichText::new("Bauaufnahme: noch leer") }
+                    else if n_abw == 0 { egui::RichText::new(format!("Bauaufnahme: {} Linien, keine Abweichung", self.aufnahme.linien.len())).color(egui::Color32::from_rgb(120, 220, 120)) }
+                    else { egui::RichText::new(format!("Bauaufnahme: {} Linien, {n_abw} Abweichungen", self.aufnahme.linien.len())).color(egui::Color32::from_rgb(255, 120, 190)) };
+        egui::CollapsingHeader::new(titel).id_salt("oe_aufnahme").default_open(true).show(ui, |ui| {
+            ui.label(egui::RichText::new("Das echte Bauwerk ueber dem Luftbild nachzeichnen (Strassenbilder zum Nachsehen). Der Abgleich zeigt, was im Gebauten fehlt oder daneben liegt.").small().weak());
+            ui.horizontal_wrapped(|ui| {
+                if ui.selectable_label(self.werkzeug == Werkzeug::Aufnahme, "\u{270F} Aufnahme zeichnen").on_hover_text("Punkte klicken; Doppelklick oder Enter beendet (Umrisse: Klick auf den ersten Punkt). Das Werkzeug bleibt fuer die naechste Linie.").clicked() {
+                    self.werkzeug = Werkzeug::Aufnahme;
+                    self.entwurf.clear();
+                    self.zeige[AUFNAHME] = true;
+                }
+                egui::ComboBox::from_id_salt("oe_aufnahme_art").selected_text(aufnahme::ARTEN[self.aufnahme_art].1).show_ui(ui, |ui| {
+                    for (i, a) in aufnahme::ARTEN.iter().enumerate() {
+                        ui.selectable_value(&mut self.aufnahme_art, i, egui::RichText::new(a.1).color(aufnahme::farbe(a.0)));
+                    }
+                });
+                if ui.selectable_label(self.werkzeug == Werkzeug::Notiz, "\u{1F4CC} Notiz").on_hover_text("Klick setzt eine Notiz (z. B. was auf einem Foto zu sehen ist)").clicked() {
+                    self.werkzeug = Werkzeug::Notiz;
+                    self.entwurf.clear();
+                    self.zeige[AUFNAHME] = true;
+                }
+            });
+            ui.horizontal_wrapped(|ui| {
+                ui.label(egui::RichText::new("Strassenbilder an der Kamera-Mitte:").small());
+                self.bilder_knoepfe(ui, self.mitte);
+            });
+            ui.horizontal_wrapped(|ui| {
+                ui.checkbox(&mut self.zeige[AUFNAHME], "zeigen");
+                ui.checkbox(&mut self.aufnahme_vorne, "zuerst anklicken").on_hover_text("Klicks waehlen zuerst Aufnahme-Linien (sonst zuerst Bauteile des Bauplans)");
+                ui.checkbox(&mut self.abgleich_zeigen, "Abweichungen markieren");
+            });
+            egui::CollapsingHeader::new("vollstaendig aufgenommen").id_salt("oe_aufnahme_fertig").show(ui, |ui| {
+                ui.label(egui::RichText::new("Angehakte Arten sind ganz nachgezeichnet: dann meldet der Abgleich auch Gebautes, das es in echt nicht gibt.").small().weak());
+                ui.horizontal_wrapped(|ui| {
+                    for a in aufnahme::ARTEN.iter().filter(|a| a.3 > 0.0 && a.0 != "bord") {
+                        let mut an = self.aufnahme.ist_fertig(a.0);
+                        if ui.checkbox(&mut an, a.1).changed() {
+                            self.aendern();
+                            self.aufnahme.fertig.retain(|x| x != a.0);
+                            if an {
+                                self.aufnahme.fertig.push(a.0.to_string());
+                            }
+                            self.abschliessen();
+                        }
+                    }
+                });
+            });
+            for (was, titel) in [("fehlt", "fehlt / weicht ab"), ("zuviel", "gebaut, aber nicht in der Aufnahme"), ("nicht_baubar", "baut der Generator noch nicht")] {
+                let idx: Vec<usize> = (0..self.abweichungen.len()).filter(|&i| self.abweichungen[i].was == was).collect();
+                if idx.is_empty() {
+                    continue;
+                }
+                egui::CollapsingHeader::new(format!("{titel} ({})", idx.len())).id_salt(("oe_abw", was)).default_open(was == "fehlt").show(ui, |ui| {
+                    for i in idx.into_iter().take(200) {
+                        let a = &self.abweichungen[i];
+                        if ui.selectable_label(self.abw_wahl == Some(i), egui::RichText::new(&a.text).small().color(aufnahme::farbe(&a.art))).clicked() {
+                            self.abw_wahl = Some(i);
+                            let z = self.hoehe(a.pos).unwrap_or(f64::NAN);
+                            erg = Some(Aktion::KameraNah(a.pos.extend(z)));
+                            if let Some(k) = self.aufnahme.linien.iter().position(|l| l.id == a.bezug) {
+                                self.wahl = Some(Wahl::Aufnahme(k));
+                            }
+                        }
+                    }
+                });
+            }
+        });
+        erg
+    }
+
     // ---------------------------------------------------------- Waende: Linien entlang der Stationen
     fn wand_punkt(&self, st: &Station, w: &Wand) -> Option<DVec2> {
         let t = *st.t.get(&format!("{}_{}", w.art, w.seite))?;
@@ -844,6 +1095,8 @@ impl ObjektEditor {
                 }
             }).unwrap_or_default(),
             Wahl::Strasse(_) => vec![],
+            Wahl::Aufnahme(i) => self.aufnahme.linien.get(i).map(|x| x.punkte.clone()).unwrap_or_default(),
+            Wahl::Notiz(i) => self.aufnahme.notizen.get(i).map(|x| vec![x.pos]).unwrap_or_default(),
         }
     }
 
@@ -856,6 +1109,7 @@ impl ObjektEditor {
             Wahl::Furt(i) => (self.plan.furten.get(i).map(|x| vec![x.a, x.b]).unwrap_or_default(), false),
             Wahl::Symbol(i) => (self.plan.symbole.get(i).map(|x| vec![x.pos, x.pos + richtung_vec(x.richtung) * 5.0 * x.skala]).unwrap_or_default(), false),
             Wahl::Ampel(i) => (self.plan.ampeln.get(i).map(|x| vec![x.pos - richtung_vec(x.richtung) * 0.46, x.pos + richtung_vec(x.richtung) * 1.0]).unwrap_or_default(), false),
+            Wahl::Aufnahme(i) => self.aufnahme.linien.get(i).map(|x| (x.punkte.clone(), aufnahme::geschlossen(&x.art))).unwrap_or_default(),
             _ => (self.griffe(w), false),
         }
     }
@@ -870,6 +1124,8 @@ impl ObjektEditor {
             Wahl::Gelaender(i) => self.plan.gelaender.get_mut(i).map(|x| x.punkte.iter_mut().collect()).unwrap_or_default(),
             Wahl::Furt(i) => self.plan.furten.get_mut(i).map(|x| vec![&mut x.a, &mut x.b]).unwrap_or_default(),
             Wahl::Gehpfad(i) => self.plan.gehpfade.get_mut(i).map(|x| x.punkte.iter_mut().collect()).unwrap_or_default(),
+            Wahl::Aufnahme(i) => self.aufnahme.linien.get_mut(i).map(|x| x.punkte.iter_mut().collect()).unwrap_or_default(),
+            Wahl::Notiz(i) => self.aufnahme.notizen.get_mut(i).map(|x| vec![&mut x.pos]).unwrap_or_default(),
             Wahl::Wand(_) | Wahl::Strasse(_) => vec![],
         }
     }
@@ -881,6 +1137,10 @@ impl ObjektEditor {
             Wahl::Linie(i) => self.plan.linien.get_mut(i).map(|x| (&mut x.punkte, false, 2)),
             Wahl::Gelaender(i) => self.plan.gelaender.get_mut(i).map(|x| (&mut x.punkte, false, 2)),
             Wahl::Gehpfad(i) => self.plan.gehpfade.get_mut(i).map(|x| (&mut x.punkte, false, 2)),
+            Wahl::Aufnahme(i) => self.aufnahme.linien.get_mut(i).map(|x| {
+                let zu = aufnahme::geschlossen(&x.art);
+                (&mut x.punkte, zu, if zu { 3 } else { 2 })
+            }),
             _ => None,
         }
     }
@@ -940,6 +1200,8 @@ impl ObjektEditor {
             Wahl::Gehpfad(i) => drop(self.plan.gehpfade.remove(i)),
             Wahl::Wand(i) => drop(self.plan.waende.remove(i)),
             Wahl::Strasse(_) => self.meldung = "Strassen lassen sich nicht loeschen (nur Querschnitt und Lage aendern)".into(),
+            Wahl::Aufnahme(i) => drop(self.aufnahme.linien.remove(i)),
+            Wahl::Notiz(i) => drop(self.aufnahme.notizen.remove(i)),
         }
     }
 
@@ -966,6 +1228,18 @@ impl ObjektEditor {
                 return Wahl::Wand(k);
             }
             Wahl::Strasse(_) => return w,
+            Wahl::Aufnahme(i) => {
+                let mut x = self.aufnahme.linien[i].clone();
+                x.id = self.aufnahme.neue_id(&x.art);
+                self.aufnahme.linien.push(x);
+                Wahl::Aufnahme(self.aufnahme.linien.len() - 1)
+            }
+            Wahl::Notiz(i) => {
+                let mut x = self.aufnahme.notizen[i].clone();
+                x.id = self.aufnahme.neue_id("notiz");
+                self.aufnahme.notizen.push(x);
+                Wahl::Notiz(self.aufnahme.notizen.len() - 1)
+            }
         };
         let d = DVec2::new(1.0, -1.0);
         for p in self.punkte_mut(neu) {
@@ -987,13 +1261,17 @@ impl ObjektEditor {
             Wahl::Gehpfad(i) => self.plan.gehpfade.get(i).map(|g| abstand_zug(p, &g.punkte, false).0 < tol).unwrap_or(false),
             Wahl::Wand(i) => self.plan.waende.get(i).map(|w| abstand_zug(p, &self.wand_linie(w), false).0 < tol.max(0.6)).unwrap_or(false),
             Wahl::Strasse(i) => self.kontext.strassen.get(i).map(|s| abstand_zug(p, &s.1, false).0 < tol.max(0.8)).unwrap_or(false),
+            Wahl::Aufnahme(i) => self.aufnahme.linien.get(i).map(|l| abstand_zug(p, &l.punkte, aufnahme::geschlossen(&l.art)).0 < tol.max(0.3)).unwrap_or(false),
+            Wahl::Notiz(i) => self.aufnahme.notizen.get(i).map(|n| (n.pos - p).length() < tol.max(0.8)).unwrap_or(false),
         }
     }
 
     /// oberstes Bauteil unter p (Toleranz in m)
     fn treffer(&self, p: DVec2, tol: f64) -> Option<Wahl> {
         let z = &self.zeige;
-        let reihen: [(usize, Vec<Wahl>); 9] = [
+        let reihen: [(usize, Vec<Wahl>); 11] = [
+            (AUFNAHME, (0..self.aufnahme.notizen.len()).map(Wahl::Notiz).collect()),
+            (AUFNAHME, (0..self.aufnahme.linien.len()).map(Wahl::Aufnahme).collect()),
             (4, (0..self.plan.ampeln.len()).map(Wahl::Ampel).collect()),
             (3, (0..self.plan.symbole.len()).map(Wahl::Symbol).collect()),
             (2, (0..self.plan.haltlinien.len()).map(Wahl::Halt).collect()),
@@ -1004,7 +1282,8 @@ impl ObjektEditor {
             (7, (0..self.plan.gehpfade.len()).map(Wahl::Gehpfad).collect()),
             (9, (0..self.kontext.strassen.len()).map(Wahl::Strasse).collect()),
         ];
-        for (ebene, liste) in reihen.iter() {
+        let reihen: Vec<&(usize, Vec<Wahl>)> = if self.aufnahme_vorne { reihen.iter().collect() } else { reihen[2..].iter().chain(reihen[..2].iter()).collect() };
+        for (ebene, liste) in reihen {
             if !z[*ebene] {
                 continue;
             }
@@ -1047,6 +1326,11 @@ impl ObjektEditor {
         for (i, g) in self.plan.gelaender.iter().enumerate() {
             if ausser != Some(Wahl::Gelaender(i)) {
                 g.punkte.iter().for_each(|q| pruefe(*q));
+            }
+        }
+        for (i, l) in self.aufnahme.linien.iter().enumerate() {
+            if ausser != Some(Wahl::Aufnahme(i)) {
+                l.punkte.iter().for_each(|q| pruefe(*q));
             }
         }
         for a in &self.kontext.arme {
@@ -1100,7 +1384,8 @@ impl ObjektEditor {
     /// gezeichnetes Bauteil anlegen
     fn entwurf_fertig(&mut self) {
         let pts = std::mem::take(&mut self.entwurf);
-        let min = if self.werkzeug == Werkzeug::Flaeche { 3 } else { 2 };
+        let art_a = aufnahme::ARTEN[self.aufnahme_art.min(aufnahme::ARTEN.len() - 1)].0;
+        let min = if self.werkzeug == Werkzeug::Flaeche || (self.werkzeug == Werkzeug::Aufnahme && aufnahme::geschlossen(art_a)) { 3 } else { 2 };
         if pts.len() < min {
             self.meldung = format!("zu wenige Punkte ({} noetig)", min);
             return;
@@ -1122,6 +1407,15 @@ impl ObjektEditor {
                 let id = self.plan.neue_id("gelaender");
                 self.plan.gelaender.push(Gelaender { id, punkte: pts, unten: "gelaende".into(), flip: false });
                 Wahl::Gelaender(self.plan.gelaender.len() - 1)
+            }
+            Werkzeug::Aufnahme => {
+                // Werkzeug bleibt: gleich die naechste Linie nachzeichnen
+                let id = self.aufnahme.neue_id(art_a);
+                self.aufnahme.linien.push(ALinie { id, art: art_a.into(), punkte: pts, notiz: String::new() });
+                self.wahl = Some(Wahl::Aufnahme(self.aufnahme.linien.len() - 1));
+                self.abschliessen();
+                self.meldung = format!("{} aufgenommen - naechste Linie klicken oder Esc", aufnahme::art_name(art_a));
+                return;
             }
             _ => {
                 let id = self.plan.neue_id("gehpfad");
@@ -1233,6 +1527,16 @@ impl ObjektEditor {
 
     /// Klick (ohne Ziehen) bei q
     pub fn klicken(&mut self, q: DVec2, tol: f64, strg: bool) {
+        if self.werkzeug == Werkzeug::Notiz {
+            self.aendern();
+            let id = self.aufnahme.neue_id("notiz");
+            self.aufnahme.notizen.push(Notiz { id, pos: q, text: String::new() });
+            self.wahl = Some(Wahl::Notiz(self.aufnahme.notizen.len() - 1));
+            self.abschliessen();
+            self.werkzeug = Werkzeug::Auswahl;
+            self.meldung = "Notiz gesetzt - Text rechts eintragen".into();
+            return;
+        }
         if self.werkzeug.zeichnet() {
             let mut p = q;
             if self.einrasten && !strg {
@@ -1241,7 +1545,8 @@ impl ObjektEditor {
                 }
             }
             // Klick auf den ersten Punkt schliesst die Flaeche
-            if self.werkzeug == Werkzeug::Flaeche && self.entwurf.len() >= 3 && (self.entwurf[0] - p).length() < tol * 1.5 {
+            let zu = self.werkzeug == Werkzeug::Flaeche || (self.werkzeug == Werkzeug::Aufnahme && aufnahme::geschlossen(aufnahme::ARTEN[self.aufnahme_art.min(aufnahme::ARTEN.len() - 1)].0));
+            if zu && self.entwurf.len() >= 3 && (self.entwurf[0] - p).length() < tol * 1.5 {
                 self.entwurf_fertig();
                 return;
             }
@@ -1256,6 +1561,9 @@ impl ObjektEditor {
 
     /// Doppelklick: Zeichnen beenden, sonst Punkt auf der Kante einfuegen
     pub fn doppelklick(&mut self, q: DVec2, tol: f64) {
+        if self.werkzeug == Werkzeug::Notiz {
+            return;
+        }
         if self.werkzeug.zeichnet() {
             self.entwurf.pop();
             self.entwurf_fertig();
@@ -1331,7 +1639,7 @@ impl ObjektEditor {
             egui::Key::Escape if self.werkzeug.zeichnet() && !self.entwurf.is_empty() => self.entwurf.clear(),
             egui::Key::Escape if self.werkzeug != Werkzeug::Auswahl => self.werkzeug = Werkzeug::Auswahl,
             egui::Key::Escape if self.wahl.is_some() => self.wahl = None,
-            egui::Key::Enter if self.werkzeug.zeichnet() => self.entwurf_fertig(),
+            egui::Key::Enter if self.werkzeug.zeichnet() && self.werkzeug != Werkzeug::Notiz => self.entwurf_fertig(),
             egui::Key::Backspace if self.werkzeug.zeichnet() => drop(self.entwurf.pop()),
             egui::Key::Delete if self.wahl.is_some() => {
                 let w = self.wahl.unwrap();
@@ -1537,6 +1845,48 @@ impl ObjektEditor {
                 p.line_segment([x, y], egui::Stroke::new(2.5, egui::Color32::from_rgb(255, 160, 40)));
             }
         }
+        if self.zeige[AUFNAHME] {
+            // Bauaufnahme: kraeftige Farbe je Art, Punkte als Rauten, Notizen als Stecknadeln
+            for l in &self.aufnahme.linien {
+                let c = aufnahme::farbe(&l.art);
+                let mut pts = zug(&l.punkte);
+                if aufnahme::geschlossen(&l.art) && pts.len() > 2 {
+                    pts.push(pts[0]);
+                }
+                p.add(egui::Shape::line(pts.clone(), egui::Stroke::new(4.0, egui::Color32::from_black_alpha(140))));
+                p.extend(egui::Shape::dashed_line(&pts, egui::Stroke::new(2.2, c), 9.0, 3.0));
+                for q in &pts {
+                    p.add(egui::Shape::convex_polygon(vec![*q + egui::vec2(0.0, -3.5), *q + egui::vec2(3.5, 0.0), *q + egui::vec2(0.0, 3.5), *q + egui::vec2(-3.5, 0.0)], c, egui::Stroke::NONE));
+                }
+            }
+            for n in &self.aufnahme.notizen {
+                if let Some(c) = b(n.pos) {
+                    let gelb = egui::Color32::from_rgb(255, 225, 60);
+                    p.line_segment([c, c + egui::vec2(0.0, -16.0)], egui::Stroke::new(2.0, gelb));
+                    p.circle(c + egui::vec2(0.0, -18.0), 5.0, gelb, egui::Stroke::new(1.0, egui::Color32::BLACK));
+                    if !n.text.is_empty() {
+                        let t: String = n.text.lines().next().unwrap_or("").chars().take(40).collect();
+                        p.text(c + egui::vec2(8.0, -18.0), egui::Align2::LEFT_CENTER, t, egui::FontId::proportional(12.0), egui::Color32::WHITE);
+                    }
+                }
+            }
+        }
+        if self.abgleich_zeigen {
+            for (i, a) in self.abweichungen.iter().enumerate() {
+                if a.was == "nicht_baubar" {
+                    continue;
+                }
+                if let Some(c) = b(a.pos) {
+                    let gewaehlt = self.abw_wahl == Some(i);
+                    let farbe = if a.was == "zuviel" { egui::Color32::from_rgb(120, 170, 255) } else { egui::Color32::from_rgb(255, 60, 160) };
+                    let r = if gewaehlt { 13.0 } else { 7.0 };
+                    p.rect_stroke(egui::Rect::from_center_size(c, egui::vec2(r * 2.0, r * 2.0)), 2.0, egui::Stroke::new(if gewaehlt { 3.0 } else { 2.0 }, farbe), egui::StrokeKind::Middle);
+                    if gewaehlt {
+                        p.text(c + egui::vec2(16.0, 16.0), egui::Align2::LEFT_TOP, &a.text, egui::FontId::proportional(13.0), egui::Color32::WHITE);
+                    }
+                }
+            }
+        }
         // Hervorhebung unter der Maus, Auswahl mit Griffen
         if let Some(w) = self.unter.filter(|u| Some(*u) != self.wahl) {
             let (l, zu) = self.umriss(w);
@@ -1617,8 +1967,9 @@ impl ObjektEditor {
                             }
                         }
                         self.texturen.clear();
+                        self.rev += 1;
                         if self.offen_aenderung.is_none() && Instant::now().duration_since(self.zuletzt_geaendert) > Duration::from_millis(50) {
-                            self.geaendert = self.stand() != std::fs::read_to_string(&self.plan_pfad).map(|t| serde_json::from_str::<serde_json::Value>(&t).map(|v| Bauplan::aus_json(&v).json().to_string()).unwrap_or_default()).unwrap_or_default();
+                            self.geaendert = self.plan.json().to_string() != std::fs::read_to_string(&self.plan_pfad).map(|t| serde_json::from_str::<serde_json::Value>(&t).map(|v| Bauplan::aus_json(&v).json().to_string()).unwrap_or_default()).unwrap_or_default();
                         }
                         self.meldung = format!("Neu gebaut: {t}");
                         erg = Some(Aktion::Gebaut { json: self.json.clone(), einsetzen: self.einsetzen });
@@ -1665,6 +2016,7 @@ impl ObjektEditor {
         if !ctx.input(|i| i.pointer.any_down()) && self.zug == Zug::Nichts {
             self.abschliessen();
         }
+        self.abgleich_aktuell();
         erg
     }
 
@@ -1705,6 +2057,9 @@ impl ObjektEditor {
         if let Some(a) = self.pruefung_ui(ui) {
             erg = Some(a);
         }
+        if let Some(a) = self.aufnahme_ui(ui) {
+            erg = Some(a);
+        }
         if self.kontext.lose > 0 {
             ui.colored_label(egui::Color32::from_rgb(255, 120, 90), format!("{} Ampelteile stehen nicht auf Gehweg/Insel", self.kontext.lose));
         }
@@ -1736,6 +2091,7 @@ impl ObjektEditor {
         let hinweis = match self.werkzeug {
             Werkzeug::Auswahl => "Klick waehlt (weiss = unter der Maus, gelb = gewaehlt). Ziehen verschiebt, gelbe Punkte ziehen. Entf loescht, Strg+D dupliziert, Esc hebt auf.",
             Werkzeug::Textur => "Flaeche waehlen und ziehen: die Textur folgt der Maus. Alt+Rad: Groesse, Strg+Rad: Drehung.",
+            Werkzeug::Notiz => "Klick setzt die Notiz, den Text rechts eintragen.",
             _ => "Punkte klicken (rastet an Eckpunkten ein, Strg ohne). Doppelklick/Enter beendet, Rechtsklick/Ruecktaste nimmt den letzten zurueck, Esc bricht ab.",
         };
         ui.label(egui::RichText::new(hinweis).small().weak());
@@ -1850,7 +2206,7 @@ impl ObjektEditor {
         let titel = match w {
             Wahl::Flaeche(_) => "Flaeche", Wahl::Linie(_) => "Linie", Wahl::Halt(_) => "Haltlinie", Wahl::Symbol(_) => "Symbol",
             Wahl::Ampel(_) => "Ampel", Wahl::Gelaender(_) => "Gelaender", Wahl::Furt(_) => "Fussgaengerfurt", Wahl::Gehpfad(_) => "Gehpfad",
-            Wahl::Wand(_) => "Wand", Wahl::Strasse(_) => "Strasse",
+            Wahl::Wand(_) => "Wand", Wahl::Strasse(_) => "Strasse", Wahl::Aufnahme(_) => "Bauaufnahme", Wahl::Notiz(_) => "Notiz",
         };
         ui.horizontal_wrapped(|ui| {
             ui.label(egui::RichText::new(titel).strong().size(16.0));
@@ -1886,7 +2242,45 @@ impl ObjektEditor {
             return None;
         }
         let mut ae = false;
+        let mut uebernehmen = None;
         match w {
+            Wahl::Aufnahme(i) => {
+                let mitte = self.aufnahme.linien.get(i).map(|l| l.punkte[l.punkte.len() / 2]).unwrap_or(self.mitte);
+                let abw: Vec<String> = self.aufnahme.linien.get(i).map(|l| self.abweichungen.iter().filter(|a| a.bezug == l.id).map(|a| a.text.clone()).collect()).unwrap_or_default();
+                let Some(l) = self.aufnahme.linien.get_mut(i) else { return None };
+                egui::ComboBox::from_id_salt("oe_a_art").selected_text(aufnahme::art_name(&l.art)).show_ui(ui, |ui| {
+                    for a in aufnahme::ARTEN {
+                        if ui.selectable_label(l.art == a.0, egui::RichText::new(a.1).color(aufnahme::farbe(a.0))).clicked() {
+                            l.art = a.0.to_string();
+                            ae = true;
+                        }
+                    }
+                });
+                let laenge: f64 = l.punkte.windows(2).map(|x| (x[1] - x[0]).length()).sum();
+                ui.label(format!("{} Punkte, {laenge:.1} m", l.punkte.len()));
+                ui.label("Notiz");
+                ae |= ui.add(egui::TextEdit::multiline(&mut l.notiz).desired_rows(2).hint_text("z. B. Stahlgelaender gruen, 1,1 m")).changed();
+                let art = l.art.clone();
+                ui.horizontal_wrapped(|ui| self.bilder_knoepfe(ui, mitte));
+                if aufnahme::baubar(&art) && !matches!(art.as_str(), "bord" | "mauer") {
+                    if ui.button("In den Bauplan uebernehmen").on_hover_text("legt das passende Bauteil im Bauplan genau auf diese Linie").clicked() {
+                        uebernehmen = Some(i);
+                    }
+                }
+                if abw.is_empty() {
+                    ui.label(egui::RichText::new("passt zum Gebauten").small().color(egui::Color32::from_rgb(120, 220, 120)));
+                } else {
+                    for t in abw {
+                        ui.label(egui::RichText::new(t).small().color(egui::Color32::from_rgb(255, 120, 190)));
+                    }
+                }
+            }
+            Wahl::Notiz(i) => {
+                let pos = self.aufnahme.notizen.get(i).map(|n| n.pos).unwrap_or(self.mitte);
+                let Some(n) = self.aufnahme.notizen.get_mut(i) else { return None };
+                ae |= ui.add(egui::TextEdit::multiline(&mut n.text).desired_rows(4).hint_text("was hier wirklich ist (Foto, Mapillary ...)")).changed();
+                ui.horizontal_wrapped(|ui| self.bilder_knoepfe(ui, pos));
+            }
             Wahl::Flaeche(i) => {
                 let Some(fl) = self.plan.flaechen.get_mut(i) else { return None };
                 egui::ComboBox::from_id_salt("oe_f_art").selected_text(FLAECHEN_ARTEN.iter().find(|a| a.0 == fl.art).map(|a| a.1).unwrap_or(&fl.art)).show_ui(ui, |ui| {
@@ -2095,6 +2489,9 @@ impl ObjektEditor {
         if ae {
             self.aendern();
         }
+        if let Some(i) = uebernehmen {
+            self.meldung = self.uebernehmen(i);
+        }
         erg
     }
 
@@ -2153,6 +2550,9 @@ impl ObjektEditor {
             gruppe(ui, "Gelaender", p.gelaender.iter().enumerate().map(|(i, x)| (Wahl::Gelaender(i), format!("{} ({})", x.id, x.unten))).collect(), self.wahl);
             gruppe(ui, "Furten", p.furten.iter().enumerate().map(|(i, x)| (Wahl::Furt(i), x.id.clone())).collect(), self.wahl);
             gruppe(ui, "Gehpfade", p.gehpfade.iter().enumerate().map(|(i, x)| (Wahl::Gehpfad(i), x.id.clone())).collect(), self.wahl);
+            let a = &self.aufnahme;
+            gruppe(ui, "Bauaufnahme", a.linien.iter().enumerate().map(|(i, x)| (Wahl::Aufnahme(i), format!("{} ({})", aufnahme::art_name(&x.art), x.id))).collect(), self.wahl);
+            gruppe(ui, "Notizen", a.notizen.iter().enumerate().map(|(i, x)| (Wahl::Notiz(i), if x.text.is_empty() { x.id.clone() } else { x.text.lines().next().unwrap_or("").chars().take(40).collect() })).collect(), self.wahl);
             if let Some(w) = neu {
                 self.wahl = Some(w);
                 let (l, _) = self.umriss(w);
@@ -2356,6 +2756,42 @@ mod tests {
         ed.loslassen();
         assert!((ed.plan.flaechen[0].punkte[0].x - 10.0).abs() < 1e-9);
         assert!((ed.plan.flaechen[0].textur.dx + 0.5).abs() < 1e-9, "{}", ed.plan.flaechen[0].textur.dx);
+    }
+
+    #[test]
+    fn bauaufnahme_zeichnen_abgleichen_uebernehmen() {
+        let mut ed = editor();
+        let p = |x: f64, y: f64| DVec2::new(x, y);
+        // Gelaender nachzeichnen: Werkzeug bleibt fuer die naechste Linie
+        ed.werkzeug = Werkzeug::Aufnahme;
+        ed.aufnahme_art = aufnahme::art_index("gelaender");
+        for q in [p(20.0, 0.0), p(20.0, -30.0)] {
+            ed.klicken(q, 0.3, true);
+        }
+        ed.taste(egui::Key::Enter, false, false);
+        assert_eq!(ed.aufnahme.linien.len(), 1);
+        assert_eq!(ed.werkzeug, Werkzeug::Aufnahme);
+        // Notiz per Klick
+        ed.werkzeug = Werkzeug::Notiz;
+        ed.klicken(p(25.0, -5.0), 0.3, true);
+        assert_eq!(ed.aufnahme.notizen.len(), 1);
+        assert_eq!(ed.wahl, Some(Wahl::Notiz(0)));
+        // Abgleich: im Bauplan gibt es das Gelaender nicht
+        ed.abgleich_aktuell();
+        assert_eq!(ed.abweichungen.iter().filter(|a| a.was == "fehlt").count(), 1, "{:?}", ed.abweichungen);
+        // uebernehmen -> Gelaender im Bauplan genau auf der Linie, Abgleich sauber
+        let msg = ed.uebernehmen(0);
+        assert!(msg.contains("uebernommen"), "{msg}");
+        assert_eq!(ed.plan.gelaender.len(), 1);
+        ed.abgleich_aktuell();
+        assert!(ed.abweichungen.is_empty(), "{:?}", ed.abweichungen);
+        // Rueckgaengig nimmt Bauplan und Aufnahme gemeinsam zurueck
+        ed.rueckgaengig();
+        assert_eq!(ed.plan.gelaender.len(), 0);
+        assert_eq!(ed.aufnahme.notizen.len(), 1);
+        ed.rueckgaengig();
+        assert_eq!(ed.aufnahme.notizen.len(), 0);
+        assert_eq!(ed.aufnahme.linien.len(), 1);
     }
 
     #[test]

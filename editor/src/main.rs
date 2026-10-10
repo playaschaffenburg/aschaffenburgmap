@@ -12,6 +12,7 @@
 
 mod aendern;
 mod anschluss;
+mod aufnahme;
 mod baukasten;
 mod bauwerke;
 mod bearbeiten;
@@ -1357,7 +1358,11 @@ impl App {
                 match oe.ui(ctx, &mut offen) {
                     Some(objekteditor::Aktion::Gebaut { json, einsetzen }) => aktionen.push(UiAktion::SonderbauGebaut(json, einsetzen)),
                     Some(objekteditor::Aktion::Kamera(p)) => aktionen.push(UiAktion::Hinfahren(p)),
-                    Some(objekteditor::Aktion::KameraNah(p)) => {
+                    Some(objekteditor::Aktion::KameraNah(mut p)) => {
+                        // Hoehe unbekannt (Abweichung der Bauaufnahme neben der Platte): Gelaende
+                        if p.z.is_nan() {
+                            p.z = self.viewer.as_ref().and_then(|v| v.ground_height(p.x, p.y)).unwrap_or(self.kam.ziel.z);
+                        }
                         self.kam.ziel = p;
                         self.kam.abstand = 14.0;
                     }

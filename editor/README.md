@@ -344,6 +344,18 @@ Straßen-Splines, Ampeln) auf Spalte zwischen Teilen, verzerrte Texturen, Fläch
 offene Wandenden und schwebende/versunkene Ampeln (Verdecktes zählt nicht) und schreibt `baupruefung.json`. Der
 Objekt-Editor zeigt die Funde als Liste je Art und als rote Kreise in 3D; ein Klick fährt die Kamera nah hin. Bei „Lücke am Wandende“ (Wand hört knapp vor Kreuzungsplatte, Brücke oder Unterführung auf) verlängert der Knopf „Wand verlaengern“ den Wandbereich im Bauplan (höchstens bis zur nächsten Wand derselben Art und Seite); beim Anwenden endet die Wand genau an der Platte. Wände lassen sich auch über ihren bisherigen Bereich hinaus ziehen.
 
+**Bauaufnahme** (Abschnitt in der Leiste des Objekt-Editors): das echte Bauwerk wird über dem Luftbild nachgezeichnet –
+Bordkanten, Geländer, Mauern, Markierungen (durchgezogen/gestrichelt), Haltlinien, Furten, Sperrflächen, Radfurten,
+Treppen – plus Notizen. Werkzeug „Aufnahme zeichnen“ (Art wählen, Punkte klicken, Doppelklick/Enter beendet, das
+Werkzeug bleibt für die nächste Linie), „Notiz“ setzt per Klick. Die Knöpfe „Mapillary“/„Panoramax“ öffnen freie
+Straßenbilder an der Kamera-Mitte bzw. am gewählten Teil im Browser (Google Street View ist für abgeleitete Daten nicht
+erlaubt). Der **Abgleich** vergleicht laufend Aufnahme und Gebautes (Bauplan, Wandlinien des letzten Baus): „fehlt /
+weicht ab“ (je Art mit Toleranz, Markierungen und Borde nur auf der Kreuzungsplatte), „gebaut, aber nicht in der
+Aufnahme“ (nur für Arten, die als „vollständig aufgenommen“ angehakt sind) und „baut der Generator noch nicht“
+(Treppen, Sonstiges). Magenta-Rahmen in 3D, Klick fährt hin. „In den Bauplan übernehmen“ legt Geländer, Markierung,
+Haltlinie, Furt, Sperrfläche oder Radfurt genau auf die Linie. Gespeichert in `sonderbau/ring/aufnahme.json`
+(Nutzerdaten, wie der Bauplan nicht einchecken); Rückgängig gilt für Bauplan und Aufnahme gemeinsam.
+
 **Fläche markieren** (L): Rechteck ziehen oder Vieleck klicken, alles darin (Objekte/Bäume, Straßen-Splines, wählbar)
 mit Entf löschen – ein Rückgängig-Schritt.
 
