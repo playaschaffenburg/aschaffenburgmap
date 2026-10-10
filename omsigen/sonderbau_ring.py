@@ -678,28 +678,52 @@ def profil(e):
     return [(tw, fw, zw), (fw, fo, zr), (fo, to, zo)]
 
 
+def sohle_linie(e):
+    """Querschnitt der Sohle an einer Station: 6 Punkte (t, z) von West nach Ost - Rampe West, Uebergang, Ring,
+    Uebergang, Rampe Ost. Mit Trennwand liegt der Uebergang senkrecht in der Wand (unsichtbar); ohne Wand ist er eine
+    Schraege ueber den Trennstreifen zwischen Ring- und Rampenfahrbahn statt einer Stufe."""
+    (tw, fw, zw), (_, _, zr), (fo, to, zo) = profil(e)
+    pts = [(tw, zw)]
+    for sd, f_, z_ in (('w', fw, zw), ('o', fo, zo)):
+        vz = -1 if sd == 'w' else 1
+        if fuge(e, sd) is not None:
+            inner, outer = f_, f_                       # Stufe in der Wand
+        else:
+            ring_kante = e['ra'] if sd == 'w' else e['rb']
+            outer = ring_kante + vz * trennstreifen(sd, e['s'])
+            inner = ring_kante
+            lo, hi = (tw, to)
+            outer = min(max(outer, lo), hi)
+        if sd == 'w':
+            pts += [(outer, zw), (inner, zr)]
+        else:
+            pts += [(inner, zr), (outer, zo)]
+    pts.append((to, zo))
+    return pts
+
+
 def flaechen(roh, o):
-    """Sohle des Trogs und Platten der Rampen, 5 cm unter den Fahrbahnen (darauf kommen in Etappe 2 die Strassen):
-    decken das abgesenkte Gelaende ab"""
+    """Sohle des Trogs und Platten der Rampen, 5 cm unter den Fahrbahnen: decken das abgesenkte Gelaende ab
+    (sohle_linie: ohne senkrechte Stufen, wo keine Trennwand steht)"""
     m = Mesh()
     p = lambda e, t, z: welt(e, t, z - 0.05) - o
     for ea, eb in zip(roh[:-1], roh[1:]):
-        pa, pb = profil(ea), profil(eb)
+        la, lb = sohle_linie(ea), sohle_linie(eb)
         unter_platte = S_PLATTE[0] <= ea['s'] and eb['s'] <= S_PLATTE[1]
-        for k_, ((a0, a1, za), (b0, b1, zb)) in enumerate(zip(pa, pb)):
-            if a1 - a0 < 0.05 and b1 - b0 < 0.05:
-                continue
-            if unter_platte and k_ != 1:
+        for k in range(5):
+            if unter_platte and k != 2:
                 continue                         # Rampen: dort liegt das Kreuzungsobjekt
-            q = [p(ea, a0, za), p(eb, b0, zb), p(eb, b1, zb), p(ea, a1, za)]
-            m.quad('asphalt', q, [((c[0] + o[0]) / 5, (c[1] + o[1]) / 5) for c in q], (0, 0, 1))
-        # Stufen zwischen den Flaechen (wo keine Trennwand steht, sind sie niedrig)
-        for k in (() if unter_platte else (0, 1)):
-            ta, tb = pa[k][1], pb[k][1]
-            q = [p(ea, ta, pa[k][2]), p(eb, tb, pb[k][2]), p(eb, tb, pb[k + 1][2]), p(ea, ta, pa[k + 1][2])]
-            m.quad('beton', q, [(0, 0), (0.5, 0), (0.5, 0.2), (0, 0.2)], None, beidseitig=True)
+            (a0, za0), (a1, za1) = la[k], la[k + 1]
+            (b0, zb0), (b1, zb1) = lb[k], lb[k + 1]
+            if a1 - a0 < 0.02 and b1 - b0 < 0.02:
+                continue                         # Stufe in der Wand (oder leer)
+            q = [p(ea, a0, za0), p(eb, b0, zb0), p(eb, b1, zb1), p(ea, a1, za1)]
+            # Draufsicht-Projektion, Hoehe dazu: auch steile Uebergaenge (Wandende) ohne verschmierte Textur
+            uv = [((c[0] + o[0]) / 5, (c[1] + o[1] + c[2] + o[2]) / 5) for c in q]
+            # zwei Dreiecke, jedes fuer sich nach oben gewendet (verdrehte Vierecke an Wandenden: sonst zeigt eines nach unten)
+            for t3 in ((0, 1, 2), (0, 2, 3)):
+                m.dreieck('asphalt', [q[i] for i in t3], [uv[i] for i in t3], (0, 0, 1))
     return m
-
 
 def aussen_kante(e, seite):
     """(t, z) der Aussenkante des Bauwerks: hinter der Wand auf dem Gelaende, sonst die Rampe"""
@@ -715,9 +739,9 @@ def aussen_kante(e, seite):
         # 15 cm in der Wand beginnen: Deckelkante im Wandkoerper, kein Spalt zur Rueckseite
         return t + vz * (dicke - 0.15), r['g']
     pr = profil(e)
-    # ohne Aussenwand: 30 cm unter den Fahrbahnrand, knapp unter dem Belag (kein Spalt zur Strasse)
+    # ohne Aussenwand: genau an der Kante der Sohle in ihrer Hoehe (gemeinsame Kante, kein Spalt, keine Doppelflaeche)
     t, z = (pr[0][0], pr[0][2]) if seite == 'w' else (pr[2][1], pr[2][2])
-    return t - vz * 0.3, z - 0.1
+    return t, z - 0.1
 
 
 class Kartengelaende:
