@@ -249,7 +249,7 @@ fn material(art: &str) -> (&'static str, f64) {
         "insel" => ("AB_insel_beton.bmp", 3.0),
         "gruen" => ("AB_bodendecker.bmp", 2.0),
         "busbeton" => ("str_betonplatten.bmp", 3.9),
-        "sperr" => ("AB_sperrflaeche.tga", 2.0),
+        "sperr" => ("AB_sperrflaeche.bmp", 4.0),
         _ => ("AB_radfurt.bmp", 4.0),
     }
 }

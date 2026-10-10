@@ -31,7 +31,7 @@ from . import ring_kreuzung as rk
 # Flaechenart -> (Material, Hoehe ueber der Kreuzungsflaeche, Meter je Textur)
 ARTEN = {'fahrbahn': ('asphalt', ASPH_H, 4.0), 'gehweg': ('gehweg_asphalt', WALK_H, 4.0), 'insel': ('insel_beton', WALK_H, 3.0),
          'gruen': ('pflanzen', WALK_H + 0.03, 2.0), 'busbeton': ('busbeton', ASPH_H + 0.01, 3.9),
-         'sperr': ('sperr', ASPH_H + 0.015, 2.0), 'radfurt': ('radfurt', ASPH_H + 0.02, 4.0)}
+         'sperr': ('sperr', ASPH_H + 0.015, 4.0), 'radfurt': ('radfurt', ASPH_H + 0.02, 4.0)}
 ERHOEHT = ('gehweg', 'insel', 'gruen')
 AUF_FAHRBAHN = ('busbeton', 'sperr', 'radfurt')
 WEISS_H = ASPH_H + 0.025
@@ -409,13 +409,15 @@ def bauen(plan, achse, K, arme_roh, gel, oeffnungen=None):
         weiss += furt_linien(f)
     weiss = unary_union([w for w in weiss if not w.is_empty] or [Polygon()]).intersection(fahrbahn.buffer(0.01))
     belegt = {a: Polygon() for a in ARTEN}
+    belaege = unary_union([unary_union([nach_art[a] for a in AUF_FAHRBAHN]).intersection(fahrbahn), weiss]).buffer(-0.005)
     darueber = {'busbeton': unary_union([nach_art['sperr'], nach_art['radfurt']]), 'sperr': nach_art['radfurt'], 'radfurt': Polygon()}
     for f in plan['flaechen']:
         key, dz, uv_m = ARTEN[f['art']]
         g = poly(f).difference(belegt[f['art']])
         belegt[f['art']] = belegt[f['art']].union(poly(f))
         if f['art'] == 'fahrbahn':
-            g = g.intersection(fahrbahn)
+            # unter deckenden Belaegen (Busspur Beton, Sperrflaeche, Radfurt) kein Asphalt: keine Flaechen uebereinander
+            g = g.intersection(fahrbahn).difference(belaege)
         elif f['art'] in ERHOEHT:
             g = g.difference(offen)
             if f['art'] != 'gruen':

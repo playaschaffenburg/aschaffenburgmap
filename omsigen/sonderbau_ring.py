@@ -39,7 +39,7 @@ STUECK = 40.0                                          # m je Wand-Objekt
 TEX = {'beton': 'betonwand1.bmp', 'klinker': 'AB_klinker.bmp', 'gabionen': 'AB_gabionen.bmp',
        'lsw_gruen': 'AB_lsw_gruen.bmp', 'glas': 'AB_glas.tga', 'gelaender': 'AB_gelaender.bmp', 'stab': 'AB_stabgelaender.tga',
        'decke': 'AB_beton_dunkel.bmp', 'pflanzen': 'AB_bodendecker.bmp', 'asphalt': 'str_asphdrk.bmp',
-       'boden': 'AB_boden.bmp', 'weiss': 'AB_weiss.bmp', 'radfurt': 'AB_radfurt.bmp', 'sperr': 'AB_sperrflaeche.tga',
+       'boden': 'AB_boden.bmp', 'weiss': 'AB_weiss.bmp', 'radfurt': 'AB_radfurt.bmp', 'sperr': 'AB_sperrflaeche.bmp',
        'gehweg': 'str_gehweg02.bmp', 'bord': 'str_side1.bmp', 'busbeton': 'str_betonplatten.bmp',
        'gehweg_asphalt': 'AB_gehweg_asphalt.bmp', 'insel_beton': 'AB_insel_beton.bmp'}
 
@@ -933,6 +933,66 @@ def plattenrand(platte, zf, karte, o, ausser, gehweg, breite=9.0, schritt=2.0, f
     return m
 
 
+def abdeckung(teile, weg, schliessen=0.3, zelle=2.5):
+    """mehrere Deckel-Meshes (je (Mesh, Ursprung)) zu einer Flaeche: Grundriss = Vereinigung der Dreiecke, Spalten
+    bis 2*`schliessen` m geschlossen, ohne `weg`; neu trianguliert, Hoehe aus den urspruenglichen Dreiecken (hoechste,
+    sonst die naechste) -> (Mesh, Ursprung)"""
+    from shapely.geometry import Polygon as _Pg, Point as _Pt
+    from shapely.strtree import STRtree
+    from shapely.ops import unary_union
+    from .ring_kreuzung import fein_dreiecke, _polys
+    tris = []
+    for m, o in teile:
+        V = np.array([v[:3] for v in m.V]) if m.V else np.zeros((0, 3))
+        for a, b, c, _ in m.F:
+            P = np.array([[V[i][0] + o[0], V[i][2] + o[1], V[i][1] + o[2]] for i in (a, b, c)])   # .x: x, hoch, vor
+            if abs((P[1][0] - P[0][0]) * (P[2][1] - P[0][1]) - (P[2][0] - P[0][0]) * (P[1][1] - P[0][1])) > 1e-6:
+                tris.append(P)
+    out = Mesh()
+    if not tris:
+        return out, np.zeros(3)
+    polys = [_Pg(P[:, :2]) for P in tris]
+    grund = unary_union(polys).buffer(schliessen, join_style=2).buffer(-schliessen, join_style=2).difference(weg)
+    baum = STRtree(polys)
+
+    def z_bei(x, y):
+        pt = _Pt(x, y)
+        best = None
+        for i in baum.query(pt.buffer(1e-4)):
+            P = tris[int(i)]
+            if not polys[int(i)].buffer(1e-4).contains(pt):
+                continue
+            z = _ebene(P, x, y)
+            best = z if best is None else max(best, z)
+        if best is None:
+            i = int(baum.nearest(pt))
+            P = tris[i]
+            q = polys[i].exterior.interpolate(polys[i].exterior.project(pt))
+            best = _ebene(P, q.x, q.y)
+        return best
+    c = grund.centroid
+    o = np.array([c.x, c.y, 0.0])
+    cache = {}
+    for t in fein_dreiecke(grund, zelle):
+        w = []
+        for x, y in t:
+            k = (round(x, 4), round(y, 4))
+            if k not in cache:
+                cache[k] = z_bei(x, y) + 0.0
+            w.append((x - o[0], y - o[1], cache[k]))
+        out.dreieck('boden', w, [(x / 5, y / 5) for x, y in t], (0, 0, 1))
+    return out, o
+
+
+def _ebene(P, x, y):
+    """Hoehe der Dreiecksebene P (3 x 3) bei (x, y)"""
+    (x0, y0, z0), (x1, y1, z1), (x2, y2, z2) = P
+    det = (x1 - x0) * (y2 - y0) - (x2 - x0) * (y1 - y0)
+    u = ((x - x0) * (y2 - y0) - (x2 - x0) * (y - y0)) / det
+    v = ((x1 - x0) * (y - y0) - (x - x0) * (y1 - y0)) / det
+    return z0 + u * (z1 - z0) + v * (z2 - z0)
+
+
 def gelaende(roh):
     """abgesenkte Gelaendepunkte (5-m-Raster der Kacheln): unter Sohle und Rampen 0,8 m unter der tiefsten Fahrbahn
     -> [[kx, ky, spalte, zeile, z]] (Zeile 0 = Sueden, Hoehe in der Karte)"""
@@ -1048,11 +1108,12 @@ def texturen(omsi, ziel):
         shutil.copy(rot, os.path.join(ziel, TEX['radfurt']))
     else:
         Image.new('RGB', (8, 8), (176, 62, 52)).save(os.path.join(ziel, TEX['radfurt']))
-    # Sperrflaeche: weisse Schraegstreifen (45 Grad), sonst durchsichtig; 2 m je Textur
-    sp = np.zeros((128, 128, 4), np.uint8)
-    yy, xx = np.mgrid[0:128, 0:128]
-    sp[((xx + yy) % 64) < 22] = (235, 235, 230, 255)
-    Image.fromarray(sp, 'RGBA').save(os.path.join(ziel, TEX['sperr']))
+    # Sperrflaeche: weisse Schraegstreifen (45 Grad, 1,41 m Abstand, 0,42 m breit) fest auf dem Asphalt, 4 m je Textur wie die Fahrbahn -
+    # deckend, damit darunter keine zweite Asphaltflaeche liegen muss (doppelte Flaechen flimmern)
+    sp = np.asarray(Image.open(os.path.join(marcel, 'str_asphdrk.bmp')).convert('RGB').resize((256, 256)), np.uint8).copy()
+    yy, xx = np.mgrid[0:256, 0:256]
+    sp[((xx + yy) % 128) < 38] = (232, 232, 226)          # wie querschnitt.rs (Baukasten): gleiche Streifen wie die Strassen
+    Image.fromarray(sp, 'RGB').save(os.path.join(ziel, TEX['sperr']))
     # Deckel wie das Gelaende (openOMSI: Bodentextur mal Detailtextur, Detail 60 x je Kachel = alle 5 m):
     # Detailtextur eingefaerbt mit der mittleren Farbe der Bodentextur (wie bauwerke.rs deckel_textur)
     basis = np.asarray(Image.open(os.path.join(omsi, 'Texture', 'gras.bmp')).convert('RGB'), float)
@@ -1194,11 +1255,12 @@ def bauen(omsi, karte, osm_pfad, entwurf_pfad, nn0, ost0, nord0, cache, bauplan_
         bahn_frei = _box(tx0 - 0.4, ys_e - 0.3, tx1 + 0.4, yn_e + 0.3).difference(platte_)
     # Sohle und Deckel in Stuecken von STUECK m (Ursprung je Stueck: erster Punkt auf der Ring-Achse, Hoehe 0)
     n = int(STUECK / SCHRITT)
+    deckel_teile = []
     for k in range(0, len(roh) - 1, n):
         teil = roh[k:k + n + 1]
         o = np.array([teil[0]['p'][0], teil[0]['p'][1], 0.0])
         schreiben(ordner, rel, f'Sohle_{k // n:02d}', flaechen(teil, o, platte_), o, liste)
-        schreiben(ordner, rel, f'Deckel_{k // n:02d}', deckel(teil, karte_gel, o, frei=bahn_frei), o, liste)
+        deckel_teile.append((deckel(teil, karte_gel, o, frei=bahn_frei), o))
     # Plattenrand-Deckel (Anschluss Platte -> Gelaende), ausser an Trog, Armen, Waenden und Bruestungen
     from shapely.geometry import LineString as _LS
     ausnahmen = [F['offen'].buffer(1.0)] + ([bahn_frei.buffer(0.5)] if bahn_frei is not None else [])
@@ -1223,8 +1285,12 @@ def bauen(omsi, karte, osm_pfad, entwurf_pfad, nn0, ost0, nord0, cache, bauplan_
         qa_, qb_ = rr_[0][1] - 1.5, rr_[-1][2] + 1.5
         jenseits_.append(Polygon([a_.punkt(0, qa_), a_.punkt(0, qb_), a_.punkt(-40, qb_), a_.punkt(-40, qa_)]))
     rand_frei = unary_union(jenseits_ + ([bahn_frei] if bahn_frei is not None else []))
-    schreiben(ordner, rel, 'Plattenrand', plattenrand(platte_, kz['zf'], karte_gel, o_r, unary_union(ausnahmen),
-                                                      unary_union([F['gehweg'], F['inseln']]), frei=rand_frei), o_r, liste)
+    deckel_teile.append((plattenrand(platte_, kz['zf'], karte_gel, o_r, unary_union(ausnahmen),
+                                     unary_union([F['gehweg'], F['inseln']]), frei=rand_frei), o_r))
+    # Deckel und Plattenrand als EINE Gelaendeflaeche (keine Fugen und Doppelflaechen zwischen den Stuecken)
+    weg_ = unary_union([platte_.buffer(-0.3)] + ([bahn_frei] if bahn_frei is not None else []))
+    abd, o_a = abdeckung(deckel_teile, weg_)
+    schreiben(ordner, rel, 'Gelaendedeckel', abd, o_a, liste)
     messung = [dict(s=e['s'], x=float(e['p'][0]), y=float(e['p'][1]), ring=[float(e['ra']), float(e['rb']), float(e['zr'])],
                     west=None if e['w'] is None else [e['w'][k] for k in ('a', 'b', 'z', 'g')],
                     ost=None if e['o'] is None else [e['o'][k] for k in ('a', 'b', 'z', 'g')], decke=bool(e['unter_decke'])) for e in roh]
