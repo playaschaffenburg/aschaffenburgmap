@@ -240,7 +240,24 @@ def welt(e, t, z):
     return np.array([p[0], p[1], z])
 
 
+def wand(e, art, seite):
+    """Wand-Bauteil (Bauplan `waende`) an dieser Station oder None; ohne Zuordnung (e['wand'] fehlt): leeres Bauteil"""
+    w = e.get('wand')
+    if w is None:
+        return {}
+    return w.get((art, seite))
+
+
 def fuge(e, seite):
+    """Lage der Trennwand (Querweg t, mit Versatz des Wand-Bauteils) oder None"""
+    r_ = wand(e, 'trenn', seite)
+    t = fuge_geo(e, seite)
+    if r_ is None or t is None:
+        return None
+    return t + (-1 if seite == 'w' else 1) * float(r_.get('versatz', 0.0))
+
+
+def fuge_geo(e, seite):
     """Lage der Trennwand zwischen Ring und Rampe (Querweg t) oder None, wo die Rampe auf Ring-Hoehe liegt"""
     r = e[seite]
     vz = -1 if seite == 'w' else 1
@@ -259,6 +276,15 @@ def im_knoten(e, seite=None):
 
 
 def aussen(e, seite):
+    """Lage der Aussenwand (Querweg t, mit Versatz des Wand-Bauteils) oder None"""
+    r_ = wand(e, 'aussen', seite)
+    t = aussen_geo(e, seite)
+    if r_ is None or t is None:
+        return None
+    return t + (-1 if seite == 'w' else 1) * float(r_.get('versatz', 0.0))
+
+
+def aussen_geo(e, seite):
     """Lage der Aussenwand (Querweg t) oder None"""
     r = e[seite]
     if r is None or im_knoten(e, seite) or r['z'] - e['zr'] < 0.4 and abs(r['g'] - r['z']) < 0.6:
@@ -290,7 +316,7 @@ def trennwand(roh, seite, o, platte=None):
         if t is None:
             lauf.append(None)
             continue
-        z = e[seite]['z']
+        z = e[seite]['z'] + float((wand(e, 'trenn', seite) or {}).get('hoehe', 0.0))
         if unter(e):
             q = welt(e, t, 0)
             zp = float(platte(q[0], q[1]))
@@ -314,8 +340,9 @@ def trennwand(roh, seite, o, platte=None):
         s_ges, laenge = ea['s'], eb['s'] - ea['s']        # Teilung nach Station: Pfeiler und Fugen laufen durch
         n_ring = np.append(-vz * ea['quer'], 0)
         p = lambda e, t, z: welt(e, t, z) - o
-        # Klinker bis 0,4 m unter die Kappe, darueber Beton
-        m.quad('klinker', [p(ea, ri_a, za), p(eb, ri_b, zb), p(eb, ri_b, kappe_b - 0.4), p(ea, ri_a, kappe_a - 0.4)],
+        # Klinker (oder Material des Bauteils) bis 0,4 m unter die Kappe, darueber Beton
+        mat = (wand(ea, 'trenn', seite) or {}).get('material', 'klinker')
+        m.quad(mat if mat in ('klinker', 'beton', 'gabionen') else 'klinker', [p(ea, ri_a, za), p(eb, ri_b, zb), p(eb, ri_b, kappe_b - 0.4), p(ea, ri_a, kappe_a - 0.4)],
                [(s_ges / 2, za), ((s_ges + laenge) / 2, zb), ((s_ges + laenge) / 2, kappe_b - 0.4), (s_ges / 2, kappe_a - 0.4)], n_ring)
         m.quad('beton', [p(ea, ri_a, kappe_a - 0.4), p(eb, ri_b, kappe_b - 0.4), p(eb, ri_b, kappe_b), p(ea, ri_a, kappe_a)],
                [(s_ges / 4, 0), ((s_ges + laenge) / 4, 0), ((s_ges + laenge) / 4, 0.1), (s_ges / 4, 0.1)], n_ring)
@@ -348,6 +375,46 @@ def trennwand(roh, seite, o, platte=None):
     return m
 
 
+def waende_vorgabe(roh, lsw):
+    """Wand-Bauteile wie bisher: je Seite Trennwand und Aussenwand dort, wo es sie gibt (zusammenhaengende Bereiche),
+    Aussenwaende an den Grenzen der Laermschutz-Bereiche geteilt -> Liste fuer den Bauplan"""
+    out = []
+    n = [0]
+
+    def neu(**kw):
+        n[0] += 1
+        d = dict(id=f'wand{n[0]}', versatz=0.0, hoehe=0.0, stufig=True)
+        d.update(kw)
+        out.append(d)
+    for seite in ('w', 'o'):
+        for art, geo in (('trenn', fuge_geo), ('aussen', aussen_geo)):
+            laerm_an = lambda s_: any(a0 <= s_ <= a1 for a0, a1 in (lsw or {}).get(seite, []))
+            start, letzt, stand = None, None, None
+            for e in roh + [None]:
+                ok = e is not None and geo(e, seite) is not None
+                st = (art == 'aussen' and ok and laerm_an(e['s']))
+                if start is not None and (not ok or st != stand):
+                    mat = 'klinker' if art == 'trenn' else ('gabionen' if seite == 'w' else 'klinker')
+                    laerm = ({'w': 'gruen', 'o': 'glas'}[seite] if stand else 'keine')
+                    neu(seite=seite, art=art, von=round(start, 1), bis=round(letzt, 1), material=mat, laerm=laerm)
+                    start = None
+                if ok and start is None:
+                    start, stand = e['s'], st
+                if ok:
+                    letzt = e['s']
+    return out
+
+
+def waende_zuordnen(roh, waende):
+    """je Station das passende Wand-Bauteil je (Art, Seite)"""
+    for e in roh:
+        e['wand'] = {}
+        for w in waende:
+            k = (w['art'], w['seite'])
+            if k not in e['wand'] and w['von'] - 1e-6 <= e['s'] <= w['bis'] + 1e-6:
+                e['wand'][k] = w
+
+
 def lsw_vorgabe(roh):
     """Laermschutzwaende wie bisher (West ueberall, Ost wo das Gelaende hoeher ist; nicht an der Kreuzung) als
     Bereiche [s0, s1] je Seite fuer den Bauplan"""
@@ -371,7 +438,7 @@ def lsw_vorgabe(roh):
     return out
 
 
-def aussenwand(roh, seite, o, lsw_bereiche=None):
+def aussenwand(roh, seite, o):
     """Aussenwand neben der Rampe `seite`: West Gabionen + gruene LSW, Ost Klinker (ab 3,5 m zweistufig mit
     Pflanzstreifen) + Glas-LSW"""
     m = Mesh()
@@ -389,11 +456,14 @@ def aussenwand(roh, seite, o, lsw_bereiche=None):
         (ea, ta, za, ga), (eb, tb, zb, gb) = a, b
         s_ges, laenge = ea['s'], eb['s'] - ea['s']        # Teilung nach Station: Pfeiler und Fugen laufen durch
         n_innen = np.append(-vz * ea['quer'], 0)          # zur Rampe hin
-        hoch_a, hoch_b = max(ga, za) + 0.3, max(gb, zb) + 0.3
-        if seite == 'w':
-            hoch_a, hoch_b = max(ga + 0.3, za + 1.0), max(gb + 0.3, zb + 1.0)     # Gabionen als Bruestung
+        bt = wand(ea, 'aussen', seite) or {}
+        material = bt.get('material', 'gabionen' if seite == 'w' else 'klinker')
+        plus = float(bt.get('hoehe', 0.0))
+        hoch_a, hoch_b = max(ga, za) + 0.3 + plus, max(gb, zb) + 0.3 + plus
+        if material == 'gabionen':
+            hoch_a, hoch_b = max(ga + 0.3, za + 1.0) + plus, max(gb + 0.3, zb + 1.0) + plus     # Gabionen als Bruestung
         unten_a, unten_b = min(ga, za) - 0.5, min(gb, zb) - 0.5
-        if seite == 'w':
+        if material == 'gabionen':
             # Gabionen (beide Seiten: die Rampe liegt teils hoeher als das Gelaende)
             m.quad('gabionen', [p(ea, ta, unten_a), p(eb, tb, unten_b), p(eb, tb, hoch_b), p(ea, ta, hoch_a)],
                    [(s_ges / 2, unten_a / 2), ((s_ges + laenge) / 2, unten_b / 2), ((s_ges + laenge) / 2, hoch_b / 2), (s_ges / 2, hoch_a / 2)], n_innen)
@@ -404,7 +474,7 @@ def aussenwand(roh, seite, o, lsw_bereiche=None):
             lsw, lsw_h = 'lsw_gruen', 2.5
             lsw_t = (ta + vz * 0.5, tb + vz * 0.5)
         else:
-            stufig = ga - za > 3.5 or gb - zb > 3.5
+            stufig = bt.get('stufig', True) and (ga - za > 3.5 or gb - zb > 3.5)
             if stufig:
                 # untere Stufe bis zur halben Hoehe, Pflanzstreifen 1,5 m, obere Stufe zurueckgesetzt
                 ma, mb = za + (hoch_a - za) * 0.5, zb + (hoch_b - zb) * 0.5
@@ -414,7 +484,7 @@ def aussenwand(roh, seite, o, lsw_bereiche=None):
             else:
                 stufen = [(ta, tb, unten_a, unten_b, hoch_a, hoch_b)]
             for (t0, t1, u0, u1, k0, k1) in stufen:
-                m.quad('klinker', [p(ea, t0, u0), p(eb, t1, u1), p(eb, t1, k1 - 0.3), p(ea, t0, k0 - 0.3)],
+                m.quad('beton' if material == 'beton' else 'klinker', [p(ea, t0, u0), p(eb, t1, u1), p(eb, t1, k1 - 0.3), p(ea, t0, k0 - 0.3)],
                        [(s_ges / 2, u0), ((s_ges + laenge) / 2, u1), ((s_ges + laenge) / 2, k1 - 0.3), (s_ges / 2, k0 - 0.3)], n_innen)
                 m.quad('beton', [p(ea, t0, k0 - 0.3), p(eb, t1, k1 - 0.3), p(eb, t1, k1), p(ea, t0, k0)],
                        [(s_ges / 4, 0), ((s_ges + laenge) / 4, 0), ((s_ges + laenge) / 4, 0.08), (s_ges / 4, 0.08)], n_innen)
@@ -422,8 +492,10 @@ def aussenwand(roh, seite, o, lsw_bereiche=None):
                        [(0, 0), (laenge / 4, 0), (laenge / 4, 0.1), (0, 0.1)], (0, 0, 1))
             lsw, lsw_h = 'glas', 2.5
             lsw_t = (stufen[-1][0] + vz * 0.2, stufen[-1][1] + vz * 0.2)
-        # Laermschutzwand oben (nur wo die Wand das Gelaende haelt: Gelaende ueber der Rampe)
-        if any(a0 <= (ea['s'] + eb['s']) / 2 <= a1 for a0, a1 in (lsw_bereiche or [])):
+        # Laermschutzwand oben nach dem Bauteil (keine / gruen / glas)
+        laerm = bt.get('laerm', 'keine')
+        lsw = {'gruen': 'lsw_gruen', 'glas': 'glas'}.get(laerm)
+        if lsw:
             m.quad(lsw, [p(ea, lsw_t[0], hoch_a), p(eb, lsw_t[1], hoch_b), p(eb, lsw_t[1], hoch_b + lsw_h), p(ea, lsw_t[0], hoch_a + lsw_h)],
                    [(s_ges / 2, 0), ((s_ges + laenge) / 2, 0), ((s_ges + laenge) / 2, 1), (s_ges / 2, 1)], n_innen, beidseitig=True)
             if int((s_ges + laenge) // 3) > int(s_ges // 3):     # Pfosten alle 3 m
@@ -866,8 +938,21 @@ def bauen(omsi, karte, osm_pfad, entwurf_pfad, nn0, ost0, nord0, cache, bauplan_
         rb.schreiben(bauplan_pfad, bp)
         print(f'Bauplan angelegt: {os.path.abspath(bauplan_pfad)}')
     bp = rb.lesen(bauplan_pfad)
-    if 'lsw' not in bp:
-        bp['lsw'] = lsw_vorgabe(roh)
+    geaendert = False
+    # Strassen: Querschnitt und Versatz aus dem Bauplan (beim ersten Mal die bisherigen eintragen)
+    if 'strassen' not in bp:
+        bp['strassen'] = rs.vorgaben(strassen)
+        geaendert = True
+    else:
+        strassen, arme = planen(entwurf, gel, ways, bp['strassen'])
+    # Waende als Bauteile (ersetzen die frueheren Laermschutz-Bereiche)
+    if 'waende' not in bp:
+        bp['waende'] = waende_vorgabe(roh, bp.get('lsw') or lsw_vorgabe(roh))
+        bp.pop('lsw', None)
+        geaendert = True
+    if geaendert:
+        rb.schreiben(bauplan_pfad, bp)
+    waende_zuordnen(roh, bp['waende'])
     kz = rb.bauen(bp, achse, K, arme, gel)
     O = kz['O']
     name = 'Kreuzung_Ludwigsallee'
@@ -898,7 +983,7 @@ def bauen(omsi, karte, osm_pfad, entwurf_pfad, nn0, ost0, nord0, cache, bauplan_
         o = np.array([teil[0]['p'][0], teil[0]['p'][1], 0.0])
         for seite in ('w', 'o'):
             schreiben(ordner, rel, f'Trennwand_{seite}_{k // n:02d}', trennwand(teil, seite, o, kz['zf']), o, liste)
-            schreiben(ordner, rel, f'Aussenwand_{seite}_{k // n:02d}', aussenwand(teil, seite, o, bp['lsw'].get(seite, [])), o, liste)
+            schreiben(ordner, rel, f'Aussenwand_{seite}_{k // n:02d}', aussenwand(teil, seite, o), o, liste)
         schreiben(ordner, rel, f'Sohle_{k // n:02d}', flaechen(teil, o), o, liste)
         schreiben(ordner, rel, f'Deckel_{k // n:02d}', deckel(teil, karte_gel, o), o, liste)
     messung = [dict(s=e['s'], x=float(e['p'][0]), y=float(e['p'][1]), ring=[float(e['ra']), float(e['rb']), float(e['zr'])],
@@ -910,12 +995,31 @@ def bauen(omsi, karte, osm_pfad, entwurf_pfad, nn0, ost0, nord0, cache, bauplan_
                    arme=[dict(name=a.name, pos=_xy(a.p), h=a.h, links=_xy(a.punkt(0, a.links_rand)), rechts=_xy(a.punkt(0, a.rechts_rand)),
                               spuren=len(a.spuren()[0]), raus=len(a.spuren()[1])) for a in kz['arme']],
                    achse=[_xy(achse.punkt(t_)[:2]) for t_ in np.arange(0, achse.laenge, 2.0)],
-                   lose_signale=kz['lose_signale'])
+                   lose_signale=kz['lose_signale'],
+                   stationen=[dict(s=round(e['s'], 2), p=_xy(e['p']), q=_xy(e['quer']),
+                                   t={f'{art}_{sd}': (None if g(e, sd) is None else round(g(e, sd), 3))
+                                      for art, g in (('trenn', fuge_geo), ('aussen', aussen_geo)) for sd in ('w', 'o')}) for e in roh],
+                   strassen=[dict(name=st['name'], punkte=[_xy((el['x'], el['y'])) for el in st['elemente']] + [_xy(rs._ende(st['elemente'][-1])[:2])])
+                             for st in strassen if st['elemente']],
+                   hoehen=hoehenraster(kz['zf'], F))
     out = dict(karte=karte, nn0=nn0, objekte=liste, strassen=strassen, kreuzungen=[kreuzung], kontext=kontext,
                gelaende=gelaende(roh) + platte_gelaende(platte, kz['zf']) + tunnel_gelaende(kz['tunnel']), messung=messung, quellen=['OpenStreetMap (ODbL)', 'DGM1/DOP40 Bayerische Vermessungsverwaltung (CC BY 4.0)'])
     with open(os.path.join(ordner, 'sonderbau_ring.json'), 'w', encoding='utf-8') as f:
         json.dump(out, f, indent=1)
     return out
+
+
+def hoehenraster(zf, F, schritt=1.0):
+    """Hoehe der Kreuzungsflaeche auf einem 1-m-Raster (fuer die 3D-Bearbeitung im Editor)"""
+    from shapely.ops import unary_union
+    x0, y0, x1, y1 = unary_union([F['fahrbahn'], F['gehweg'], F['inseln']]).bounds
+    x0, y0 = math.floor(x0) - 2, math.floor(y0) - 2
+    nx, ny = int(math.ceil(x1 - x0) / schritt) + 4, int(math.ceil(y1 - y0) / schritt) + 4
+    xs = x0 + np.arange(nx) * schritt
+    ys = y0 + np.arange(ny) * schritt
+    XX, YY = np.meshgrid(xs, ys)
+    z = zf(XX.ravel(), YY.ravel())
+    return dict(x0=float(x0), y0=float(y0), schritt=schritt, nx=nx, ny=ny, werte=[round(float(v), 3) for v in z])
 
 
 def _xy(p):

@@ -133,7 +133,12 @@ def gerade_elemente(p0, p1, z_von_u):
 
 
 # ------------------------------------------------------------------ Planung
-def planen(entwurf, gel, ways):
+def vorgaben(strassen):
+    """Querschnitt und Versatz je Strasse fuer den Bauplan (Objekt-Editor)"""
+    return {st['name']: dict(querschnitt=st['querschnitt'], versatz=st.get('versatz')) for st in strassen}
+
+
+def planen(entwurf, gel, ways, ueberschreiben=None):
     """-> (Strassen: Liste dict(name, art, querschnitt, elemente[, versatz]), Arme der Kreuzung)"""
     achse = achse_aus_json(entwurf['achse'])
     K = {k: versatz_aus_json(v) for k, v in entwurf['kanten'].items()}
@@ -164,6 +169,12 @@ def planen(entwurf, gel, ways):
         lage[name] = innen + vz * r['spur'] / 2
         rest[name] = max(0.5, abs(aussen - innen) - r['spur'])
     Q = querschnitte(breite, rest)
+    # Bauplan: eigene Querschnitte und Versatz je Strasse
+    for name, o in (ueberschreiben or {}).items():
+        if o.get('querschnitt'):
+            Q[name] = o['querschnitt']
+        if o.get('versatz') is not None and name in lage:
+            lage[name] = float(o['versatz'])
     out = [dict(name='Ring', art='ring', querschnitt=Q['Ring'], elemente=elemente(achse, 0.0, 0.0, L, zr))]
     for name, r in RAMPEN.items():
         a, b = r['s'][0], r['s'][1] if r['s'][1] is not None else L
