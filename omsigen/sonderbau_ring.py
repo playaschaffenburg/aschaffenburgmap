@@ -701,10 +701,17 @@ def aussen_kante(e, seite):
     t = aussen(e, seite)
     r = e[seite]
     if t is not None:
-        dicke = 1.0 if seite == 'w' else 0.35 + (1.5 if r['g'] - r['z'] > 3.5 else 0.0)
-        return t + vz * dicke, r['g']
+        bt = wand(e, 'aussen', seite) or {}
+        if bt.get('material', 'gabionen' if seite == 'w' else 'klinker') == 'gabionen':
+            dicke = 1.0
+        else:
+            dicke = 0.35 + (1.5 if e.get(f'stufig_{seite}', r['g'] - r['z'] > 3.5) else 0.0)
+        # 15 cm in der Wand beginnen: Deckelkante im Wandkoerper, kein Spalt zur Rueckseite
+        return t + vz * (dicke - 0.15), r['g']
     pr = profil(e)
-    return (pr[0][0], pr[0][2]) if seite == 'w' else (pr[2][1], pr[2][2])
+    # ohne Aussenwand: 30 cm unter den Fahrbahnrand, knapp unter dem Belag (kein Spalt zur Strasse)
+    t, z = (pr[0][0], pr[0][2]) if seite == 'w' else (pr[2][1], pr[2][2])
+    return t - vz * 0.3, z - 0.1
 
 
 class Kartengelaende:
@@ -738,6 +745,15 @@ class Kartengelaende:
         if fx >= fy:
             return h00 + fx * (h10 - h00) + fy * (h11 - h10)
         return h00 + fy * (h01 - h00) + fx * (h11 - h01)
+
+
+def urgelaende(kg, senken, gel):
+    """Kartengelaende, an den vom Sonderbau abgesenkten Rasterpunkten mit der Hoehe des DGM (gel, Kartenhoehen)"""
+    for kx, ky, sp, ze, _ in senken:
+        a = kg.kachel(kx, ky)
+        if a is not None:
+            a[ze, sp] = float(gel.h(np.array([kx * 300 + sp * 5.0]), np.array([ky * 300 + ze * 5.0]))[0])
+    return kg
 
 
 HINTER_MAUER = 5.5        # abgesenktes Gelaende hinter Aussenmauern (eine Rasterzelle + Rand)
@@ -1011,6 +1027,11 @@ def bauen(omsi, karte, osm_pfad, entwurf_pfad, nn0, ost0, nord0, cache, bauplan_
     rw.schreiben(omsi, wand_dateien, os.path.join(ordner, 'texture'))
     print(f'Waende: {len(wand_splines)} Spline-Ketten, {sum(len(w_["elemente"]) for w_ in wand_splines)} Elemente, '
           f'{len(wand_dateien)} Profile')
+    # Deckel auf dem urspruenglichen Gelaende: Rasterpunkte, die der Sonderbau selbst absenkt (auch aus einem frueheren,
+    # gespeicherten Einsetzen), bekommen ihre DGM-Hoehe zurueck - sonst legt sich der Deckel in die eigene Grube
+    platte_ = unary_union([F['fahrbahn'], F['gehweg'], F['inseln']])
+    senken = gelaende(roh) + platte_gelaende(platte_, kz['zf']) + tunnel_gelaende(kz['tunnel'])
+    karte_gel = urgelaende(karte_gel, senken, gel)
     # Sohle und Deckel in Stuecken von STUECK m (Ursprung je Stueck: erster Punkt auf der Ring-Achse, Hoehe 0)
     n = int(STUECK / SCHRITT)
     for k in range(0, len(roh) - 1, n):

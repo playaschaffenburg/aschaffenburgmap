@@ -273,6 +273,9 @@ def splines(roh, platte, omsi):
 
     stufig = {sd: glatt([e['s'] for e in roh], [roh_stufig(e, sd) for e in roh]) for sd in ('w', 'o')}
     idx = {id(e): i for i, e in enumerate(roh)}
+    for i, e in enumerate(roh):                      # fuer Deckel und Gelaende: dieselbe Wandform wie die Splines
+        for sd in ('w', 'o'):
+            e[f'stufig_{sd}'] = bool(stufig[sd][i])
 
     def var_aussen(e, seite, bt):
         return 'stufig' if stufig[seite][idx[id(e)]] else 'einfach'
