@@ -341,6 +341,7 @@ pub fn fund_art(art: &str) -> &str {
         "ampel_schwebt" => "Ampel schwebt",
         "ampel_versinkt" => "Ampel im Boden",
         "ampel_ohne_mast" => "Ampel ohne Mast",
+        "grube" => "Loch im Gelaende",
         a => a,
     }
 }
