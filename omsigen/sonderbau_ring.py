@@ -21,6 +21,7 @@ Daten: OpenStreetMap (ODbL), DGM1/DOP40 Bayerische Vermessungsverwaltung (CC BY 
 import argparse, json, math, os, shutil, sys
 import xml.etree.ElementTree as ET
 import numpy as np
+from .kreuzung import WALK_H, ASPH_H
 from .utm import to_utm
 from .geodaten import Dgm1
 from .kreuzung import x_file
@@ -748,6 +749,53 @@ class Kartengelaende:
         return h00 + fy * (h01 - h00) + fx * (h11 - h01)
 
 
+def rueckbau(kg, senken, gel, roh, umkreis=30.0, tief=0.5, streifen=6.0):
+    """Rasterpunkte im Bereich des Sonderbaus, die mehr als `tief` m unter dem DGM liegen (Grube eines frueheren
+    Einsetzens) und nicht mehr abgesenkt werden -> [[kx, ky, spalte, zeile, z_dgm]] (zurueck aufs Gelaende)"""
+    P = np.array([e['p'] for e in roh])
+    x0, y0 = P.min(axis=0) - umkreis
+    x1, y1 = P.max(axis=0) + umkreis
+    # nur innerhalb des geladenen DGM-Ausschnitts (gel.h klemmt sonst auf den Rand)
+    gx0, gy0 = gel.x0 + 1, gel.y0 + 1
+    gx1, gy1 = gel.x0 + gel.H.shape[1] - 1, gel.y0 + gel.H.shape[0] - 1
+    x0, y0, x1, y1 = max(x0, gx0), max(y0, gy0), min(x1, gx1), min(y1, gy1)
+    gebraucht = {}
+    for p_ in senken:
+        k_ = (p_[0], p_[1], p_[2], p_[3])
+        gebraucht[k_] = min(gebraucht.get(k_, 1e9), p_[4])
+    out = []
+    # abgesenkte Punkte, die eine fruehere Fassung tiefer gelegt hat: auf die neue Zielhoehe anheben
+    for (kx, ky, sp, ze), z_neu in gebraucht.items():
+        a = kg.kachel(kx, ky)
+        if a is not None and a[ze, sp] < z_neu - tief:
+            out.append([kx, ky, sp, ze, round(z_neu, 3)])
+    for kx in range(int(math.floor(x0 / 300)), int(math.floor(x1 / 300)) + 1):
+        for ky in range(int(math.floor(y0 / 300)), int(math.floor(y1 / 300)) + 1):
+            a = kg.kachel(kx, ky)
+            if a is None:
+                continue
+            for ze in range(a.shape[0]):
+                for sp in range(a.shape[1]):
+                    x, y = kx * 300 + sp * 5.0, ky * 300 + ze * 5.0
+                    if not (x0 <= x <= x1 and y0 <= y <= y1) or (kx, ky, sp, ze) in gebraucht:
+                        continue
+                    # nur im Streifen des Bauwerks (dort haben fruehere Fassungen abgesenkt), nicht unter Kartenstrassen
+                    i = int(np.argmin(np.hypot(P[:, 0] - x, P[:, 1] - y)))
+                    if i < 3 or i > len(roh) - 4:
+                        continue
+                    e = roh[i]
+                    v = np.array([x, y]) - e['p']
+                    if abs(np.dot(v, e['d'])) > SCHRITT:
+                        continue
+                    t = float(np.dot(v, e['quer']))
+                    if not (rand(e, 'w') - streifen <= t <= rand(e, 'o') + streifen):
+                        continue
+                    z_dgm = float(gel.h(np.array([x]), np.array([y]))[0])
+                    if a[ze, sp] < z_dgm - tief:
+                        out.append([kx, ky, sp, ze, round(z_dgm, 3)])
+    return out
+
+
 def urgelaende(kg, senken, gel):
     """Kartengelaende, an den vom Sonderbau abgesenkten Rasterpunkten mit der Hoehe des DGM (gel, Kartenhoehen)"""
     for kx, ky, sp, ze, _ in senken:
@@ -787,6 +835,46 @@ def deckel(roh, karte, o, breite=12.0):
     return m
 
 
+def plattenrand(platte, zf, karte, o, ausser, gehweg, breite=9.0, schritt=2.0):
+    """Deckel am Aussenrand der Kreuzungsplatte: wo kein anderes Teil anschliesst (ausser: Geometrie, deren Naehe
+    ausgenommen ist - Trog, Arme, Waende, Bruestungen), vom Plattenrand (20 cm darunter beginnend) `breite` m nach
+    aussen bis auf das urspruengliche Gelaende -> Mesh"""
+    from shapely.geometry import Point as _P
+    m = Mesh()
+    for p_ in ([platte] if platte.geom_type == 'Polygon' else list(platte.geoms)):
+        c = list(p_.exterior.coords)
+        for a_, b_ in zip(c[:-1], c[1:]):
+            a_, b_ = np.array(a_), np.array(b_)
+            L = float(np.linalg.norm(b_ - a_))
+            if L < 1e-3:
+                continue
+            n = np.array([b_[1] - a_[1], a_[0] - b_[0]]) / L
+            mid = (a_ + b_) / 2
+            if p_.contains(_P(*(mid + n * 0.1))):
+                n = -n                                   # nach aussen
+            teile = max(1, int(math.ceil(L / schritt)))
+            for k in range(teile):
+                pa, pb = a_ + (b_ - a_) * k / teile, a_ + (b_ - a_) * (k + 1) / teile
+                mitte_ = (pa + pb) / 2
+                if ausser.contains(_P(*mitte_)) or platte.contains(_P(*(mitte_ + n * 0.6))):
+                    continue                             # anderes Teil oder nur eine Kerbe im Plattenumriss
+                reihen = []
+                for q in (pa, pb):
+                    hoch = gehweg.buffer(0.3).contains(_P(*q))
+                    z0 = float(zf(*q)) + (WALK_H if hoch else ASPH_H) - 0.02
+                    pts = [np.array([*(q - n * 0.2), z0])]
+                    for d in np.linspace(1.5, breite, 4):
+                        x, y = q + n * d
+                        z = karte.hoehe(x, y)
+                        pts.append(np.array([x, y, (z if z is not None else z0) + 0.05]))
+                    reihen.append([p__ - o for p__ in pts])
+                ra, rb = reihen
+                for i in range(len(ra) - 1):
+                    q4 = [ra[i], rb[i], rb[i + 1], ra[i + 1]]
+                    m.quad('boden', q4, [((v[0] + o[0]) / 5, (v[1] + o[1]) / 5) for v in q4], (0, 0, 1))
+    return m
+
+
 def gelaende(roh):
     """abgesenkte Gelaendepunkte (5-m-Raster der Kacheln): unter Sohle und Rampen 0,8 m unter der tiefsten Fahrbahn
     -> [[kx, ky, spalte, zeile, z]] (Zeile 0 = Sueden, Hoehe in der Karte)"""
@@ -817,7 +905,10 @@ def gelaende(roh):
                     if aussen(e, 'o') is not None:
                         hi += HINTER_MAUER
                     if lo - 0.3 <= t <= hi + 0.3:
-                        out.append([kx, ky, spalte, zeile, round(min(z for _, _, z in pr) - 0.8, 3)])
+                        # so tief wie die Fahrbahnen in Reichweite einer Rasterzelle (Diagonale 7,1 m) - nicht ueberall
+                        # auf den Ring (sonst Gruben unter Rampen und hinter Aussenwaenden)
+                        nah = [z for a0, a1, z in pr if a0 - 7.1 <= t <= a1 + 7.1] or [min(z for _, _, z in pr)]
+                        out.append([kx, ky, spalte, zeile, round(min(nah) - 0.8, 3)])
     return out
 
 
@@ -1033,6 +1124,7 @@ def bauen(omsi, karte, osm_pfad, entwurf_pfad, nn0, ost0, nord0, cache, bauplan_
     # gespeicherten Einsetzen), bekommen ihre DGM-Hoehe zurueck - sonst legt sich der Deckel in die eigene Grube
     platte_ = unary_union([F['fahrbahn'], F['gehweg'], F['inseln']])
     senken = gelaende(roh) + platte_gelaende(platte_, kz['zf']) + tunnel_gelaende(kz['tunnel'])
+    roh_karte = Kartengelaende(os.path.join(omsi, 'maps', karte))       # Karte, wie sie ist (fuer Rueckbau)
     karte_gel = urgelaende(karte_gel, senken, gel)
     # Sohle und Deckel in Stuecken von STUECK m (Ursprung je Stueck: erster Punkt auf der Ring-Achse, Hoehe 0)
     n = int(STUECK / SCHRITT)
@@ -1041,6 +1133,25 @@ def bauen(omsi, karte, osm_pfad, entwurf_pfad, nn0, ost0, nord0, cache, bauplan_
         o = np.array([teil[0]['p'][0], teil[0]['p'][1], 0.0])
         schreiben(ordner, rel, f'Sohle_{k // n:02d}', flaechen(teil, o), o, liste)
         schreiben(ordner, rel, f'Deckel_{k // n:02d}', deckel(teil, karte_gel, o), o, liste)
+    # Plattenrand-Deckel (Anschluss Platte -> Gelaende), ausser an Trog, Armen, Waenden und Bruestungen
+    from shapely.geometry import LineString as _LS
+    ausnahmen = [F['offen'].buffer(1.0)]
+    for a_ in kz['arme']:
+        raender_ = rk.raender(a_.q)
+        ausnahmen.append(_LS([a_.punkt(0, raender_[0][1]), a_.punkt(0, raender_[-1][2])]).buffer(1.2))
+    from shapely.ops import substring as _sub
+    for w_ in wand_splines:
+        pts_ = [(e_['x'], e_['y']) for e_ in w_['elemente']]
+        if len(pts_) >= 2:
+            ls_ = _LS(pts_)
+            if ls_.length > 5.0:                       # an den Wandenden schliesst der Rand die Ecke
+                ausnahmen.append(_sub(ls_, 2.0, ls_.length - 2.0).buffer(1.5))
+    for g_ in bp.get('gelaender', []):
+        if len(g_['punkte']) >= 2:
+            ausnahmen.append(_LS(g_['punkte']).buffer(1.0))
+    o_r = np.array([platte_.centroid.x, platte_.centroid.y, 0.0])
+    schreiben(ordner, rel, 'Plattenrand', plattenrand(platte_, kz['zf'], karte_gel, o_r, unary_union(ausnahmen),
+                                                      unary_union([F['gehweg'], F['inseln']])), o_r, liste)
     messung = [dict(s=e['s'], x=float(e['p'][0]), y=float(e['p'][1]), ring=[float(e['ra']), float(e['rb']), float(e['zr'])],
                     west=None if e['w'] is None else [e['w'][k] for k in ('a', 'b', 'z', 'g')],
                     ost=None if e['o'] is None else [e['o'][k] for k in ('a', 'b', 'z', 'g')], decke=bool(e['unter_decke'])) for e in roh]
@@ -1057,8 +1168,9 @@ def bauen(omsi, karte, osm_pfad, entwurf_pfad, nn0, ost0, nord0, cache, bauplan_
                    strassen=[dict(name=st['name'], punkte=[_xy((el['x'], el['y'])) for el in st['elemente']] + [_xy(rs._ende(st['elemente'][-1])[:2])])
                              for st in strassen if st['elemente']],
                    hoehen=hoehenraster(kz['zf'], F))
+    senken_ur = [p_ + [round(float(gel.h(np.array([p_[0] * 300 + p_[2] * 5.0]), np.array([p_[1] * 300 + p_[3] * 5.0]))[0]), 3)] for p_ in senken]
     out = dict(karte=karte, nn0=nn0, objekte=liste, strassen=strassen + wand_splines, kreuzungen=[kreuzung], kontext=kontext,
-               gelaende=gelaende(roh) + platte_gelaende(platte, kz['zf']) + tunnel_gelaende(kz['tunnel']), messung=messung, quellen=['OpenStreetMap (ODbL)', 'DGM1/DOP40 Bayerische Vermessungsverwaltung (CC BY 4.0)'])
+               gelaende=senken_ur, gelaende_zurueck=rueckbau(roh_karte, senken, gel, roh), messung=messung, quellen=['OpenStreetMap (ODbL)', 'DGM1/DOP40 Bayerische Vermessungsverwaltung (CC BY 4.0)'])
     with open(os.path.join(ordner, 'sonderbau_ring.json'), 'w', encoding='utf-8') as f:
         json.dump(out, f, indent=1)
     # Baupruefung der geschriebenen Dateien (baupruefung.json daneben, im Objekt-Editor als Liste)

@@ -211,6 +211,7 @@ pub fn einsetzen(ae: &mut crate::aendern::Aendern, gel: &mut crate::gelaende::Ge
     let strassen = strassen_lesen(json)?;
     let kreuzungen = kreuzungen_lesen(json)?;
     let senken = gelaende_lesen(json)?;
+    let zurueck = gelaende_lesen_feld(json, "gelaende_zurueck")?;
     // Bereich: alle Strassen des Sonderbaus, 8 m Rand
     let mut lo = DVec2::splat(f64::MAX);
     let mut hi = DVec2::splat(f64::MIN);
@@ -226,6 +227,18 @@ pub fn einsetzen(ae: &mut crate::aendern::Aendern, gel: &mut crate::gelaende::Ge
     v.tiles_around(((lo + hi) * 0.5).extend(0.0), 1)?;
     // 1. Gelaende (vor den Ampeln: ihre Hoehe ueber dem Gelaende haengt davon ab)
     let mut kacheln: std::collections::HashMap<(i32, i32), omsi_map::Terrain> = Default::default();
+    // Punkte, die ein frueheres Einsetzen abgesenkt hat und die jetzt nicht mehr gebraucht werden: zurueck aufs DGM
+    for (k, spalte, zeile, z) in &zurueck {
+        if !kacheln.contains_key(k) {
+            let Some(t) = v.tile_terrain(k.0, k.1) else { continue };
+            kacheln.insert(*k, t);
+        }
+        let t = kacheln.get_mut(k).unwrap();
+        let i = zeile * (t.cells + 1) + spalte;
+        if i < t.heights.len() {
+            t.heights[i] = t.heights[i].max(*z);
+        }
+    }
     for (k, spalte, zeile, z) in &senken {
         if !kacheln.contains_key(k) {
             let Some(t) = v.tile_terrain(k.0, k.1) else { continue };
@@ -341,8 +354,13 @@ pub fn einsetzen(ae: &mut crate::aendern::Aendern, gel: &mut crate::gelaende::Ge
 
 /// abzusenkende Gelaendepunkte: (Kachel, Spalte, Zeile ab Sueden, Hoehe)
 pub fn gelaende_lesen(datei: &Path) -> Result<Vec<((i32, i32), usize, usize, f32)>> {
+    gelaende_lesen_feld(datei, "gelaende")
+}
+
+/// Gelaendepunkte aus einem Feld der Sonderbau-Datei ([kx, ky, spalte, zeile, z, ...])
+pub fn gelaende_lesen_feld(datei: &Path, feld: &str) -> Result<Vec<((i32, i32), usize, usize, f32)>> {
     let j: serde_json::Value = serde_json::from_slice(&std::fs::read(datei)?)?;
-    Ok(j["gelaende"]
+    Ok(j[feld]
         .as_array()
         .map(|a| {
             a.iter()

@@ -10,6 +10,7 @@ Prüfungen (je Fund: Art, Text, Weltpunkt, Teil):
 - spalt: freie Kante eines Objekts endet knapp (3 bis 60 cm) neben einem anderen Teil statt daran
 - offenes_ende: Ende einer Wand-/Spline-Kette steht frei über dem Gelände (man sieht ins Profil)
 - ampel_schwebt / ampel_versinkt / ampel_ohne_mast: Ampelteile passen nicht zum Boden darunter
+- grube: abgesenkter Gelaendepunkt, ueber dem kein Teil liegt (man sieht ins Loch)
 
 Aufruf: python -m omsigen.baupruefer <sonderbau.json> [--omsi …] -> baupruefung.json daneben + Zusammenfassung.
 """
@@ -405,7 +406,21 @@ def _kanten_frei(P):
 
 
 # ------------------------------------------------------------------ Prüfen
-def pruefen(teile, gelaende=None, signale=()):
+def gruben(raum, senken, hoehe=30.0):
+    """abgesenkte Gelaendepunkte (kx, ky, spalte, zeile, z), ueber denen kein Teil liegt: dort sieht man ein Loch"""
+    funde = []
+    for pkt in senken:
+        kx, ky, sp, ze, z = pkt[:5]
+        if len(pkt) > 5 and pkt[5] - z < 0.3:
+            continue                                    # kaum abgesenkt: kein sichtbares Loch
+        x, y = kx * 300 + sp * 5.0, ky * 300 + ze * 5.0
+        b_ = raum.boden(x, y, z + hoehe)
+        if b_ is None or b_ < z - 0.15:
+            funde.append(dict(art='grube', text='abgesenktes Gelaende ohne Abdeckung', pos=np.array([x, y, z]), teil='Gelaende'))
+    return funde
+
+
+def pruefen(teile, gelaende=None, signale=(), senken=()):
     """-> Liste Funde dict(art, text, pos, teil)"""
     funde = []
     raum = Raum(teile)
@@ -456,6 +471,7 @@ def pruefen(teile, gelaende=None, signale=()):
                                   pos=np.mean(sicht, axis=0), teil=t.name))
     # doppelte Flächen: nach oben bzw. seitlich zeigende Dreiecke verschiedener Teile/Materialien in derselben Ebene
     funde += [f for f in _doppelt(teile, raum) if not verdeckt(raum, gelaende, f['pos'], koerper=False)]
+    funde += gruben(raum, senken)
     # Ampeln
     for i, s in enumerate(signale):
         if 'x' not in s or s.get('z_boden') is None:
@@ -543,10 +559,14 @@ def zusammenfassen(funde):
 
 
 # ------------------------------------------------------------------ Sonderbau
-def gelaende_funktion(omsi, karte, senken=()):
+def gelaende_funktion(omsi, karte, senken=(), zurueck=()):
     from .sonderbau_ring import Kartengelaende
     kg = Kartengelaende(os.path.join(omsi, 'maps', karte))
-    for kx, ky, sp, ze, z in senken:
+    for kx, ky, sp, ze, z in zurueck:
+        a = kg.kachel(kx, ky)
+        if a is not None:
+            a[ze, sp] = max(a[ze, sp], z)
+    for kx, ky, sp, ze, z, *_ in senken:
         a = kg.kachel(kx, ky)
         if a is not None:
             a[ze, sp] = min(a[ze, sp], z)
@@ -576,8 +596,8 @@ def sonderbau_pruefen(json_pfad, omsi=STANDARD_OMSI):
             t.art = 'wand'
         teile.append(t)
     signale = [s for k in j.get('kreuzungen', []) for s in k.get('signale', [])]
-    gel = gelaende_funktion(omsi, j['karte'], j.get('gelaende', []))
-    funde = zusammenfassen(pruefen(teile, gel, signale))
+    gel = gelaende_funktion(omsi, j['karte'], j.get('gelaende', []), j.get('gelaende_zurueck', []))
+    funde = zusammenfassen(pruefen(teile, gel, signale, j.get('gelaende', [])))
     zaehl = defaultdict(int)
     for f in funde:
         zaehl[f['art']] += 1
