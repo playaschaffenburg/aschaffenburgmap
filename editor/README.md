@@ -356,6 +356,15 @@ Aufnahme“ (nur für Arten, die als „vollständig aufgenommen“ angehakt sin
 Haltlinie, Furt, Sperrfläche oder Radfurt genau auf die Linie. Gespeichert in `sonderbau/ring/aufnahme.json`
 (Nutzerdaten, wie der Bauplan nicht einchecken); Rückgängig gilt für Bauplan und Aufnahme gemeinsam.
 
+**Fotovergleich** (Bauaufnahme → „Fotovergleich: Fotos laden“): holt über `python -m omsigen.mapillary` alle
+Mapillary-Fotos rund um den Sonderbau (Token in `mapillary_token.txt`, nicht eingecheckt) mit berechneter Pose. Sie
+erscheinen als Dreiecke in Blickrichtung (grün = ab 2025, hellgrün = ab 2023, grau = älter; Filter „ab Jahr“). Klick auf
+ein Dreieck (oder „nächstes an der Kamera-Mitte“) stellt die 3D-Ansicht genau auf Standort, Blickrichtung, Neigung,
+Rollen und Bildwinkel des Fotos; das entzerrte Foto liegt halbtransparent darüber. Regler: Deckkraft, Kamerahöhe (über
+Kreuzungsfläche bzw. Gelände, Vorgabe 1,5 m), Richtung/Neigung/Rollen ±8°, Bildwinkel. „‹ voriges / nächstes ›“ (Bild
+auf/ab) blättert in derselben Fahrt; Esc oder jede Kamerabewegung beendet. Quellenangabe „Mapillary-Mitwirkende,
+CC BY-SA 4.0“ steht im Bild.
+
 **Fläche markieren** (L): Rechteck ziehen oder Vieleck klicken, alles darin (Objekte/Bäume, Straßen-Splines, wählbar)
 mit Entf löschen – ein Rückgängig-Schritt.
 

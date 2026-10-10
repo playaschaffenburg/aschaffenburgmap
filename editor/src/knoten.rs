@@ -1009,7 +1009,7 @@ mod tests {
         assert_eq!(enden.len(), 3, "jeder Arm hat seinen Spline");
         let bild = |v: &mut Viewer, name: &str| {
             if let Some(b) = std::env::var_os("OMSI_BILD") {
-                let kam = crate::kamera::Kamera { ziel: k.pos, gier: 200.0, neigung: -60.0, abstand: 70.0, fov: 50.0 };
+                let kam = crate::kamera::Kamera { ziel: k.pos, gier: 200.0, neigung: -60.0, abstand: 70.0, fov: 50.0, fest: None };
                 let px = v.render_image(1280, 800, &kam.camera()).unwrap();
                 let p = std::path::PathBuf::from(b).with_extension(format!("{name}.png"));
                 image::save_buffer(p, &px, 1280, 800, image::ColorType::Rgba8).unwrap();
@@ -1148,7 +1148,7 @@ mod nutzer_tests {
         }
         // die Kreuzung 2 m verschieben und zeigen (OMSI_BILD: vorher/nachher)
         if let Some(k) = griffe.iter().find(|g| matches!(g, Griff::Kreuzung { .. })) {
-            let kam = crate::kamera::Kamera { ziel: k.pos(), gier: 200.0, neigung: -55.0, abstand: 55.0, fov: 50.0 };
+            let kam = crate::kamera::Kamera { ziel: k.pos(), gier: 200.0, neigung: -55.0, abstand: 55.0, fov: 50.0, fest: None };
             let bild = |v: &mut Viewer, name: &str| {
                 if let Some(b) = std::env::var_os("OMSI_BILD") {
                     let px = v.render_image(1280, 800, &kam.camera()).unwrap();

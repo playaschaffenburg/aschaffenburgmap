@@ -1946,7 +1946,7 @@ mod tests {
         let gesetzt = s.gesetzte_kreuzungen();
         assert_eq!(gesetzt.len(), 1);
         if let Some(b) = std::env::var_os("OMSI_BILD") {
-            let kam = crate::kamera::Kamera { ziel: boden(&v, c), gier: 20.0, neigung: -55.0, abstand: 70.0, fov: 50.0 };
+            let kam = crate::kamera::Kamera { ziel: boden(&v, c), gier: 20.0, neigung: -55.0, abstand: 70.0, fov: 50.0, fest: None };
             let px = v.render_image(1280, 800, &kam.camera()).unwrap();
             image::save_buffer(b, &px, 1280, 800, image::ColorType::Rgba8).unwrap();
         }

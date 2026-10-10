@@ -16,6 +16,7 @@ mod aufnahme;
 mod baukasten;
 mod bauwerke;
 mod bearbeiten;
+mod foto;
 mod gelaende;
 mod geo;
 mod hilfsansicht;
@@ -281,6 +282,8 @@ struct App {
     gelaende_unter: Option<DVec3>,
     /// Luftbild ueber dem Gelaende (Karten mit Ort)
     luftbild: luftbild::Luftbild,
+    /// Fotovergleich (Mapillary-Foto ueber der 3D-Ansicht)
+    foto: Option<foto::Fotovergleich>,
     /// neue Karte: Ortssuche (Text, Treffer, gewaehlter Ort, laufende Suche) und das Anlegen im Hintergrund (Ordner)
     ort_text: String,
     ort_treffer: Vec<geo::Ort>,
@@ -551,6 +554,7 @@ impl App {
             gelaende: gelaende::Gelaende::default(),
             gelaende_unter: None,
             luftbild: luftbild::Luftbild::default(),
+            foto: None,
             ort_text: String::new(),
             ort_treffer: Vec::new(),
             ort_wahl: None,
@@ -637,7 +641,7 @@ impl App {
         let f = cam.forward().as_dvec3();
         let mut ziel = cam.position + f * if f.z < -0.05 { (cam.position.z / -f.z).min(400.0) } else { 150.0 };
         ziel.z = cam.position.z.min(ziel.z.max(0.0));
-        self.kam = Kamera { ziel, gier: cam.yaw, neigung: cam.pitch.min(-15.0), abstand: 250.0, fov: 50.0 };
+        self.kam = Kamera { ziel, gier: cam.yaw, neigung: cam.pitch.min(-15.0), abstand: 250.0, fov: 50.0, fest: None };
     }
 
     fn gui_neu(window: &Window, device: &wgpu::Device, format: wgpu::TextureFormat) -> Gui {
@@ -1229,6 +1233,7 @@ impl App {
             }
         };
         let view = frame.texture.create_view(&Default::default());
+        self.foto_kamera();
         let cam = self.kam.camera();
         if let Some(v) = self.viewer.as_mut() {
             v.render(&view, w, h, &cam);
@@ -1352,6 +1357,7 @@ impl App {
                 self.objekteditor_auto = false;
                 aktionen.push(UiAktion::ObjektEditor);
             }
+            let mut foto_neu: Option<(foto::FotoPose, Option<f64>)> = None;
             if let Some(oe) = self.objekteditor.as_mut() {
                 let mut offen = true;
                 oe.mitte_setzen(self.kam.ziel.truncate());
@@ -1367,6 +1373,7 @@ impl App {
                         self.kam.abstand = 14.0;
                     }
                     Some(objekteditor::Aktion::Querschnitt(name, q)) => aktionen.push(UiAktion::SonderbauQuerschnitt(name, q)),
+                    Some(objekteditor::Aktion::Foto(p, z)) => foto_neu = Some((p, z)),
                     None => {}
                 }
                 if !offen {
@@ -1375,6 +1382,24 @@ impl App {
                     }
                     self.objekteditor = None;
                 }
+            }
+            // Fotovergleich: Bedienfenster, Blaettern in der Fahrt
+            if let Some(id) = self.foto.as_ref().map(|f| f.foto.id.clone()) {
+                let (vor, nach) = self.objekteditor.as_ref().map(|oe| (oe.foto_nachbar(&id, -1), oe.foto_nachbar(&id, 1))).unwrap_or((None, None));
+                let ctx_ = ctx.ctx().clone();
+                match self.foto.as_mut().and_then(|f| f.ui(&ctx_, (vor.is_some(), nach.is_some()))) {
+                    Some(foto::FotoAktion::Blaettern(d)) => {
+                        if let Some(p) = if d < 0 { vor } else { nach } {
+                            let z = self.objekteditor.as_ref().and_then(|oe| oe.foto_boden(p.pos));
+                            foto_neu = Some((p, z));
+                        }
+                    }
+                    Some(foto::FotoAktion::Ende) => self.foto_ende(),
+                    None => {}
+                }
+            }
+            if let Some((p, z)) = foto_neu {
+                self.foto_start(p, z);
             }
             if let Some(bk) = self.baukasten.as_mut() {
                 let mut offen = true;
@@ -2147,8 +2172,11 @@ impl App {
             });
             // Markierungen ueber dem 3D-Bild (unter den Panels)
             let maler = ui_maler(ctx);
+            if let Some(f) = self.foto.as_mut() {
+                f.zeichnen(&ctx.ctx().clone(), &maler, bw, bh);
+            }
             if let (Some(oe), Some(v)) = (self.objekteditor.as_mut(), self.viewer.as_ref()) {
-                if oe.drei_d && !self.markierer.an {
+                if oe.drei_d && !self.markierer.an && !self.foto.as_ref().is_some_and(|f| f.ohne_markierungen) {
                     let kam = self.kam.clone();
                     let bild = |w: DVec3| bearbeiten::projizieren(&kam, w, bw, bh).map(|(x, y, _)| egui::pos2(x, y));
                     let boden = |q: glam::DVec2| v.ground_height(q.x, q.y).unwrap_or(0.0);
@@ -3943,6 +3971,48 @@ impl App {
     }
 
     /// Bildgroesse in logischen Punkten (wie die Mauskoordinaten)
+    /// Fotovergleich: feste Kamera des Fotos; bewegt der Nutzer die Ansicht, endet der Vergleich
+    fn foto_kamera(&mut self) {
+        let Some(f) = self.foto.as_ref() else {
+            self.kam.fest = None;
+            return;
+        };
+        let k = &self.kam;
+        let (m, g, n, a) = f.merke;
+        if (k.ziel.truncate() - m).length() > 1e-6 || k.gier != g || k.neigung != n || k.abstand != a {
+            self.foto_ende();
+            return;
+        }
+        let (bw, bh) = self.bildgroesse();
+        self.kam.fest = Some(f.kamera(bw as f64 / bh.max(1.0) as f64));
+    }
+
+    /// Fotovergleich beginnen: Ansicht dahinter auf den Standort, feste Kamera aus dem Foto
+    fn foto_start(&mut self, p: foto::FotoPose, boden: Option<f64>) {
+        let z = boden.or_else(|| self.boden(p.pos.x, p.pos.y)).unwrap_or(self.kam.ziel.z);
+        let neu = foto::Fotovergleich::neu(p, z, self.foto.as_ref());
+        let vor = (neu.foto.gier.to_radians().sin(), neu.foto.gier.to_radians().cos());
+        self.kam.ziel = glam::DVec3::new(neu.foto.pos.x + vor.0 * 12.0, neu.foto.pos.y + vor.1 * 12.0, z);
+        self.kam.gier = neu.foto.gier as f32;
+        self.kam.neigung = -20.0;
+        self.kam.abstand = 14.0;
+        let mut neu = neu;
+        neu.merke = (self.kam.ziel.truncate(), self.kam.gier, self.kam.neigung, self.kam.abstand);
+        if let Some(oe) = self.objekteditor.as_mut() {
+            oe.foto_aktiv = Some(neu.foto.id.clone());
+        }
+        self.meldung = format!("Fotovergleich: Foto vom {} - Regler links, Esc beendet", neu.foto.datum());
+        self.foto = Some(neu);
+    }
+
+    fn foto_ende(&mut self) {
+        self.foto = None;
+        self.kam.fest = None;
+        if let Some(oe) = self.objekteditor.as_mut() {
+            oe.foto_aktiv = None;
+        }
+    }
+
     fn bildgroesse(&self) -> (f32, f32) {
         match (self.surface.as_ref(), self.window.as_ref()) {
             (Some(s), Some(w)) => (s.config.width as f32 / w.scale_factor() as f32, s.config.height as f32 / w.scale_factor() as f32),
@@ -4916,7 +4986,7 @@ fn bild(root: &Path, karte: &str, png: &Path, cam: Option<&str>) -> Result<()> {
     if let Some(c) = cam {
         let w: Vec<f64> = c.split(',').filter_map(|x| x.trim().parse().ok()).collect();
         anyhow::ensure!(w.len() == 5, "--cam x,y,gier,neigung,abstand");
-        k = Kamera { ziel: DVec3::new(w[0], w[1], 0.0), gier: w[2] as f32, neigung: w[3] as f32, abstand: w[4], fov: 50.0 };
+        k = Kamera { ziel: DVec3::new(w[0], w[1], 0.0), gier: w[2] as f32, neigung: w[3] as f32, abstand: w[4], fov: 50.0, fest: None };
     } else {
         let f = start.forward().as_dvec3();
         k.ziel = start.position + f * 150.0;

@@ -479,7 +479,7 @@ mod tests {
                 eigene
             };
             for (ziel, gier, neigung, abstand, name) in alle {
-                let kam = crate::kamera::Kamera { ziel, gier, neigung, abstand, fov: 60.0 };
+                let kam = crate::kamera::Kamera { ziel, gier, neigung, abstand, fov: 60.0, fest: None };
                 let px = v.render_image(1280, 800, &kam.camera()).unwrap();
                 image::save_buffer(bild.with_extension(format!("{name}.png")), &px, 1280, 800, image::ColorType::Rgba8).unwrap();
             }

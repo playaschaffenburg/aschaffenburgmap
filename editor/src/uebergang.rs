@@ -701,7 +701,7 @@ mod tests {
         assert_eq!(arm.spuren.len(), sb.pfade.iter().filter(|p| p.art == 0).count());
         if let Some(b) = std::env::var_os("OMSI_BILD") {
             let mitte = a.pos + (crate::netz::dir(a.richtung) * (l / 2.0)).extend(0.0);
-            let kam = crate::kamera::Kamera { ziel: mitte, gier: a.richtung as f32 + 200.0, neigung: -40.0, abstand: 45.0, fov: 50.0 };
+            let kam = crate::kamera::Kamera { ziel: mitte, gier: a.richtung as f32 + 200.0, neigung: -40.0, abstand: 45.0, fov: 50.0, fest: None };
             let px = v.render_image(1280, 800, &kam.camera()).unwrap();
             image::save_buffer(b, &px, 1280, 800, image::ColorType::Rgba8).unwrap();
         }
@@ -768,7 +768,7 @@ mod tests {
         let arm = an.liste.iter().find(|x| x.objekt.is_some() && (x.pos.truncate() - fern).length() < 1.0).expect("offener Arm am Ende");
         println!("Arm: {:?}, Steigung {:.2} %", arm.pos, arm.steigung * 100.0);
         if let Some(bild) = std::env::var_os("OMSI_BILD") {
-            let kam = crate::kamera::Kamera { ziel: pos + glam::DVec3::new(0.0, 5.0, 0.0), gier: 270.0, neigung: -12.0, abstand: 45.0, fov: 50.0 };
+            let kam = crate::kamera::Kamera { ziel: pos + glam::DVec3::new(0.0, 5.0, 0.0), gier: 270.0, neigung: -12.0, abstand: 45.0, fov: 50.0, fest: None };
             let px = v.render_image(1280, 800, &kam.camera()).unwrap();
             image::save_buffer(bild, &px, 1280, 800, image::ColorType::Rgba8).unwrap();
         }

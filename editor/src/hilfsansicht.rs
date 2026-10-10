@@ -116,7 +116,7 @@ mod tests {
         assert!(pfade(&v, DVec3::new(150.0, 150.0, 0.0), 2000.0).len() > 100);
         if let (Some(b), Some(o)) = (std::env::var_os("OMSI_BILD"), h.objekte.iter().find(|o| o.2 == "bus_stop.sco")) {
             println!("Bild bei {:?}", o.0);
-            let kam = crate::kamera::Kamera { ziel: o.0, gier: 200.0, neigung: -35.0, abstand: 14.0, fov: 50.0 };
+            let kam = crate::kamera::Kamera { ziel: o.0, gier: 200.0, neigung: -35.0, abstand: 14.0, fov: 50.0, fest: None };
             let px = v.render_image(1280, 800, &kam.camera()).unwrap();
             image::save_buffer(b, &px, 1280, 800, image::ColorType::Rgba8).unwrap();
         }

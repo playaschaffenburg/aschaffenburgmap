@@ -14,11 +14,13 @@ pub struct Kamera {
     pub neigung: f32,
     pub abstand: f64,
     pub fov: f32,
+    /// feste Kamera (Fotovergleich: Standort und Blick eines Fotos) statt Blickpunkt/Abstand
+    pub fest: Option<Camera>,
 }
 
 impl Default for Kamera {
     fn default() -> Self {
-        Kamera { ziel: DVec3::new(150.0, 150.0, 0.0), gier: 0.0, neigung: -40.0, abstand: 250.0, fov: 50.0 }
+        Kamera { ziel: DVec3::new(150.0, 150.0, 0.0), gier: 0.0, neigung: -40.0, abstand: 250.0, fov: 50.0, fest: None }
     }
 }
 
@@ -31,6 +33,9 @@ impl Kamera {
 
     /// Kamera fuer den openOMSI-Renderer
     pub fn camera(&self) -> Camera {
+        if let Some(c) = self.fest {
+            return c;
+        }
         let pos = self.ziel - self.vorwaerts().as_dvec3() * self.abstand;
         Camera {
             position: pos,
@@ -104,7 +109,7 @@ mod tests {
 
     #[test]
     fn mitte_trifft_blickpunkt() {
-        let k = Kamera { ziel: DVec3::new(100.0, 200.0, 10.0), gier: 30.0, neigung: -45.0, abstand: 150.0, fov: 50.0 };
+        let k = Kamera { ziel: DVec3::new(100.0, 200.0, 10.0), gier: 30.0, neigung: -45.0, abstand: 150.0, fov: 50.0, fest: None };
         let (o, d) = k.strahl(400.0, 300.0, 800.0, 600.0);
         let p = treffer(o, d, |_, _| Some(10.0), 5000.0).unwrap();
         assert!((p.x - 100.0).abs() < 0.3 && (p.y - 200.0).abs() < 0.3, "{p:?}");

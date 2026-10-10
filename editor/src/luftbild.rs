@@ -128,7 +128,7 @@ mod tests {
         v.set_ground_image_alpha(1.0);
         let z = v.terrain_height(x, y).unwrap_or(0.0);
         for (name, abstand) in [("oben", 330.0), ("nah", 60.0)] {
-            let kam = crate::kamera::Kamera { ziel: DVec3::new(x, y, z), gier: 0.0, neigung: -89.9, abstand, fov: 50.0 };
+            let kam = crate::kamera::Kamera { ziel: DVec3::new(x, y, z), gier: 0.0, neigung: -89.9, abstand, fov: 50.0, fest: None };
             let px = v.render_image(1280, 800, &kam.camera()).unwrap();
             if let Some(bild) = std::env::var_os("OMSI_BILD") {
                 image::save_buffer(std::path::PathBuf::from(&bild).with_extension(format!("{name}.png")), &px, 1280, 800, image::ColorType::Rgba8).unwrap();

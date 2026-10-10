@@ -164,3 +164,104 @@ def strahl(bild, u, v):
         x, y = xd / f / d, yd / f / d
     r = drehung(bild['computed_rotation']).T @ np.array([x, y, 1.0])
     return r / np.linalg.norm(r)
+
+
+# ------------------------------------------------------------------ Fotovergleich (Editor)
+def pose(bild, ost0, nord0, zone=32):
+    """Foto -> Pose in der Karte: x, y (Kartenpunkt), gier (Grad, im Uhrzeigersinn ab Gitter-Nord), neigung (Grad, oben
+    positiv), roll (Grad, wie openOMSI: oben nach rechts positiv), vfov/hfov (Grad, des entzerrten Bilds)"""
+    from .utm import to_utm
+    lon, lat = bild['computed_geometry']['coordinates']
+    e, n = to_utm(lat, lon, zone)
+    R = drehung(bild['computed_rotation']).T
+    f_, oben = R @ np.array([0, 0, 1.0]), -(R @ np.array([0, 1.0, 0]))
+    # Meridiankonvergenz: Gitter-Nord ist gegen geografisch Nord gedreht
+    gamma = math.degrees(math.radians(lon - (zone * 6 - 183)) * math.sin(math.radians(lat)))
+    gier = (math.degrees(math.atan2(f_[0], f_[1])) - gamma) % 360
+    neigung = math.degrees(math.asin(max(-1.0, min(1.0, f_[2]))))
+    r0 = np.array([f_[1], -f_[0], 0.0])
+    r0 /= max(np.linalg.norm(r0), 1e-12)
+    u0 = np.cross(r0, f_)
+    roll = math.degrees(math.atan2(oben @ r0, oben @ u0))
+    w, h = bild['width'], bild['height']
+    s, f = max(w, h), bild['camera_parameters'][0]
+    return dict(id=str(bild['id']), x=round(e - ost0, 3), y=round(n - nord0, 3), gier=round(gier, 4), neigung=round(neigung, 4),
+                roll=round(roll, 4), vfov=round(2 * math.degrees(math.atan(h / s / 2 / f)), 4),
+                hfov=round(2 * math.degrees(math.atan(w / s / 2 / f)), 4), breite=w, hoehe=h,
+                zeit=int(bild['captured_at']), sequenz=bild.get('sequence', ''))
+
+
+def fotos(ost0, nord0, zone, bereich, cache=None):
+    """perspektivische Fotos mit berechneter Pose im Kartenausschnitt (x0, y0, x1, y1) -> Liste Posen"""
+    from .utm import from_utm
+    x0, y0, x1, y1 = bereich
+    la0, lo0 = from_utm(ost0 + x0, nord0 + y0, zone)
+    la1, lo1 = from_utm(ost0 + x1, nord0 + y1, zone)
+    out = []
+    for b in bilder((min(lo0, lo1), min(la0, la1), max(lo0, lo1), max(la0, la1)), cache):
+        if b.get('camera_type') != 'perspective' or not b.get('camera_parameters') or b.get('is_pano'):
+            continue
+        p = pose(b, ost0, nord0, zone)
+        if x0 <= p['x'] <= x1 and y0 <= p['y'] <= y1:
+            out.append(p)
+    out.sort(key=lambda p: (p['sequenz'], p['zeit']))
+    return out
+
+
+def entzerren(bild_rgb, camera_parameters):
+    """Bild (H x W x 3) mit Verzeichnung k1, k2 -> Lochkamerabild mit derselben Brennweite (OpenSfM-Modell)"""
+    h, w = bild_rgb.shape[:2]
+    s = max(w, h)
+    f, k1, k2 = (list(camera_parameters) + [0, 0, 0])[:3]
+    yy, xx = np.mgrid[0:h, 0:w].astype(np.float64)
+    xn, yn = (xx + 0.5 - w / 2) / s, (yy + 0.5 - h / 2) / s
+    r2 = (xn / f) ** 2 + (yn / f) ** 2
+    d = 1 + k1 * r2 + k2 * r2 * r2
+    sx = np.clip((xn * d * s + w / 2 - 0.5).round().astype(int), 0, w - 1)
+    sy = np.clip((yn * d * s + h / 2 - 0.5).round().astype(int), 0, h - 1)
+    return bild_rgb[sy, sx]
+
+
+def foto_datei(bild_id, cache):
+    """entzerrtes Foto (JPEG, 2048 px) im Zwischenspeicher -> Pfad"""
+    import io
+    from PIL import Image
+    ordner = os.path.join(cache, 'fotos')
+    os.makedirs(ordner, exist_ok=True)
+    datei = os.path.join(ordner, f'{bild_id}.jpg')
+    if os.path.isfile(datei):
+        return datei
+    b = holen(f'/{bild_id}?fields=thumb_2048_url,thumb_1024_url,camera_parameters,camera_type', cache)
+    url = b.get('thumb_2048_url') or b['thumb_1024_url']
+    daten = urllib.request.urlopen(url, timeout=90).read()
+    a = np.asarray(Image.open(io.BytesIO(daten)).convert('RGB'))
+    if b.get('camera_type') == 'perspective' and b.get('camera_parameters'):
+        a = entzerren(a, b['camera_parameters'])
+    Image.fromarray(a).save(datei, quality=90)
+    return datei
+
+
+def main():
+    import argparse
+    import sys
+    ap = argparse.ArgumentParser(description='Mapillary fuer den Editor (Fotovergleich), Ausgabe JSON')
+    ap.add_argument('auftrag', choices=['fotos', 'bild'])
+    ap.add_argument('--id')
+    ap.add_argument('--ost0', type=float)
+    ap.add_argument('--nord0', type=float)
+    ap.add_argument('--zone', type=int, default=32)
+    ap.add_argument('--bereich', type=float, nargs=4)
+    ap.add_argument('--cache', default=os.path.join(os.environ.get('LOCALAPPDATA', '.'), 'omsi-editor', 'mapillary'))
+    a = ap.parse_args()
+    try:
+        if a.auftrag == 'fotos':
+            erg = dict(fotos=fotos(a.ost0, a.nord0, a.zone, a.bereich, a.cache), quelle='Mapillary-Mitwirkende, CC BY-SA 4.0')
+        else:
+            erg = dict(datei=foto_datei(a.id, a.cache))
+    except Exception as ex:
+        erg = dict(fehler=f'{type(ex).__name__}: {ex}')
+    sys.stdout.write(json.dumps(erg))
+
+
+if __name__ == '__main__':
+    main()

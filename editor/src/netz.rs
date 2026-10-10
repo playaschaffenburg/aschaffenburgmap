@@ -909,7 +909,7 @@ mod bild_tests {
         let (spuren, breite) = v.spline_lanes(sli).unwrap();
         assert!(spuren.iter().filter(|s| s.0 == 0).count() >= 2, "{spuren:?}");
         assert!(breite.0 > 3.0 && breite.1 > 3.0, "{breite:?}");
-        let k = crate::kamera::Kamera { ziel: DVec3::new(180.0, 160.0, za), gier: 20.0, neigung: -35.0, abstand: 140.0, fov: 50.0 };
+        let k = crate::kamera::Kamera { ziel: DVec3::new(180.0, 160.0, za), gier: 20.0, neigung: -35.0, abstand: 140.0, fov: 50.0, fest: None };
         let px = v.render_image(1200, 700, &k.camera()).unwrap();
         let aus = std::env::temp_dir().join("omsi-editor-strasse.png");
         image::save_buffer(&aus, &px, 1200, 700, image::ColorType::Rgba8).unwrap();

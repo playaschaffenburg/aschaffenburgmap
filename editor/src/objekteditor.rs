@@ -561,6 +561,8 @@ pub enum Aktion {
     KameraNah(DVec3),
     /// Querschnitt dieser Strasse im Baukasten bearbeiten (Baukasten-JSON)
     Querschnitt(String, serde_json::Value),
+    /// Fotovergleich mit diesem Foto (Bodenhoehe am Standort, falls auf der Kreuzungsflaeche)
+    Foto(crate::foto::FotoPose, Option<f64>),
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -650,6 +652,16 @@ pub struct ObjektEditor {
     bezug: Option<crate::geo::Bezug>,
     /// Klicks treffen zuerst die Bauaufnahme (sonst erst den Bauplan)
     pub aufnahme_vorne: bool,
+    /// Strassenfotos (Mapillary) mit Pose
+    pub fotos: Vec<crate::foto::FotoPose>,
+    fotos_job: Option<Receiver<Result<Vec<crate::foto::FotoPose>, String>>>,
+    pub fotos_zeigen: bool,
+    /// nur Fotos ab diesem Jahr
+    pub foto_ab: i32,
+    /// angeklicktes Foto (wird beim naechsten ui() zur Aktion)
+    foto_klick: Option<usize>,
+    /// Foto im Vergleich (hervorgehoben)
+    pub foto_aktiv: Option<String>,
 }
 
 const EBENEN: [&str; 11] = ["Flaechen", "Linien", "Haltlinien", "Symbole", "Ampeln", "Gelaender", "Furten", "Gehpfade", "Waende", "Strassen", "Bauaufnahme"];
@@ -694,6 +706,7 @@ impl ObjektEditor {
             mitte: DVec2::new(1084.0, -265.0), m_px: 6.0, funde_zeigen: true, fund_wahl: None,
             aufnahme: Aufnahme::default(), aufnahme_pfad: PathBuf::new(), aufnahme_art: 1, abweichungen: vec![], rev: 1, abw_rev: 0,
             abgleich_zeigen: true, abw_wahl: None, bezug: None, aufnahme_vorne: true,
+            fotos: vec![], fotos_job: None, fotos_zeigen: true, foto_ab: 2023, foto_klick: None, foto_aktiv: None,
         }
     }
 
@@ -900,6 +913,51 @@ impl ObjektEditor {
         g
     }
 
+    /// Mapillary-Fotos um den Sonderbau laden (im Hintergrund)
+    fn fotos_laden(&mut self) {
+        let Some(b) = self.bezug.clone() else {
+            self.meldung = "Fotos nur fuer Karten mit Ort".into();
+            return;
+        };
+        let (tx, rx) = channel();
+        std::thread::spawn(move || {
+            let _ = tx.send(crate::foto::fotos(&b, [1000.0, -470.0, 1170.0, -90.0]).map_err(|e| format!("{e:#}")));
+        });
+        self.fotos_job = Some(rx);
+        self.meldung = "Lade Mapillary-Fotos ...".into();
+    }
+
+    fn foto_sichtbar(&self, f: &crate::foto::FotoPose) -> bool {
+        self.fotos_zeigen && f.jahr() >= self.foto_ab
+    }
+
+    /// Foto-Symbol unter p (naechstes innerhalb der Toleranz)
+    fn foto_bei(&self, p: DVec2, tol: f64) -> Option<usize> {
+        self.fotos.iter().enumerate().filter(|(_, f)| self.foto_sichtbar(f)).map(|(i, f)| (i, (f.pos - p).length()))
+            .filter(|x| x.1 < tol.max(0.6)).min_by(|a, b| a.1.total_cmp(&b.1)).map(|x| x.0)
+    }
+
+    /// Foto derselben Fahrt davor (-1) oder danach (+1)
+    pub fn foto_nachbar(&self, id: &str, schritt: i32) -> Option<crate::foto::FotoPose> {
+        let f = self.fotos.iter().find(|f| f.id == id)?;
+        let mut fahrt: Vec<&crate::foto::FotoPose> = self.fotos.iter().filter(|x| x.sequenz == f.sequenz).collect();
+        fahrt.sort_by_key(|x| x.zeit);
+        let i = fahrt.iter().position(|x| x.id == id)? as i64 + schritt as i64;
+        (i >= 0).then(|| fahrt.get(i as usize).map(|x| (*x).clone())).flatten()
+    }
+
+    fn foto_aktion(&self, i: usize) -> Option<Aktion> {
+        let f = self.fotos.get(i)?.clone();
+        let z = self.foto_boden(f.pos);
+        Some(Aktion::Foto(f, z))
+    }
+
+    /// Bodenhoehe fuer den Fotovergleich (Kreuzungsflaeche), sonst None
+    pub fn foto_boden(&self, p: DVec2) -> Option<f64> {
+        let platte = self.plan.flaechen.iter().any(|f_| punkt_in(p, &f_.punkte));
+        if platte { self.hoehe(p) } else { None }
+    }
+
     /// Abgleich neu, wenn sich Bauplan, Aufnahme oder Kontext geaendert haben
     fn abgleich_aktuell(&mut self) {
         if self.abw_rev == self.rev {
@@ -1015,6 +1073,31 @@ impl ObjektEditor {
                 ui.label(egui::RichText::new("Strassenbilder an der Kamera-Mitte:").small());
                 self.bilder_knoepfe(ui, self.mitte);
             });
+            ui.horizontal_wrapped(|ui| {
+                let laeuft = self.fotos_job.is_some();
+                let t = if self.fotos.is_empty() { "\u{1F4F7} Fotovergleich: Fotos laden".to_string() } else { format!("\u{1F4F7} {} Fotos neu laden", self.fotos.len()) };
+                if ui.add_enabled(!laeuft, egui::Button::new(t)).on_hover_text("Mapillary-Fotos rund um den Sonderbau: als Dreiecke in 3D, Klick zeigt das Foto genau aus seinem Blickwinkel ueber dem 3D-Bild").clicked() {
+                    self.fotos_laden();
+                }
+                if laeuft {
+                    ui.spinner();
+                }
+            });
+            if !self.fotos.is_empty() {
+                ui.horizontal_wrapped(|ui| {
+                    ui.checkbox(&mut self.fotos_zeigen, "Fotos zeigen");
+                    ui.add(egui::DragValue::new(&mut self.foto_ab).range(2014..=2030).prefix("ab "));
+                    let n = self.fotos.iter().filter(|f_| f_.jahr() >= self.foto_ab).count();
+                    ui.label(egui::RichText::new(format!("{n} Fotos")).small());
+                    if ui.small_button("naechstes an der Kamera-Mitte").on_hover_text("Fotovergleich mit dem Foto, das der Kamera-Mitte am naechsten ist").clicked() {
+                        let m = self.mitte;
+                        let i = self.fotos.iter().enumerate().filter(|(_, f_)| self.foto_sichtbar(f_)).min_by(|a, b| (a.1.pos - m).length().total_cmp(&(b.1.pos - m).length())).map(|x| x.0);
+                        if let Some(i) = i {
+                            erg = self.foto_aktion(i);
+                        }
+                    }
+                });
+            }
             ui.horizontal_wrapped(|ui| {
                 ui.checkbox(&mut self.zeige[AUFNAHME], "zeigen");
                 ui.checkbox(&mut self.aufnahme_vorne, "zuerst anklicken").on_hover_text("Klicks waehlen zuerst Aufnahme-Linien (sonst zuerst Bauteile des Bauplans)");
@@ -1556,6 +1639,10 @@ impl ObjektEditor {
         if self.werkzeug == Werkzeug::Textur {
             return;
         }
+        if let Some(i) = self.foto_bei(q, tol) {
+            self.foto_klick = Some(i);
+            return;
+        }
         self.wahl = self.treffer(q, tol);
     }
 
@@ -1871,6 +1958,20 @@ impl ObjektEditor {
                 }
             }
         }
+        if self.fotos_zeigen && self.foto_aktiv.is_none() {
+            // Fotos: Dreieck in Blickrichtung, Farbe nach Alter (neu gruen, alt grau), aktives gelb
+            for f_ in self.fotos.iter().filter(|f_| f_.jahr() >= self.foto_ab) {
+                let Some(c) = b(f_.pos) else { continue };
+                let aktiv = self.foto_aktiv.as_deref() == Some(f_.id.as_str());
+                let farbe = if aktiv { egui::Color32::from_rgb(255, 230, 40) } else if f_.jahr() >= 2025 { egui::Color32::from_rgb(60, 220, 120) }
+                            else if f_.jahr() >= 2023 { egui::Color32::from_rgb(150, 210, 90) } else { egui::Color32::from_gray(170) };
+                let Some(spitze) = b(f_.pos + richtung_vec(f_.gier) * 1.6) else { continue };
+                let d = (spitze - c).normalized();
+                let n = egui::vec2(-d.y, d.x);
+                let gr = if aktiv { 7.0 } else { 4.5 };
+                p.add(egui::Shape::convex_polygon(vec![c + d * gr * 1.8, c - d * gr * 0.6 + n * gr, c - d * gr * 0.6 - n * gr], farbe, egui::Stroke::new(1.0, egui::Color32::BLACK)));
+            }
+        }
         if self.abgleich_zeigen {
             for (i, a) in self.abweichungen.iter().enumerate() {
                 if a.was == "nicht_baubar" {
@@ -2017,6 +2118,25 @@ impl ObjektEditor {
             self.abschliessen();
         }
         self.abgleich_aktuell();
+        if let Some(rx) = &self.fotos_job {
+            if let Ok(r) = rx.try_recv() {
+                self.fotos_job = None;
+                match r {
+                    Ok(f) => {
+                        self.meldung = format!("{} Mapillary-Fotos geladen - Dreieck anklicken fuer den Fotovergleich", f.len());
+                        self.fotos = f;
+                    }
+                    Err(e) => self.meldung = format!("Fotos nicht ladbar: {e}"),
+                }
+            } else {
+                ctx.request_repaint_after(Duration::from_millis(300));
+            }
+        }
+        if let Some(i) = self.foto_klick.take() {
+            if let Some(a) = self.foto_aktion(i) {
+                erg = Some(a);
+            }
+        }
         erg
     }
 

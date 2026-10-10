@@ -797,10 +797,10 @@ mod tests {
         let vorher = v.tile_terrain(0, 0).map(|_| 0.0).unwrap_or(0.0) + boden(&v, damm.x, damm.y).z;
         println!("Gelaende bei y+30: {vorher:.2} m (mit Damm), Strasse dort hoeher als Wiese");
         if let Some(bild) = std::env::var_os("OMSI_BILD") {
-            let kam = crate::kamera::Kamera { ziel: DVec3::new(start.x, start.y + 100.0, b.z), gier: 270.0, neigung: -15.0, abstand: 170.0, fov: 50.0 };
+            let kam = crate::kamera::Kamera { ziel: DVec3::new(start.x, start.y + 100.0, b.z), gier: 270.0, neigung: -15.0, abstand: 170.0, fov: 50.0, fest: None };
             let px = v.render_image(1280, 800, &kam.camera()).unwrap();
             image::save_buffer(std::path::PathBuf::from(&bild).with_extension("damm.png"), &px, 1280, 800, image::ColorType::Rgba8).unwrap();
-            let nah = crate::kamera::Kamera { ziel: DVec3::new(start.x, start.y + 35.0, a.z + 2.0), gier: 300.0, neigung: -18.0, abstand: 55.0, fov: 50.0 };
+            let nah = crate::kamera::Kamera { ziel: DVec3::new(start.x, start.y + 35.0, a.z + 2.0), gier: 300.0, neigung: -18.0, abstand: 55.0, fov: 50.0, fest: None };
             let px = v.render_image(1280, 800, &nah.camera()).unwrap();
             image::save_buffer(std::path::PathBuf::from(&bild).with_extension("damm_nah.png"), &px, 1280, 800, image::ColorType::Rgba8).unwrap();
         }
@@ -821,7 +821,7 @@ mod tests {
             assert!(root.join(rel.replace('\\', "/")).is_file(), "{rel} fehlt");
         }
         if let Some(bild) = std::env::var_os("OMSI_BILD") {
-            let kam = crate::kamera::Kamera { ziel: DVec3::new(start.x, start.y + 100.0, b.z), gier: 270.0, neigung: -15.0, abstand: 170.0, fov: 50.0 };
+            let kam = crate::kamera::Kamera { ziel: DVec3::new(start.x, start.y + 100.0, b.z), gier: 270.0, neigung: -15.0, abstand: 170.0, fov: 50.0, fest: None };
             let px = v.render_image(1280, 800, &kam.camera()).unwrap();
             image::save_buffer(std::path::PathBuf::from(&bild).with_extension("mauer.png"), &px, 1280, 800, image::ColorType::Rgba8).unwrap();
         }
@@ -899,7 +899,7 @@ mod tests {
         println!("Gelaende in der Mitte {mitte:.2} m, untere Strasse {:.2} m", b.z - 7.0);
         assert!(mitte < b.z - 5.0, "Einschnitt zugeschuettet: {mitte}");
         if let Some(bild) = std::env::var_os("OMSI_BILD") {
-            let kam = crate::kamera::Kamera { ziel: DVec3::new(m.x, m.y, b.z - 3.0), gier: 210.0, neigung: -25.0, abstand: 90.0, fov: 50.0 };
+            let kam = crate::kamera::Kamera { ziel: DVec3::new(m.x, m.y, b.z - 3.0), gier: 210.0, neigung: -25.0, abstand: 90.0, fov: 50.0, fest: None };
             let px = v.render_image(1280, 800, &kam.camera()).unwrap();
             image::save_buffer(std::path::PathBuf::from(&bild).with_extension("einschnitt.png"), &px, 1280, 800, image::ColorType::Rgba8).unwrap();
         }
@@ -929,10 +929,10 @@ mod tests {
         let tief = s.bauwerke.mauern.iter().flat_map(|mm| mm.seiten.iter().flatten().map(move |p| (mm.pos.z + p.oben, mm.pos.z + p.unten))).fold(0.0f64, |a, (o, u)| a.max(o - u));
         assert!(tief > 6.0, "Mauer im 7-m-Einschnitt nur {tief:.1} m hoch");
         if let Some(bild) = std::env::var_os("OMSI_BILD") {
-            let kam = crate::kamera::Kamera { ziel: DVec3::new(m.x, m.y + 45.0, b.z - 5.0), gier: 180.0, neigung: -12.0, abstand: 30.0, fov: 60.0 };
+            let kam = crate::kamera::Kamera { ziel: DVec3::new(m.x, m.y + 45.0, b.z - 5.0), gier: 180.0, neigung: -12.0, abstand: 30.0, fov: 60.0, fest: None };
             let px = v.render_image(1280, 800, &kam.camera()).unwrap();
             image::save_buffer(std::path::PathBuf::from(&bild).with_extension("einschnitt_mauer.png"), &px, 1280, 800, image::ColorType::Rgba8).unwrap();
-            let kam = crate::kamera::Kamera { ziel: DVec3::new(m.x, m.y, b.z - 3.0), gier: 210.0, neigung: -30.0, abstand: 90.0, fov: 50.0 };
+            let kam = crate::kamera::Kamera { ziel: DVec3::new(m.x, m.y, b.z - 3.0), gier: 210.0, neigung: -30.0, abstand: 90.0, fov: 50.0, fest: None };
             let px = v.render_image(1280, 800, &kam.camera()).unwrap();
             image::save_buffer(std::path::PathBuf::from(&bild).with_extension("einschnitt_mauer_oben.png"), &px, 1280, 800, image::ColorType::Rgba8).unwrap();
         }

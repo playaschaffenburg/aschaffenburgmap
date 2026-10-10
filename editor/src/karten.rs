@@ -559,7 +559,7 @@ mod neue_karte_tests {
         assert!((p.truncate() - DVec2::new(ep.pos[0], ep.pos[1])).length() < 0.5 && crate::netz::norm180(h).abs() < 1.0, "{p:?} {h}");
         assert!(v.hidden_objects().iter().any(|o| o.0 == 2), "Einsetzpunkt-Objekt fehlt");
         if let Some(b) = std::env::var_os("OMSI_BILD") {
-            let kam = crate::kamera::Kamera { ziel: DVec3::new(150.0, 120.0, 0.0), gier: 200.0, neigung: -40.0, abstand: 70.0, fov: 50.0 };
+            let kam = crate::kamera::Kamera { ziel: DVec3::new(150.0, 120.0, 0.0), gier: 200.0, neigung: -40.0, abstand: 70.0, fov: 50.0, fest: None };
             let px = v.render_image(1280, 800, &kam.camera()).unwrap();
             image::save_buffer(b, &px, 1280, 800, image::ColorType::Rgba8).unwrap();
         }
@@ -617,15 +617,15 @@ mod neue_karte_tests {
         assert_eq!(bilder, 9, "Luftbilder");
         v.set_ground_image_alpha(0.85);
         if let Some(bild) = std::env::var_os("OMSI_BILD") {
-            for (name, kam) in [("uebersicht", crate::kamera::Kamera { ziel: DVec3::new(150.0, 150.0, 0.0), gier: 0.0, neigung: -70.0, abstand: 900.0, fov: 50.0 }),
-                                ("nah", crate::kamera::Kamera { ziel: DVec3::new(150.0, 150.0, t), gier: 200.0, neigung: -35.0, abstand: 160.0, fov: 50.0 }),
-                                ("oben", crate::kamera::Kamera { ziel: DVec3::new(150.0, 150.0, t), gier: 0.0, neigung: -89.9, abstand: 330.0, fov: 50.0 })] {
+            for (name, kam) in [("uebersicht", crate::kamera::Kamera { ziel: DVec3::new(150.0, 150.0, 0.0), gier: 0.0, neigung: -70.0, abstand: 900.0, fov: 50.0, fest: None }),
+                                ("nah", crate::kamera::Kamera { ziel: DVec3::new(150.0, 150.0, t), gier: 200.0, neigung: -35.0, abstand: 160.0, fov: 50.0, fest: None }),
+                                ("oben", crate::kamera::Kamera { ziel: DVec3::new(150.0, 150.0, t), gier: 0.0, neigung: -89.9, abstand: 330.0, fov: 50.0, fest: None })] {
                 let px = v.render_image(1280, 800, &kam.camera()).unwrap();
                 image::save_buffer(std::path::PathBuf::from(&bild).with_extension(format!("{name}.png")), &px, 1280, 800, image::ColorType::Rgba8).unwrap();
             }
         }
         // Deckkraft: 100 % weicht am meisten vom Bild ohne Luftbild ab, 50 % etwa halb so viel
-        let kam = crate::kamera::Kamera { ziel: DVec3::new(150.0, 150.0, t), gier: 0.0, neigung: -89.9, abstand: 330.0, fov: 50.0 };
+        let kam = crate::kamera::Kamera { ziel: DVec3::new(150.0, 150.0, t), gier: 0.0, neigung: -89.9, abstand: 330.0, fov: 50.0, fest: None };
         let mut bilder = Vec::new();
         for a in [0.0f32, 0.5, 1.0] {
             v.set_ground_image_alpha(a);

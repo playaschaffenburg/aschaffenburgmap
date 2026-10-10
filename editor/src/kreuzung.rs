@@ -1127,7 +1127,7 @@ pub(crate) mod tests {
         assert!(m.contains("Kreuzung"), "{m}");
         s.beenden(&mut v);
         if let Some(bild) = std::env::var_os("OMSI_BILD") {
-            let k = crate::kamera::Kamera { ziel: ab.pos + (netz::rechts(ab.richtung) * 15.0).extend(0.0), gier: (ab.richtung + 140.0) as f32, neigung: -42.0, abstand: 85.0, fov: 50.0 };
+            let k = crate::kamera::Kamera { ziel: ab.pos + (netz::rechts(ab.richtung) * 15.0).extend(0.0), gier: (ab.richtung + 140.0) as f32, neigung: -42.0, abstand: 85.0, fov: 50.0, fest: None };
             let px = v.render_image(1280, 800, &k.camera()).unwrap();
             image::save_buffer(bild, &px, 1280, 800, image::ColorType::Rgba8).unwrap();
         }
@@ -1374,7 +1374,7 @@ pub(crate) mod tests {
         assert_eq!(s.gesetzte_kreuzungen().len(), 2, "{:?}", s.kreuzung_fehler);
         assert!(s.netz.kanten.iter().all(|e| !s.netz.elemente(e).is_empty()));
         if let Some(bild) = std::env::var_os("OMSI_BILD") {
-            let k = crate::kamera::Kamera { ziel: boden(&v, 120.0, 170.0), gier: 200.0, neigung: -55.0, abstand: 150.0, fov: 50.0 };
+            let k = crate::kamera::Kamera { ziel: boden(&v, 120.0, 170.0), gier: 200.0, neigung: -55.0, abstand: 150.0, fov: 50.0, fest: None };
             let px = v.render_image(1280, 800, &k.camera()).unwrap();
             image::save_buffer(bild, &px, 1280, 800, image::ColorType::Rgba8).unwrap();
         }
@@ -1566,7 +1566,7 @@ pub(crate) mod tests {
         let karte = s.netz.knoten.iter().find(|k| k.kartenarme.len() == 2).expect("Knoten an der vorhandenen Strasse");
         let karten: Vec<DVec2> = karte.kartenarme.iter().map(|x| x.pos.truncate()).collect();
         if let Some(bild) = std::env::var_os("OMSI_BILD") {
-            let k = crate::kamera::Kamera { ziel: (c + r * 25.0).extend(ab.pos.z), gier: (ab.richtung + 160.0) as f32, neigung: -52.0, abstand: 130.0, fov: 50.0 };
+            let k = crate::kamera::Kamera { ziel: (c + r * 25.0).extend(ab.pos.z), gier: (ab.richtung + 160.0) as f32, neigung: -52.0, abstand: 130.0, fov: 50.0, fest: None };
             let px = v.render_image(1280, 800, &k.camera()).unwrap();
             image::save_buffer(bild, &px, 1280, 800, image::ColorType::Rgba8).unwrap();
         }
@@ -1628,7 +1628,7 @@ pub(crate) mod tests {
             assert!(((ende - k.pos.truncate()).length() - k.kreisel.unwrap().arm_abstand()).abs() < 0.1);
         }
         if let Some(bild) = std::env::var_os("OMSI_BILD") {
-            let k = crate::kamera::Kamera { ziel: boden(&v, o + DVec2::new(-12.0, -12.0)), gier: 225.0, neigung: -50.0, abstand: 55.0, fov: 50.0 };
+            let k = crate::kamera::Kamera { ziel: boden(&v, o + DVec2::new(-12.0, -12.0)), gier: 225.0, neigung: -50.0, abstand: 55.0, fov: 50.0, fest: None };
             let px = v.render_image(1280, 800, &k.camera()).unwrap();
             image::save_buffer(bild, &px, 1280, 800, image::ColorType::Rgba8).unwrap();
         }
@@ -1813,7 +1813,7 @@ pub(crate) mod tests {
         let mut s = Strassenbau::neu(Some("Splines\\Marcel\\str_2spur_8m_altonaer1.sli".into()), Modus::Kreisel);
         s.kreisel_sli = crate::strasse::kreisel_vorschlag(&crate::strasse::querschnitte(Path::new(crate::bearbeiten::tests::OMSI)));
         let mitte = k.pos.truncate().extend(v.terrain_height(k.pos.x, k.pos.y).unwrap());
-        let kam = crate::kamera::Kamera { ziel: mitte, gier: 200.0, neigung: -60.0, abstand: 95.0, fov: 50.0 };
+        let kam = crate::kamera::Kamera { ziel: mitte, gier: 200.0, neigung: -60.0, abstand: 95.0, fov: 50.0, fest: None };
         if let Some(b) = std::env::var_os("OMSI_BILD_VORHER") {
             let px = v.render_image(1280, 800, &kam.camera()).unwrap();
             image::save_buffer(b, &px, 1280, 800, image::ColorType::Rgba8).unwrap();
@@ -1885,7 +1885,7 @@ pub(crate) mod tests {
         assert_eq!(s.gesetzte_kreuzungen().len(), 1, "{:?}", s.kreuzung_fehler);
         let karten: Vec<DVec2> = knoten.kartenarme.iter().map(|x| x.pos.truncate()).collect();
         if let Some(bild) = std::env::var_os("OMSI_BILD") {
-            let kam = crate::kamera::Kamera { ziel: k.pos, gier: (frei + 180.0) as f32, neigung: -50.0, abstand: 90.0, fov: 50.0 };
+            let kam = crate::kamera::Kamera { ziel: k.pos, gier: (frei + 180.0) as f32, neigung: -50.0, abstand: 90.0, fov: 50.0, fest: None };
             let px = v.render_image(1280, 800, &kam.camera()).unwrap();
             image::save_buffer(bild, &px, 1280, 800, image::ColorType::Rgba8).unwrap();
         }
@@ -1995,7 +1995,7 @@ pub(crate) mod tests {
         assert!(!s.kreuzungen().into_iter().find(|x| x.knoten == k2).unwrap().ampel);
         assert!(s.wiederholen(&mut v, Some(&mut a)));
         if let Some(bild) = std::env::var_os("OMSI_BILD") {
-            let kam = crate::kamera::Kamera { ziel: ab.pos, gier: (ab.richtung + 200.0) as f32, neigung: -35.0, abstand: 55.0, fov: 50.0 };
+            let kam = crate::kamera::Kamera { ziel: ab.pos, gier: (ab.richtung + 200.0) as f32, neigung: -35.0, abstand: 55.0, fov: 50.0, fest: None };
             let px = v.render_image(1280, 800, &kam.camera()).unwrap();
             image::save_buffer(bild, &px, 1280, 800, image::ColorType::Rgba8).unwrap();
         }
@@ -2137,7 +2137,7 @@ pub(crate) mod tests {
         // (ob die Enden an der Kreuzung haengen, prueft abzweig_bauen_speichern_laden nach dem Speichern)
         // OMSI_BILD=pfad.png: Bild der Kreuzung (von oben schraeg)
         if let Some(bild) = std::env::var_os("OMSI_BILD") {
-            let k = crate::kamera::Kamera { ziel: ab.pos, gier: (ab.richtung + 200.0) as f32, neigung: -50.0, abstand: 70.0, fov: 50.0 };
+            let k = crate::kamera::Kamera { ziel: ab.pos, gier: (ab.richtung + 200.0) as f32, neigung: -50.0, abstand: 70.0, fov: 50.0, fest: None };
             let px = v.render_image(1280, 800, &k.camera()).unwrap();
             image::save_buffer(bild, &px, 1280, 800, image::ColorType::Rgba8).unwrap();
         }
@@ -2177,7 +2177,7 @@ mod nutzer_tests {
             println!("  Arm bei {:.1} {:.1}, Richtung {:.1}, {}", x.pos.x, x.pos.y, x.richtung, x.sli);
         }
         let mut s = crate::strasse::Strassenbau::neu(None, crate::strasse::Modus::Gerade);
-        let kam = crate::kamera::Kamera { ziel: k.pos, gier: 200.0, neigung: -55.0, abstand: 45.0, fov: 50.0 };
+        let kam = crate::kamera::Kamera { ziel: k.pos, gier: 200.0, neigung: -55.0, abstand: 45.0, fov: 50.0, fest: None };
         if let Some(b) = std::env::var_os("OMSI_BILD_VORHER") {
             let px = v.render_image(1280, 800, &kam.camera()).unwrap();
             image::save_buffer(b, &px, 1280, 800, image::ColorType::Rgba8).unwrap();

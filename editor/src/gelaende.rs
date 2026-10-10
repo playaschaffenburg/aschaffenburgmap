@@ -462,7 +462,7 @@ mod tests {
         println!("Feld {feld:?}, Strasse {strasse:?}");
         let h0 = v.terrain_height(feld.x, feld.y).unwrap();
         // OMSI_BILD: vorher, Vorschau waehrend des Strichs, nach dem Neulesen
-        let kam = crate::kamera::Kamera { ziel: feld.extend(h0), gier: 30.0, neigung: -25.0, abstand: 90.0, fov: 50.0 };
+        let kam = crate::kamera::Kamera { ziel: feld.extend(h0), gier: 30.0, neigung: -25.0, abstand: 90.0, fov: 50.0, fest: None };
         let bild = |v: &mut Viewer, name: &str| {
             if let Some(b) = std::env::var_os("OMSI_BILD") {
                 let px = v.render_image(1280, 800, &kam.camera()).unwrap();

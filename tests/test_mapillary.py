@@ -36,3 +36,22 @@ def test_kachel_polygon():
     import base64
     ringe = M.kachel_polygone(base64.b64encode(feld(3, layer)).decode())
     assert ringe == [[(0.0, 0.0), (0.5, 0.0), (0.5, 0.5), (0.0, 0.5)]]
+
+
+def test_pose_im_kartengitter():
+    b = dict(id=1, width=2560, height=1440, camera_parameters=[0.4246476258798, -0.14647433247554, 0.015180775590469],
+             computed_rotation=[1.5674466451668, 0.25061553053503, -0.16494363465753], captured_at=1776543608100,
+             computed_geometry={'type': 'Point', 'coordinates': [9.161253200614, 49.976625664883]}, sequence='s')
+    p = M.pose(b, 510466, 5536235)
+    # Gitter-Nord gegen geografisch Nord um die Meridiankonvergenz (~0,12 Grad) gedreht
+    assert 0.08 < 344.86623267914 - p['gier'] < 0.16
+    assert abs(p['hfov'] - 2 * math.degrees(math.atan(0.5 / 0.4246476258798))) < 1e-3
+    assert -10 < p['roll'] < 10 and -10 < p['neigung'] < 10
+
+
+def test_entzerren_laesst_mitte():
+    import numpy as np
+    a = np.zeros((90, 160, 3), np.uint8)
+    a[45, 80] = 255
+    e = M.entzerren(a, [0.42, -0.15, 0.02])
+    assert e[45, 80].max() == 255
