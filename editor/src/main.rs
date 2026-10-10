@@ -5008,6 +5008,42 @@ fn bild(root: &Path, karte: &str, png: &Path, cam: Option<&str>) -> Result<()> {
     Ok(())
 }
 
+/// Bilder ohne Fenster aus festen Kameraposen (Fotovergleich): JSON-Liste [{"datei", "x", "y", "z", "gier", "neigung",
+/// "roll", "vfov", "breite", "hoehe"}], die Karte wird einmal geladen (Kacheln um die Mitte aller Posen)
+fn posen_bilder(root: &Path, karte: &str, liste: &Path, sonderbau_json: Option<&Path>) -> Result<()> {
+    let posen: Vec<serde_json::Value> = serde_json::from_slice(&std::fs::read(liste)?)?;
+    anyhow::ensure!(!posen.is_empty(), "keine Posen");
+    let instance = viewer::instance();
+    let global = root.join("maps").join(karte).join("global.cfg");
+    let (mut v, _) = Viewer::open(&instance, None, root, &global)?;
+    let f = |p: &serde_json::Value, k: &str| p[k].as_f64().unwrap_or(0.0);
+    let n = posen.len() as f64;
+    let mitte = DVec3::new(posen.iter().map(|p| f(p, "x")).sum::<f64>() / n, posen.iter().map(|p| f(p, "y")).sum::<f64>() / n, 0.0);
+    v.tiles_around(mitte, KACHEL_RADIUS)?;
+    if let Some(j) = sonderbau_json {
+        // aktuellen Stand des Sonderbaus nur in dieser Sitzung einsetzen (die Karte bleibt unveraendert)
+        let mut ae = aendern::Aendern::neu(&v);
+        let mut gel = gelaende::Gelaende::default();
+        let gel_ordner = ae.sitzung.join("maps").join(karte);
+        let msg = sonderbau::einsetzen(&mut ae, &mut gel, &mut v, root, &gel_ordner, j)?;
+        eprintln!("Sonderbau eingesetzt (Sitzung): {msg}");
+        v.tiles_around(mitte, KACHEL_RADIUS)?;
+    }
+    for p in &posen {
+        let cam = openomsi_game::viewer::Camera {
+            position: DVec3::new(f(p, "x"), f(p, "y"), f(p, "z")),
+            yaw: f(p, "gier") as f32, pitch: f(p, "neigung") as f32, roll: f(p, "roll") as f32, fov_deg: f(p, "vfov") as f32,
+            near: 0.2, far: 9000.0,
+        };
+        let (w, h) = (p["breite"].as_u64().unwrap_or(1024) as u32, p["hoehe"].as_u64().unwrap_or(576) as u32);
+        let px = v.render_image(w, h, &cam)?;
+        let datei = PathBuf::from(p["datei"].as_str().context("datei")?);
+        write_png(&datei, w, h, &px)?;
+        println!("{}", datei.display());
+    }
+    Ok(())
+}
+
 /// RGBA -> PNG ohne weitere Abhaengigkeit (unkomprimiert, zlib "stored")
 fn write_png(path: &Path, w: u32, h: u32, rgba: &[u8]) -> Result<()> {
     fn crc(data: &[u8]) -> u32 {
@@ -5071,6 +5107,8 @@ fn main() -> Result<()> {
     let mut root = PathBuf::from(STANDARD_OMSI);
     let mut karte = None;
     let (mut png, mut cam, mut testlauf, mut wechsel) = (None, None, None::<f32>, None);
+    let mut posen = None;
+    let mut sonderbau_json = None;
     let mut pruefung = None;
     let mut i = 0;
     while i < args.len() {
@@ -5084,6 +5122,8 @@ fn main() -> Result<()> {
             ("--root", Some(w)) => root = PathBuf::from(w),
             ("--bild", Some(w)) => png = Some(PathBuf::from(w)),
             ("--cam", Some(w)) => cam = Some(w),
+            ("--posen", Some(w)) => posen = Some(PathBuf::from(w)),
+            ("--sonderbau", Some(w)) => sonderbau_json = Some(PathBuf::from(w)),
             ("--testlauf", Some(w)) => testlauf = w.parse().ok(),
             ("--wechsel", Some(w)) => wechsel = Some(w),
             _ => {
@@ -5093,6 +5133,9 @@ fn main() -> Result<()> {
             }
         }
         i += 2;
+    }
+    if let Some(l) = posen {
+        return posen_bilder(&root, karte.as_deref().context("Kartenordner angeben")?, &l, sonderbau_json.as_deref());
     }
     if let Some(png) = png {
         return bild(&root, karte.as_deref().context("Kartenordner angeben")?, &png, cam.as_deref());
