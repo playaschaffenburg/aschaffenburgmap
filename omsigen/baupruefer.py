@@ -653,17 +653,61 @@ def text(bericht):
     return '\n'.join(z)
 
 
+def nahbilder(json_pfad, funde, omsi, aus, abstand=5.0):
+    """je Fund zwei Nahaufnahmen (von Suedwesten und Nordosten, leicht von oben) mit dem Editor (Sonderbau nur in der
+    Sitzung eingesetzt) -> Uebersichtsbild je 6 Funde in `aus` (Fund-Nummer und Text im Bild)"""
+    import math
+    import subprocess
+    from PIL import Image, ImageDraw
+    from .fotovergleich import EDITOR
+    j = json.load(open(json_pfad, encoding='utf-8'))
+    os.makedirs(aus, exist_ok=True)
+    aus = os.path.abspath(aus)
+    posen = []
+    for i, f in enumerate(funde):
+        x, y, z = f['pos']
+        for k, (dx, dy) in enumerate(((-1, -1), (1, 1))):
+            cx, cy, cz = x + dx * abstand * 0.7, y + dy * abstand * 0.7, z + 2.5
+            posen.append(dict(datei=os.path.join(aus, f'f{i:02d}_{k}.png'), x=cx, y=cy, z=cz,
+                              gier=math.degrees(math.atan2(x - cx, y - cy)), neigung=math.degrees(math.atan2(z - cz, math.hypot(x - cx, y - cy))),
+                              roll=0.0, vfov=50.0, breite=480, hoehe=320))
+    liste = os.path.join(aus, 'posen.json')
+    json.dump(posen, open(liste, 'w', encoding='utf-8'))
+    subprocess.run([EDITOR, '--root', omsi, j['karte'], '--posen', liste, '--sonderbau', os.path.abspath(json_pfad)], capture_output=True, text=True, check=True)
+    bogen = []
+    for b0 in range(0, len(funde), 6):
+        o = Image.new('RGB', (960, 6 * 340), (20, 20, 20))
+        d = ImageDraw.Draw(o)
+        for n, i in enumerate(range(b0, min(len(funde), b0 + 6))):
+            for k in range(2):
+                o.paste(Image.open(os.path.join(aus, f'f{i:02d}_{k}.png')).convert('RGB'), (k * 480, n * 340 + 20))
+                # Fundstelle markieren (Bildmitte)
+                d.ellipse([k * 480 + 230, n * 340 + 20 + 150, k * 480 + 250, n * 340 + 20 + 170], outline=(255, 60, 60), width=2)
+            f = funde[i]
+            d.text((6, n * 340 + 4), f"{i}: {f['teil']} {f['text']} {f['pos']}", fill=(255, 255, 255))
+        ziel = os.path.join(aus, f'nah_{b0 // 6:02d}.jpg')
+        o.save(ziel, quality=85)
+        bogen.append(ziel)
+    return bogen
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument('json', help='sonderbau_ring.json (oder gleich aufgebaute Datei)')
     ap.add_argument('--omsi', default=STANDARD_OMSI)
     ap.add_argument('--liste', action='store_true', help='alle Funde ausgeben')
+    ap.add_argument('--nah', default=None, help='Nahaufnahmen aller Funde in diesen Ordner (Uebersichtsbilder je 6 Funde)')
+    ap.add_argument('--nur', default=None, help='mit --nah: nur Funde, deren Teil diesen Text enthaelt')
     a = ap.parse_args()
     b = sonderbau_pruefen(a.json, a.omsi)
     print(text(b))
     if a.liste:
         for f in b['funde']:
             print(f"  {f['art']:18} {f['teil']:28} {f['pos']}  {f['text']}" + (f" (x{f['anzahl']})" if f['anzahl'] > 1 else ''))
+    if a.nah:
+        funde = [f for f in b['funde'] if not a.nur or a.nur in f['teil']]
+        for z in nahbilder(a.json, funde, a.omsi, a.nah):
+            print(z)
 
 
 if __name__ == '__main__':

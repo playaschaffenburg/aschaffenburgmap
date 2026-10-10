@@ -14,7 +14,8 @@ Projekt: `omsigen` erzeugt OMSI-2-Karten aus OpenStreetMap (siehe README.md). Sp
   `--vorschau`. Ziel: „ohne Anschluss: 0“. Das PNG ansehen.
 - Jedes gebaute Objekt/Bauwerk durch den Bauprüfer: `python -m omsigen.baupruefer <bauwerk.json> --liste` (Spalte,
   verzerrte Texturen, doppelte Flächen, offene Enden, schwebende Ampeln; läuft beim Sonderbau automatisch, Funde im
-  Objekt-Editor). Ziel: 0 Funde; erst dann fertig melden. Funde und Stoßstellen aus der Nähe ansehen.
+  Objekt-Editor). Ziel: 0 Funde; erst dann fertig melden. Funde und Stoßstellen aus der Nähe ansehen:
+  `--nah build/nah_funde [--nur <Teil>]` rendert je Fund zwei Nahaufnahmen (Sonderbau nur in der Sitzung eingesetzt).
 - Neue Bauwerke: erst die **Bauaufnahme** (Objekt-Editor, `aufnahme.json`: echtes Bauwerk über Luftbild/Mapillary/
   Panoramax nachgezeichnet), dann bauen – nichts erfinden, was dort fehlt. Ziel auch im Abgleich: keine Abweichung.
   Keine Google-Street-View-/3D-Tiles-Daten ableiten (Nutzungsbedingungen).

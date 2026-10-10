@@ -617,7 +617,8 @@ def bahnbruecke(st, gel, o, z_platte=None, x_wand=None):
     dicke = 1.2
     m.quad('decke', [W(a0, bl, za - dicke), W(a1, bl, zb - dicke), W(a1, br, zb - dicke), W(a0, br, za - dicke)],
            [(0, 0), ((a1 - a0) / 4, 0), ((a1 - a0) / 4, (bl - br) / 4), (0, (bl - br) / 4)], N(0, 0, -1))
-    a1, zb_alt = min(a1, L), zb
+    # Bruestungen bis 25 cm in die Bruestung des Kreuzungsobjekts hinein (sonst Luecke am Stoss)
+    a1, zb_alt = min(a1, L + 0.25), zb
     zb = z_bei(a1) - 0.05
     for b, sgn in ((bl, 1), (br, -1)) if a1 > a0 + 0.5 else ():
         bi = b - sgn * 0.3
@@ -1340,9 +1341,38 @@ def bauen(omsi, karte, osm_pfad, entwurf_pfad, nn0, ost0, nord0, cache, bauplan_
             k_.pop('teile_umriss', None)
     # Deckel und Plattenrand als EINE Gelaendeflaeche (keine Fugen und Doppelflaechen zwischen den Stuecken), unter
     # den Wegen ausgespart
-    weg_ = unary_union([platte_.buffer(-0.3), rwg.grundriss(wege, rwg.UNTER_WEG).difference(platte_)]
+    # Platte ohne Loecher (Trogoeffnungen): der Deckel gehoert nie in die Oeffnungen - mit Loechern wuerde der Einzug
+    # um 0,3 m sie vergroessern und Deckel an ihren Raendern hochstehen lassen
+    platte_voll = unary_union([Polygon(g_.exterior) for g_ in rk._polys(platte_)])
+    weg_ = unary_union([platte_voll.buffer(-0.3), rwg.grundriss(wege, rwg.UNTER_WEG).difference(platte_)]
                        + ([bahn_frei] if bahn_frei is not None else []))
-    abd, o_a = abdeckung(deckel_teile, weg_, anpassen=rwg.anschmiegen(wege) if wege else None)
+    an_weg = rwg.anschmiegen(wege) if wege else None
+    asph_h = rk.ASPH_H
+
+    UEBERGANG = 1.5
+    saum = platte_.buffer(UEBERGANG)
+    kante_ = platte_.boundary
+    erhoeht_ = unary_union([F['gehweg'], F['inseln']]).buffer(0.05)
+    from shapely.ops import nearest_points as _np_
+
+    def kante_hoehe(q):
+        return float(kz['zf'](q.x, q.y)) + (walk_h if erhoeht_.contains(q) else asph_h)
+
+    def anpassen(x, y, z):
+        if an_weg is not None:
+            z = an_weg(x, y, z)
+        pt = _Pt(x, y)
+        # unter der Platte (Deckel reicht 0,3 m darunter und verdeckt feine Fugen): knapp unter der Fahrbahn
+        if platte_voll.contains(pt):
+            z = min(z, float(kz['zf'](x, y)) + asph_h - 0.03)
+        elif saum.contains(pt):
+            # auf den ersten 1,5 m vor der Kante an deren Hoehe heranfuehren (ueberlagerte Deckelteile - der hoehere
+            # gewinnt - lagen sonst ueber dem Gehweg)
+            q = _np_(kante_, pt)[0]
+            w = max(0.0, 1.0 - pt.distance(q) / UEBERGANG)
+            z = w * kante_hoehe(q) + (1 - w) * z
+        return z
+    abd, o_a = abdeckung(deckel_teile, weg_, anpassen=anpassen)
     schreiben(ordner, rel, 'Gelaendedeckel', abd, o_a, liste)
     messung = [dict(s=e['s'], x=float(e['p'][0]), y=float(e['p'][1]), ring=[float(e['ra']), float(e['rb']), float(e['zr'])],
                     west=None if e['w'] is None else [e['w'][k] for k in ('a', 'b', 'z', 'g')],
