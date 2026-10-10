@@ -10,6 +10,8 @@ Prüfungen (je Fund: Art, Text, Weltpunkt, Teil):
 - spalt: freie Kante eines Objekts endet knapp (3 bis 60 cm) neben einem anderen Teil statt daran
 - offenes_ende: Ende einer Wand-/Spline-Kette steht frei über dem Gelände (man sieht ins Profil)
 - ampel_schwebt / ampel_versinkt / ampel_ohne_mast: Ampelteile passen nicht zum Boden darunter
+- wand_luecke: Wandende knapp vor einem Anschlussteil (Kreuzungsplatte, Bruecke) - im Objekt-Editor per Knopf
+  verlaengerbar
 - grube: abgesenkter Gelaendepunkt, ueber dem kein Teil liegt (man sieht ins Loch)
 
 Aufruf: python -m omsigen.baupruefer <sonderbau.json> [--omsi …] -> baupruefung.json daneben + Zusammenfassung.
@@ -422,7 +424,40 @@ def gruben(raum, senken, hoehe=30.0):
     return funde
 
 
-def pruefen(teile, gelaende=None, signale=(), senken=()):
+def wand_luecken(teile, raum, anschluss, weit=15.0, nah=0.3):
+    """Wandenden, die knapp vor einem Anschlussteil (Kreuzungsplatte, Bruecke, Unterfuehrung) aufhoeren: Abstand von der
+    Mauerkrone am Ende zum naechsten Dreieck dieser Teile zwischen `nah` und `weit` m -> Funde wand_luecke"""
+    funde = []
+    ziel = [i for i, t in enumerate(teile) if t.name in anschluss]
+    if not ziel:
+        return funde
+    andere_waende = [i for i, t in enumerate(teile) if t.art == 'wand']
+    for ti, t in enumerate(teile):
+        if t.art != 'wand':
+            continue
+        for q, wo in t.enden:
+            oben = q[q[:, 2] >= q[:, 2].max() - 0.6]          # Kronenbereich des Endprofils
+            # schliesst eine andere Wand an (Folgestueck, Portal), ist das Ende keine Luecke
+            kk = raum.nahe(oben.mean(axis=0), 1.0)
+            kk = kk[np.isin(raum.teil[kk], andere_waende) & (raum.teil[kk] != ti)]
+            if len(kk) and min(_punkt_dreieck(o_, raum.P[kk][:, 0], raum.P[kk][:, 1], raum.P[kk][:, 2]).min() for o_ in oben) < nah:
+                continue
+            p = oben.mean(axis=0)
+            k = raum.nahe(p, weit)
+            k = k[np.isin(raum.teil[k], ziel)]
+            if not len(k):
+                continue
+            T = raum.P[k]
+            d = np.min([_punkt_dreieck(o_, T[:, 0], T[:, 1], T[:, 2]) for o_ in oben], axis=0)
+            j = int(np.argmin(d))
+            if nah < d[j] < weit:
+                funde.append(dict(art='wand_luecke', text=f'{wo}: {d[j]:.1f} m Luecke bis {teile[raum.teil[k[j]]].name}',
+                                  pos=p, teil=t.name, bauteil=getattr(t, 'bauteil', None) or '', ende=wo,
+                                  abstand=round(float(d[j]), 2)))
+    return funde
+
+
+def pruefen(teile, gelaende=None, signale=(), senken=(), anschluss=()):
     """-> Liste Funde dict(art, text, pos, teil)"""
     funde = []
     raum = Raum(teile)
@@ -474,6 +509,7 @@ def pruefen(teile, gelaende=None, signale=(), senken=()):
     # doppelte Flächen: nach oben bzw. seitlich zeigende Dreiecke verschiedener Teile/Materialien in derselben Ebene
     funde += [f for f in _doppelt(teile, raum) if not verdeckt(raum, gelaende, f['pos'], koerper=False)]
     funde += gruben(raum, senken)
+    funde += wand_luecken(teile, raum, set(anschluss))
     # Ampeln
     for i, s in enumerate(signale):
         if 'x' not in s or s.get('z_boden') is None:
@@ -596,10 +632,11 @@ def sonderbau_pruefen(json_pfad, omsi=STANDARD_OMSI):
         t = spline_teil(omsi, st['name'], rel, st['elemente'])
         if st.get('sli'):
             t.art = 'wand'
+            t.bauteil = st.get('bauteil')
         teile.append(t)
     signale = [s for k in j.get('kreuzungen', []) for s in k.get('signale', [])]
     gel = gelaende_funktion(omsi, j['karte'], j.get('gelaende', []), j.get('gelaende_zurueck', []))
-    funde = zusammenfassen(pruefen(teile, gel, signale, j.get('gelaende', [])))
+    funde = zusammenfassen(pruefen(teile, gel, signale, j.get('gelaende', []), j.get('anschlussteile', [])))
     zaehl = defaultdict(int)
     for f in funde:
         zaehl[f['art']] += 1

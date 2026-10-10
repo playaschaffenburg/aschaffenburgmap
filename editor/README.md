@@ -342,7 +342,7 @@ Objekte an der Stelle, Gelände abgesenkt; Rückgängig und Speichern wie gewohn
 **Bauprüfung:** Nach jedem Bau prüft `omsigen/baupruefer.py` die geschriebenen Dateien (Objekte, Wand- und
 Straßen-Splines, Ampeln) auf Spalte zwischen Teilen, verzerrte Texturen, Flächen ohne Fläche, deckungsgleiche Flächen,
 offene Wandenden und schwebende/versunkene Ampeln (Verdecktes zählt nicht) und schreibt `baupruefung.json`. Der
-Objekt-Editor zeigt die Funde als Liste je Art und als rote Kreise in 3D; ein Klick fährt die Kamera nah hin.
+Objekt-Editor zeigt die Funde als Liste je Art und als rote Kreise in 3D; ein Klick fährt die Kamera nah hin. Bei „Lücke am Wandende“ (Wand hört knapp vor Kreuzungsplatte, Brücke oder Unterführung auf) verlängert der Knopf „Wand verlaengern“ den Wandbereich im Bauplan (höchstens bis zur nächsten Wand derselben Art und Seite); beim Anwenden endet die Wand genau an der Platte. Wände lassen sich auch über ihren bisherigen Bereich hinaus ziehen.
 
 **Fläche markieren** (L): Rechteck ziehen oder Vieleck klicken, alles darin (Objekte/Bäume, Straßen-Splines, wählbar)
 mit Entf löschen – ein Rückgängig-Schritt.

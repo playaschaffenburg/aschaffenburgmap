@@ -329,6 +329,10 @@ pub struct Fund {
     pub teil: String,
     pub pos: DVec3,
     pub anzahl: usize,
+    /// wand_luecke: Wand-Bauteil (id), Ende ("Anfang"/"Ende") und Abstand zum Anschlussteil
+    pub bauteil: String,
+    pub ende: String,
+    pub abstand: f64,
 }
 
 pub fn fund_art(art: &str) -> &str {
@@ -342,6 +346,7 @@ pub fn fund_art(art: &str) -> &str {
         "ampel_versinkt" => "Ampel im Boden",
         "ampel_ohne_mast" => "Ampel ohne Mast",
         "grube" => "Loch im Gelaende",
+        "wand_luecke" => "Luecke am Wandende",
         a => a,
     }
 }
@@ -369,6 +374,7 @@ impl Kontext {
                 art: s(f, "art"), text: s(f, "text"), teil: s(f, "teil"),
                 pos: DVec3::new(f["pos"][0].as_f64().unwrap_or(0.0), f["pos"][1].as_f64().unwrap_or(0.0), f["pos"][2].as_f64().unwrap_or(0.0)),
                 anzahl: f["anzahl"].as_u64().unwrap_or(1) as usize,
+                bauteil: s(f, "bauteil"), ende: s(f, "ende"), abstand: f["abstand"].as_f64().unwrap_or(0.0),
             }).collect()))
             .unwrap_or_default();
         Kontext {
@@ -1781,21 +1787,58 @@ impl ObjektEditor {
             let mut arten: Vec<String> = self.kontext.funde.iter().map(|f| f.art.clone()).collect();
             arten.sort();
             arten.dedup();
+            let mut verlaengern: Option<usize> = None;
             for art in arten {
                 let idx: Vec<usize> = (0..n).filter(|&i| self.kontext.funde[i].art == art).collect();
                 egui::CollapsingHeader::new(format!("{} ({})", fund_art(&art), idx.len())).id_salt(("oe_fund", art.clone())).show(ui, |ui| {
                     for i in idx.into_iter().take(200) {
                         let f = &self.kontext.funde[i];
                         let t = format!("{} - {}{}", f.teil, f.text, if f.anzahl > 1 { format!(" (x{})", f.anzahl) } else { String::new() });
-                        if ui.selectable_label(self.fund_wahl == Some(i), egui::RichText::new(t).small()).clicked() {
+                        let mut kamera = false;
+                        ui.horizontal_wrapped(|ui| {
+                            if f.art == "wand_luecke" && !f.bauteil.is_empty()
+                                && ui.small_button("Wand verlaengern").on_hover_text("den Bereich der Wand im Bauplan bis zum Nachbarteil verlaengern (nicht ueber die naechste Wand hinaus); Anwenden baut neu, die Wand endet genau am Anschlussteil").clicked() {
+                                verlaengern = Some(i);
+                            }
+                            kamera = ui.selectable_label(self.fund_wahl == Some(i), egui::RichText::new(t).small()).clicked();
+                        });
+                        if kamera {
                             self.fund_wahl = Some(i);
                             erg = Some(Aktion::KameraNah(f.pos));
                         }
                     }
                 });
             }
+            if let Some(i) = verlaengern {
+                let f = self.kontext.funde[i].clone();
+                self.meldung = self.wand_verlaengern(&f.bauteil, &f.ende, f.abstand);
+            }
         });
         erg
+    }
+
+    /// Wand-Bauteil `id` am Ende `ende` ("Anfang" = von, sonst bis) um `abstand` * 2 + 5 m verlaengern, hoechstens bis zur
+    /// naechsten Wand gleicher Art und Seite (der Generator laesst sie genau am Anschlussteil enden) -> Meldung
+    pub fn wand_verlaengern(&mut self, id: &str, ende: &str, abstand: f64) -> String {
+        let Some(i) = self.plan.waende.iter().position(|w| w.id == id) else { return format!("Wand {id} nicht im Bauplan") };
+        let w = self.plan.waende[i].clone();
+        let d = abstand * 2.0 + 5.0;                  // grosszuegig: der Generator laesst die Wand genau an der Platte enden
+        let andere: Vec<(f64, f64)> = self.plan.waende.iter().enumerate().filter(|(k, x)| *k != i && x.art == w.art && x.seite == w.seite).map(|(_, x)| (x.von, x.bis)).collect();
+        self.aendern();
+        let text = if ende == "Anfang" {
+            let grenze = andere.iter().filter(|x| x.1 <= w.von + 1e-6).map(|x| x.1).fold(f64::MIN, f64::max);
+            let neu = (w.von - d).max(grenze);
+            self.plan.waende[i].von = neu;
+            format!("Wand {id}: Anfang {:.1} -> {:.1} m", w.von, neu)
+        } else {
+            let grenze = andere.iter().filter(|x| x.0 >= w.bis - 1e-6).map(|x| x.0).fold(f64::MAX, f64::min);
+            let neu = (w.bis + d).min(grenze);
+            self.plan.waende[i].bis = neu;
+            format!("Wand {id}: Ende {:.1} -> {:.1} m", w.bis, neu)
+        };
+        self.wahl = Some(Wahl::Wand(i));
+        self.abschliessen();
+        format!("{text} - Anwenden baut neu")
     }
 
     fn eigenschaften(&mut self, ui: &mut egui::Ui, w: Wahl) -> Option<Aktion> {
@@ -2311,6 +2354,22 @@ mod tests {
         ed.loslassen();
         assert!((ed.plan.flaechen[0].punkte[0].x - 10.0).abs() < 1e-9);
         assert!((ed.plan.flaechen[0].textur.dx + 0.5).abs() < 1e-9, "{}", ed.plan.flaechen[0].textur.dx);
+    }
+
+    #[test]
+    fn wand_verlaengern_bis_zur_naechsten_wand() {
+        let mut ed = editor();
+        let w = |id: &str, von: f64, bis: f64| Wand { id: id.into(), seite: "o".into(), art: "aussen".into(), von, bis, material: "klinker".into(),
+                                                     laerm: "keine".into(), versatz: 0.0, hoehe: 0.0, stufig: true };
+        ed.plan.waende = vec![w("a", 10.0, 40.0), w("b", 44.0, 80.0)];
+        ed.wand_verlaengern("a", "Ende", 9.0);
+        assert_eq!(ed.plan.waende[0].bis, 44.0);
+        ed.wand_verlaengern("b", "Anfang", 1.5);
+        assert_eq!(ed.plan.waende[1].von, 44.0);
+        ed.wand_verlaengern("a", "Anfang", 3.0);
+        assert_eq!(ed.plan.waende[0].von, -1.0);
+        ed.rueckgaengig();
+        assert_eq!(ed.plan.waende[0].von, 10.0);
     }
 
     #[test]

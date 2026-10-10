@@ -1245,6 +1245,7 @@ def bauen(omsi, karte, osm_pfad, entwurf_pfad, nn0, ost0, nord0, cache, bauplan_
                    hoehen=hoehenraster(kz['zf'], F))
     senken_ur = [p_ + [round(float(gel.h(np.array([p_[0] * 300 + p_[2] * 5.0]), np.array([p_[1] * 300 + p_[3] * 5.0]))[0]), 3)] for p_ in senken]
     out = dict(karte=karte, nn0=nn0, objekte=liste, strassen=strassen + wand_splines, kreuzungen=[kreuzung], kontext=kontext,
+               anschlussteile=[name, 'Bahnbruecke', 'Unterfuehrung'],
                gelaende=senken_ur, gelaende_zurueck=rueckbau(roh_karte, senken, gel, roh), messung=messung, quellen=['OpenStreetMap (ODbL)', 'DGM1/DOP40 Bayerische Vermessungsverwaltung (CC BY 4.0)'])
     with open(os.path.join(ordner, 'sonderbau_ring.json'), 'w', encoding='utf-8') as f:
         json.dump(out, f, indent=1)
