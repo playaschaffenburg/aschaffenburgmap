@@ -187,9 +187,10 @@ def raender(wege_plan, raender_plan, wege, hoehe):
 
 def umriss_rand(art, s):
     """Querschnitt eines Rands in Teilen mit Textur (fuer die Stirnflaechen): [(Textur, [(x, y)])]"""
+    from . import ring_waende as rw
     if art == 'mauer_hecke':
         return [('sandstein', [(0.0, -0.3), (0.0, 0.7), (s * 0.4, 0.7), (s * 0.4, -0.3)]),
-                ('hecke', [(s * 0.4, -0.3), (s * 0.4, 2.0), (s * 1.4, 2.0), (s * 1.4, -0.3)])]
+                ('hecke', [(s * 0.4, -0.3), (s * 0.4, rw.HECKE_H), (s * 1.4, rw.HECKE_H), (s * 1.4, -0.3)])]
     return []
 
 

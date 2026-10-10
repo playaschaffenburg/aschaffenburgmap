@@ -32,8 +32,9 @@ RAMPEN = {
 # Fahrbahnen zusammenlaufen)
 ABSCHNITTE = {
     'Rampe_Ost_Sued': [(212.0, 'ohne_sperr')],
-    # Ring ab 242 (Ende der Trennwaende): Spitzwinkel-Sperrflaechen bis zum Zusammenlauf - Lage im Luftbild noch
-    # unklar (eine liegt in der Ringmitte), daher noch nicht gebaut
+    # Ring ab y -400: Spitzwinkel-Sperrflaechen auf den Trennfugen (Luftbild mit Linien geprueft) bis zum Zusammenlauf;
+    # nachgebildet als schraffierte Ringraender
+    'Ring': [(264.0, 'sperr_raender')],
 }
 
 

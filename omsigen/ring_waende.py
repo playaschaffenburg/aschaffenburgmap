@@ -84,19 +84,20 @@ class Profil:
 
 # Raender an Wegen (Fotos: Sandsteinmauer mit Hecke an der Suedostecke)
 RAND_ARTEN = ('mauer_hecke',)
+HECKE_H = 2.8
 
 
 def profil_rand(art, s):
     """Profil eines Wegrands, Fuss bei y = 0 (Boden am Weg); `s` = Seite, zu der er sich vom Spline aus erstreckt
-    (+1 rechts, -1 links). mauer_hecke: Sandsteinmauer 0,7 m hoch, 0,4 m stark, dahinter Hecke 2 m hoch, 1 m tief"""
+    (+1 rechts, -1 links). mauer_hecke: Sandsteinmauer 0,7 m hoch, 0,4 m stark, dahinter Hecke 2,8 m hoch, 1 m tief (Fotos)"""
     p = Profil()
     if art == 'mauer_hecke':
         p.flaeche('sandstein', 0.0, -0.3, 0.7, -s)
         p.oben('sandstein', 0.0, s * 0.4, 0.7)
-        p.flaeche('hecke', s * 0.4, 0.7, 2.0, -s)
-        p.oben('hecke', s * 0.4, s * 1.4, 2.0)
-        p.flaeche('hecke', s * 1.4, -0.3, 2.0, s)
-        p.umriss.append([(0.0, -0.3), (0.0, 0.7), (s * 0.4, 0.7), (s * 0.4, 2.0), (s * 1.4, 2.0), (s * 1.4, -0.3)])
+        p.flaeche('hecke', s * 0.4, 0.7, HECKE_H, -s)
+        p.oben('hecke', s * 0.4, s * 1.4, HECKE_H)
+        p.flaeche('hecke', s * 1.4, -0.3, HECKE_H, s)
+        p.umriss.append([(0.0, -0.3), (0.0, 0.7), (s * 0.4, 0.7), (s * 0.4, HECKE_H), (s * 1.4, HECKE_H), (s * 1.4, -0.3)])
     return p
 
 

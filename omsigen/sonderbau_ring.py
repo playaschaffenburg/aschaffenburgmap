@@ -953,7 +953,10 @@ def abdeckung(teile, weg, schliessen=0.3, zelle=2.5, anpassen=None):
     if not tris:
         return out, np.zeros(3)
     polys = [_Pg(P[:, :2]) for P in tris]
-    grund = unary_union(polys).buffer(schliessen, join_style=2).buffer(-schliessen, join_style=2).difference(weg)
+    voll = unary_union(polys).buffer(schliessen, join_style=2).buffer(-schliessen, join_style=2)
+    grund = voll.difference(weg)
+    # Aussenrand des Deckels (ohne die Aussparungen): dort bleibt die Hoehe, sonst passt er nicht mehr ans Gelaende
+    aussenrand = voll.boundary
     baum = STRtree(polys)
 
     def z_bei(x, y):
@@ -980,7 +983,7 @@ def abdeckung(teile, weg, schliessen=0.3, zelle=2.5, anpassen=None):
             k = (round(x, 4), round(y, 4))
             if k not in cache:
                 cache[k] = z_bei(x, y) + 0.0
-                if anpassen is not None:
+                if anpassen is not None and aussenrand.distance(_Pt(x, y)) > 0.05:
                     cache[k] = anpassen(x, y, cache[k])
             w.append((x - o[0], y - o[1], cache[k]))
         out.dreieck('boden', w, [(x / 5, y / 5) for x, y in t], (0, 0, 1))
