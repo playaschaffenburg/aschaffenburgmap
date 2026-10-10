@@ -245,6 +245,14 @@ def anschluesse(plan, arme):
     if not stuecke:
         return plan['flaechen']
     bereich = unary_union([g for _, g in stuecke])
+    # hinter jeder Armende-Linie (auf der Strasse selbst, Breite + 1,5 m je Seite) liegt nichts von der Platte: dort
+    # beginnt die Strasse bzw. der Trog
+    jenseits = []
+    for a in arme:
+        rr = rk.raender(a.q)
+        qa, qb = rr[0][1] - 1.5, rr[-1][2] + 1.5
+        jenseits.append(Polygon([a.punkt(0, qa), a.punkt(0, qb), a.punkt(-40, qb), a.punkt(-40, qa)]))
+    bereich = unary_union([bereich] + jenseits)
     out = [dict(id=f'anschluss{i}', art=art, punkte=[list(c) for c in g.exterior.coords[:-1]], loecher=[],
                 textur=dict(dx=0, dy=0, skala=1, dreh=0)) for i, (art, g) in enumerate(stuecke)]
     for f in plan['flaechen']:

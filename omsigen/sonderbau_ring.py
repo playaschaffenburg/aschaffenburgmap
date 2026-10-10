@@ -702,7 +702,7 @@ def sohle_linie(e):
     return pts
 
 
-def flaechen(roh, o):
+def flaechen(roh, o, platte=None):
     """Sohle des Trogs und Platten der Rampen, 5 cm unter den Fahrbahnen: decken das abgesenkte Gelaende ab
     (sohle_linie: ohne senkrechte Stufen, wo keine Trennwand steht)"""
     m = Mesh()
@@ -711,13 +711,17 @@ def flaechen(roh, o):
         la, lb = sohle_linie(ea), sohle_linie(eb)
         unter_platte = S_PLATTE[0] <= ea['s'] and eb['s'] <= S_PLATTE[1]
         for k in range(5):
-            if unter_platte and k != 2:
+            if unter_platte and k != 2 and platte is None:
                 continue                         # Rampen: dort liegt das Kreuzungsobjekt
             (a0, za0), (a1, za1) = la[k], la[k + 1]
             (b0, zb0), (b1, zb1) = lb[k], lb[k + 1]
             if a1 - a0 < 0.02 and b1 - b0 < 0.02:
                 continue                         # Stufe in der Wand (oder leer)
             q = [p(ea, a0, za0), p(eb, b0, zb0), p(eb, b1, zb1), p(ea, a1, za1)]
+            if platte is not None and k != 2:
+                from shapely.geometry import Point as _Pt
+                if all(platte.contains(_Pt(c_[0] + o[0], c_[1] + o[1])) for c_ in q):
+                    continue                     # ganz unter dem Kreuzungsobjekt (am Rand bleibt sie, 5 cm darunter)
             # Draufsicht-Projektion, Hoehe dazu: auch steile Uebergaenge (Wandende) ohne verschmierte Textur
             uv = [((c[0] + o[0]) / 5, (c[1] + o[1] + c[2] + o[2]) / 5) for c in q]
             # zwei Dreiecke, jedes fuer sich nach oben gewendet (verdrehte Vierecke an Wandenden: sonst zeigt eines nach unten)
@@ -1174,7 +1178,7 @@ def bauen(omsi, karte, osm_pfad, entwurf_pfad, nn0, ost0, nord0, cache, bauplan_
     for k in range(0, len(roh) - 1, n):
         teil = roh[k:k + n + 1]
         o = np.array([teil[0]['p'][0], teil[0]['p'][1], 0.0])
-        schreiben(ordner, rel, f'Sohle_{k // n:02d}', flaechen(teil, o), o, liste)
+        schreiben(ordner, rel, f'Sohle_{k // n:02d}', flaechen(teil, o, platte_), o, liste)
         schreiben(ordner, rel, f'Deckel_{k // n:02d}', deckel(teil, karte_gel, o, frei=bahn_frei), o, liste)
     # Plattenrand-Deckel (Anschluss Platte -> Gelaende), ausser an Trog, Armen, Waenden und Bruestungen
     from shapely.geometry import LineString as _LS
@@ -1193,8 +1197,15 @@ def bauen(omsi, karte, osm_pfad, entwurf_pfad, nn0, ost0, nord0, cache, bauplan_
         if len(g_['punkte']) >= 2:
             ausnahmen.append(_LS(g_['punkte']).buffer(1.0))
     o_r = np.array([platte_.centroid.x, platte_.centroid.y, 0.0])
+    # kein Plattenrand ueber den Strassen jenseits der Armenden (wie ring_bauplan.anschluesse)
+    jenseits_ = []
+    for a_ in kz['arme']:
+        rr_ = rk.raender(a_.q)
+        qa_, qb_ = rr_[0][1] - 1.5, rr_[-1][2] + 1.5
+        jenseits_.append(Polygon([a_.punkt(0, qa_), a_.punkt(0, qb_), a_.punkt(-40, qb_), a_.punkt(-40, qa_)]))
+    rand_frei = unary_union(jenseits_ + ([bahn_frei] if bahn_frei is not None else []))
     schreiben(ordner, rel, 'Plattenrand', plattenrand(platte_, kz['zf'], karte_gel, o_r, unary_union(ausnahmen),
-                                                      unary_union([F['gehweg'], F['inseln']]), frei=bahn_frei), o_r, liste)
+                                                      unary_union([F['gehweg'], F['inseln']]), frei=rand_frei), o_r, liste)
     messung = [dict(s=e['s'], x=float(e['p'][0]), y=float(e['p'][1]), ring=[float(e['ra']), float(e['rb']), float(e['zr'])],
                     west=None if e['w'] is None else [e['w'][k] for k in ('a', 'b', 'z', 'g')],
                     ost=None if e['o'] is None else [e['o'][k] for k in ('a', 'b', 'z', 'g')], decke=bool(e['unter_decke'])) for e in roh]

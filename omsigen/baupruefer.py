@@ -316,9 +316,11 @@ class Raum:
         if not len(k):
             return math.inf
         T = self.P[k]
-        teilt = np.zeros(len(k), bool)
+        # nur die Dreiecke der Kante selbst auslassen (beide Ecken gemeinsam); liegt die Kante auf einem anderen eigenen
+        # Dreieck (T-Stoss, Bordsteinflaeche an der Gehwegkante), ist sie angeschlossen
+        teilt = np.ones(len(k), bool)
         for q in (a, b):
-            teilt |= (np.linalg.norm(T - q, axis=2) < 0.002).any(axis=1)
+            teilt &= (np.linalg.norm(T - q, axis=2) < 0.002).any(axis=1)
         T = T[~teilt]
         if not len(T):
             return math.inf
