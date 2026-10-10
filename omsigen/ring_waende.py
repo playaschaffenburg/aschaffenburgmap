@@ -223,6 +223,57 @@ def laeufe(roh, art, seite, linie, krone, unten, variante):
     return [l for l in out if len(l[2]) >= 2]
 
 
+def an_platte(alle, platte, zf=None):
+    """Aussenwaende enden an der Kreuzungsplatte (Anschlusspunkt): Punkte auf der Platte fallen weg, wo die Wand die
+    Plattenkante kreuzt, kommt ein Punkt genau auf die Kante (die Wand stoesst an, ohne Luecke)"""
+    from shapely.geometry import Point
+    from .sonderbau_ring import welt
+    innen = platte.buffer(-0.05)
+    xy = lambda pk: welt(pk[0], pk[1], 0)[:2]
+    drin = lambda pk: innen.contains(Point(*xy(pk)))
+
+    def zwischen(a, b, f):
+        ea, eb = a[0], b[0]
+        q = np.asarray(ea['quer']) * (1 - f) + np.asarray(eb['quer']) * f
+        e = dict(ea, p=np.asarray(ea['p']) * (1 - f) + np.asarray(eb['p']) * f, quer=q / np.linalg.norm(q),
+                 s=ea['s'] * (1 - f) + eb['s'] * f)
+        return (e, a[1] * (1 - f) + b[1] * f, a[2] * (1 - f) + b[2] * f, a[3] * (1 - f) + b[3] * f)
+
+    def kante(a, b):                                   # a draussen, b drin
+        lo, hi = 0.0, 1.0
+        for _ in range(30):
+            m = (lo + hi) / 2
+            if drin(zwischen(a, b, m)):
+                hi = m
+            else:
+                lo = m
+        pk = zwischen(a, b, hi)
+        if zf is not None:                             # Krone an der Plattenkante buendig mit dem Gehweg
+            x, y = xy(pk)
+            pk = (pk[0], pk[1], float(zf(x, y)) + WALK_H, pk[3])
+        return pk
+
+    out = []
+    for bt, v, pkt in alle:
+        stueck = []
+        for a, b in zip(pkt, pkt[1:]):
+            da, db = drin(a), drin(b)
+            if not da:
+                if not stueck:
+                    stueck.append(a)
+                if db:
+                    stueck.append(kante(a, b))
+                    out.append((bt, v, stueck))
+                    stueck = []
+                else:
+                    stueck.append(b)
+            elif not db:
+                stueck = [kante(b, a), b]
+        if len(stueck) >= 2:
+            out.append((bt, v, stueck))
+    return [l for l in out if len(l[2]) >= 2]
+
+
 def glatt(S, an, min_laenge=MIN_STUECK):
     """Ja/Nein je Station ohne Stuecke kuerzer als min_laenge (die kuerzesten zuerst dem Nachbarn zuschlagen)"""
     an = list(an)
@@ -242,7 +293,7 @@ def glatt(S, an, min_laenge=MIN_STUECK):
             an[k] = not an[k]
 
 
-def splines(roh, platte, omsi, decke_unten=None):
+def splines(roh, zf_platte, omsi, decke_unten=None, platte=None):
     """alle Waende als Spline-Ketten -> (Liste dict(name, art='wand', sli, elemente), {sli-Datei: Text})"""
     from .sonderbau_ring import fuge, aussen, S_PLATTE, welt, wand
     dateien = {}
@@ -250,9 +301,9 @@ def splines(roh, platte, omsi, decke_unten=None):
 
     def krone_trenn(e, seite, bt):
         z = e[seite]['z'] + float(bt.get('hoehe', 0.0))
-        if platte is not None and S_PLATTE[0] <= e['s'] <= S_PLATTE[1]:
+        if zf_platte is not None and S_PLATTE[0] <= e['s'] <= S_PLATTE[1]:
             q = welt(e, fuge(e, seite), 0)
-            zp = float(platte(q[0], q[1]))
+            zp = float(zf_platte(q[0], q[1]))
             # auf der Platte: Kappe auf Gehweghoehe (die Inseln schliessen buendig an)
             # unter der Decke reicht die Wand nur bis in die Decke (35 cm unter die Platte), sonst scheint sie durch
             if e['unter_decke']:
@@ -291,6 +342,8 @@ def splines(roh, platte, omsi, decke_unten=None):
         r = -1 if seite == 'w' else 1
         for art, linie, krone, unten, variante in arten:
             alle = laeufe(roh, art, seite, linie, krone, unten, variante)
+            if art == 'aussen' and platte is not None:
+                alle = an_platte(alle, platte, zf_platte)
             if not alle:
                 continue
             # eine Tiefe fuer alle Stuecke dieser Wand: aneinanderstossende Stuecke haben denselben Umriss unten

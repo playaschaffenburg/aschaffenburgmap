@@ -267,12 +267,28 @@ def wand(e, art, seite):
 
 
 def fuge(e, seite):
-    """Lage der Trennwand (Querweg t, mit Versatz des Wand-Bauteils) oder None"""
+    """Lage der Trennwand (Querweg t, mit Versatz des Wand-Bauteils) oder None. Steht laut Bauplan eine Wand, wo die
+    Geometrie keine braucht (Bereich im Objekt-Editor verlaengert), liegt sie an der Ringkante (fuge_frei)"""
     r_ = wand(e, 'trenn', seite)
     t = fuge_geo(e, seite)
+    if t is None and r_:
+        t = fuge_frei(e, seite)
     if r_ is None or t is None:
         return None
     return t + (-1 if seite == 'w' else 1) * float(r_.get('versatz', 0.0))
+
+
+def fuge_frei(e, seite):
+    """Lage einer Trennwand unabhaengig davon, ob sie gebraucht wird: hinter der Ringkante"""
+    return (e['ra'] - WAND / 2) if seite == 'w' else (e['rb'] + WAND / 2)
+
+
+def aussen_frei(e, seite):
+    """Lage einer Aussenwand unabhaengig davon, ob sie gebraucht wird: Aussenkante der Rampe"""
+    r = e[seite]
+    if r is None:
+        return None
+    return r['a'] if seite == 'w' else r['b']
 
 
 def fuge_geo(e, seite):
@@ -297,6 +313,8 @@ def aussen(e, seite):
     """Lage der Aussenwand (Querweg t, mit Versatz des Wand-Bauteils) oder None"""
     r_ = wand(e, 'aussen', seite)
     t = aussen_geo(e, seite)
+    if t is None and r_:
+        t = aussen_frei(e, seite)                   # im Bauplan verlaengert
     if r_ is None or t is None:
         return None
     return t + (-1 if seite == 'w' else 1) * float(r_.get('versatz', 0.0))
@@ -1148,7 +1166,8 @@ def bauen(omsi, karte, osm_pfad, entwurf_pfad, nn0, ost0, nord0, cache, bauplan_
     schreiben(ordner, rel, 'Bahnbruecke', bb, o, liste)
     # Waende als Spline-Ketten entlang der Wandlinien (ring_waende, wie Staedtedreieck/Ahlheim)
     from . import ring_waende as rw
-    wand_splines, wand_dateien = rw.splines(roh, kz['zf'], omsi, decke_unten=min(zs) - 0.12 - 1.1)
+    wand_splines, wand_dateien = rw.splines(roh, kz['zf'], omsi, decke_unten=min(zs) - 0.12 - 1.1,
+                                            platte=unary_union([F['fahrbahn'], F['gehweg'], F['inseln']]))
     wand_splines += portal
     wand_dateien.update(portal_dateien)
     # Stirnflaechen an den Wandenden (Splines haben keine): ein Objekt
@@ -1218,7 +1237,9 @@ def bauen(omsi, karte, osm_pfad, entwurf_pfad, nn0, ost0, nord0, cache, bauplan_
                    lose_signale=kz['lose_signale'],
                    stationen=[dict(s=round(e['s'], 2), p=_xy(e['p']), q=_xy(e['quer']),
                                    t={f'{art}_{sd}': (None if g(e, sd) is None else round(g(e, sd), 3))
-                                      for art, g in (('trenn', fuge_geo), ('aussen', aussen_geo)) for sd in ('w', 'o')}) for e in roh],
+                                      for art, g in (('trenn', lambda e_, sd_: fuge_geo(e_, sd_) if fuge_geo(e_, sd_) is not None else fuge_frei(e_, sd_)),
+                                                     ('aussen', lambda e_, sd_: aussen_geo(e_, sd_) if aussen_geo(e_, sd_) is not None else aussen_frei(e_, sd_)))
+                                      for sd in ('w', 'o')}) for e in roh],
                    strassen=[dict(name=st['name'], punkte=[_xy((el['x'], el['y'])) for el in st['elemente']] + [_xy(rs._ende(st['elemente'][-1])[:2])])
                              for st in strassen if st['elemente']],
                    hoehen=hoehenraster(kz['zf'], F))
