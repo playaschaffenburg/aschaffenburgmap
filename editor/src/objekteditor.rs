@@ -1797,7 +1797,7 @@ impl ObjektEditor {
                         let mut kamera = false;
                         ui.horizontal_wrapped(|ui| {
                             if f.art == "wand_luecke" && !f.bauteil.is_empty()
-                                && ui.small_button("Wand verlaengern").on_hover_text("den Bereich der Wand im Bauplan bis zum Nachbarteil verlaengern (nicht ueber die naechste Wand hinaus); Anwenden baut neu, die Wand endet genau am Anschlussteil").clicked() {
+                                && ui.button(egui::RichText::new("Wand verlaengern + anwenden").strong()).on_hover_text("den Bereich der Wand im Bauplan bis zum Nachbarteil verlaengern (nicht ueber die naechste Wand hinaus); Anwenden baut neu, die Wand endet genau am Anschlussteil").clicked() {
                                 verlaengern = Some(i);
                             }
                             kamera = ui.selectable_label(self.fund_wahl == Some(i), egui::RichText::new(t).small()).clicked();
@@ -1812,6 +1812,8 @@ impl ObjektEditor {
             if let Some(i) = verlaengern {
                 let f = self.kontext.funde[i].clone();
                 self.meldung = self.wand_verlaengern(&f.bauteil, &f.ende, f.abstand);
+                // gleich neu bauen und einsetzen: das Ergebnis ist sofort in 3D zu sehen
+                self.bauen(true);
             }
         });
         erg
