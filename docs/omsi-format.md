@@ -164,6 +164,32 @@ Folgerung: Gelände nie ausschneiden, sondern absenken (Graben, Grube am Portal)
 Baukörper schließen, der seinen eigenen Deckel mitbringt. Ausgeschnittene Löcher zeigen an den Rändern die
 Bodentextur verzerrt (im Spiel bemerkt, Okt. 2026).
 
+## Wie Fremdkarten Tröge, Mauern und große Kreuzungen bauen (Studie 10.10.2026)
+
+Anlass: Sonderbau Ring aus großen Eigen-Objekten passt nicht. Ausgewertet: alle Kacheln von Ahlheim 5 und
+Städtedreieck V3 (im openOMSI-Ordner `Documents\OpenOmsi\openOMSI-0.1.1541-windows-x64\maps`), Gladbeck,
+Ruhrgebiet, Aachen Linie 33, Hamburg, Köln, Berlin X10 (OMSI-Ordner), Namen mit Mauer/Wand/Tunnel/Trog/Bord/…:
+
+- **Mauern und Trogwände sind Splines, parallel zur Fahrbahn.** Städtedreieck `tile_18_2` (Unterführung unter dem
+  ZOB): `Splines\Tomdresden\Mauer_Unterfuehrung.sli`, Profil nur `0 0 → 0 6 → −0.3 6 → −0.3 6.3 → 0 6.3` (6 m
+  senkrecht + Kappe), Höhe −0,5 m, als eigene Kette mit eigenem Radius neben der Straße; die Straße taucht dazwischen
+  ab (Bild `build/studie/sd2.png`). Ahlheim: `Mauer01/02.sli` (je >300), `Wandspline.sli`, `RQ_28_Betonmauer.sli`,
+  `Betonleitwand_gross1.sli`; Gladbeck/Ruhrgebiet: `Tunnelwand_R.sli` (senkrechte 6-m-Fläche).
+- **Bordsteine als eigene Splines:** `str_bordstein.sli` (Gladbeck 12358, Ruhrgebiet 20523, Städtedreieck 2613),
+  `Bordstein.sli` (Ahlheim 2502).
+- **Böschung im Straßenprofil:** Aachen `Paris_Abfahrt_1s*.sli`, `Gehweg_Hang.sli` (Profilpunkt −7/−4 m).
+- **Lärmschutz = kurze Wiederholobjekte:** `DavidM-Objekte\Laermschutzwand.sco`/`Laermschutzwand25.sco`
+  (Städtedreieck 361, Ahlheim 220), `Laermschutzwand_Glas.sco`.
+- **Kreuzungen klein und eben** (Standard `Kreuz_MC`, `Kreuz_RUE`): `[surface]`, `[rendertype] surface`,
+  `[absheight]`, `[fixed]`, je Anschluss ein `[splinehelper]`, Pfade; Spandau zusätzlich `[terrainhole]` mit
+  eigenem Loch-Mesh. Pfeile als eigene Objekte knapp über der Fahrbahn (`VZ_surfmark_arrow_SR.sco`, Höhe −0,1).
+- **Gelände:** Städtedreieck hat auf allen Kacheln Gelände, Ahlheim auf der Hälfte; Hamburg fast keines (HafenCity 8
+  von 426 Kacheln, Boden aus Splines). Viele „Terrain-Splines“ (`4m/8mTerrain_Spline.sli`) als Bodenbelag.
+- Aachen `Unterf_Bushof.sco`: Bauwerk + unsichtbares Mesh `[rendertype] presurface` (`1transp.dds`) gegen das Gelände.
+
+Folgerung für Sonderbauten: Fahrbahnen, Wände, Brüstungen und Bordsteine als Splines entlang der Achse (folgen der
+Gradiente von selbst), nur die ebene Kreuzungsplatte und kurze Bauwerke (Deckel, Bahnbrücke, Portal) als Objekte.
+
 ## Brücken und Tunnel (omsigen/bauwerke.py)
 
 Die Standardkarten benutzen eigene Brücken-Splines (z. B. `Splines\Ruede\str_2spur_9.5m_DDR_Potsdamer_Str_BUE.sli`).

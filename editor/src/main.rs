@@ -362,6 +362,8 @@ enum Quelle {
     /// Einsetzpunkte/Haltestellen (mit ihren Objekten in den Kacheln)
     Orte,
     Gelaende,
+    /// Sonderbau eingesetzt: Kacheln (Aendern) und Gelaende in einem Schritt
+    Sonderbau,
 }
 
 /// Was die Oberflaeche ausloesen will (nach dem Zeichnen ausgefuehrt)
@@ -3450,6 +3452,14 @@ impl App {
         let jetzt = self.stapel_jetzt();
         let (b0, s0, a0, w0, o0, g0) = self.stapel;
         let mut neu = false;
+        // Sonderbau einsetzen schreibt Kacheln und Gelaende gleichzeitig: ein Schritt, sonst nimmt Strg+Z nur das
+        // abgesenkte Gelaende zurueck und Mauern/Strassen stehen im Gras
+        if jetzt.2 == a0 + 1 && jetzt.5 == g0 + 1 && jetzt.0 == b0 && jetzt.1 == s0 && jetzt.3 == w0 && jetzt.4 == o0 {
+            self.verlauf.push(Quelle::Sonderbau);
+            self.verlauf_redo.clear();
+            self.stapel = jetzt;
+            return;
+        }
         if jetzt.1 > s0 {
             for _ in s0..jetzt.1 {
                 self.verlauf.push(Quelle::Strasse);
@@ -3605,6 +3615,22 @@ impl App {
                 }
                 None => false,
             },
+            Quelle::Sonderbau => {
+                let Some(o) = ordner else { return };
+                let Some(a) = self.aendern.as_mut() else { return };
+                let erg = if zurueck {
+                    self.gelaende.rueckgaengig(v, &o).and_then(|g| Ok(g && a.rueckgaengig(v)?))
+                } else {
+                    a.wiederholen(v).and_then(|b| Ok(b && self.gelaende.wiederholen(v, &o)?))
+                };
+                match erg {
+                    Ok(b) => b,
+                    Err(e) => {
+                        self.meldung = format!("{} fehlgeschlagen: {e:#}", if zurueck { "Rueckgaengig" } else { "Wiederholen" });
+                        false
+                    }
+                }
+            }
             Quelle::Welt => match if zurueck { self.welt.rueckgaengig(v) } else { self.welt.wiederholen(v) } {
                 Ok(b) => b,
                 Err(e) => {
@@ -3617,7 +3643,7 @@ impl App {
             if zurueck { self.verlauf_redo.push(q) } else { self.verlauf.push(q) }
             if q != Quelle::Objekte {
                 self.meldung = format!("{} ({})", if zurueck { "rueckgaengig" } else { "wiederholt" },
-                                       match q { Quelle::Strasse => "Strasse bauen", Quelle::Aendern => "Aendern", Quelle::Objekte => "Objekte", Quelle::Welt => "Kacheln", Quelle::Orte => "Einsetzpunkte/Haltestellen", Quelle::Gelaende => "Gelaende" });
+                                       match q { Quelle::Strasse => "Strasse bauen", Quelle::Aendern => "Aendern", Quelle::Objekte => "Objekte", Quelle::Welt => "Kacheln", Quelle::Orte => "Einsetzpunkte/Haltestellen", Quelle::Gelaende => "Gelaende", Quelle::Sonderbau => "Sonderbau mit Gelaende" });
             }
         }
         self.anschluesse.vergessen();
@@ -4888,6 +4914,7 @@ fn bild(root: &Path, karte: &str, png: &Path, cam: Option<&str>) -> Result<()> {
         k.gier = start.yaw;
     }
     let n = v.tiles_around(k.ziel, KACHEL_RADIUS)?;
+    println!("Kamera-Ziel {:.1} {:.1}, Einsetzpunkt {:.1} {:.1}", k.ziel.x, k.ziel.y, start.position.x, start.position.y);
     k.ziel.z = v.ground_height(k.ziel.x, k.ziel.y).unwrap_or(0.0);
     let t1 = Instant::now();
     let (w, h) = (1600u32, 900u32);
