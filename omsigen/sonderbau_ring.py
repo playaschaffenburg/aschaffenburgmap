@@ -44,6 +44,9 @@ TEX = {'beton': 'betonwand1.bmp', 'klinker': 'AB_klinker.bmp', 'gabionen': 'AB_g
 
 
 # ------------------------------------------------------------------ Geometrie-Helfer
+MIN_FLAECHE2 = 2e-5      # doppelte Dreiecksflaeche (m^2): darunter wird ein Dreieck nicht geschrieben
+
+
 class Mesh:
     """Dreiecke in Objektkoordinaten (x rechts/Ost, y vor/Nord, z hoch); x_file erwartet (x, hoch, vor)"""
 
@@ -77,10 +80,11 @@ class Mesh:
         i0 = len(self.V)
         for (x, y, z), (u, v) in zip(X, uv):
             self.V.append((x, y, z) + tuple(N) + (u, v))
-        if vorne:
-            self.F += [(i0, i0 + 1, i0 + 2, m), (i0, i0 + 2, i0 + 3, m)]
-        else:
-            self.F += [(i0, i0 + 2, i0 + 1, m), (i0, i0 + 3, i0 + 2, m)]
+        tris = [(0, 1, 2), (0, 2, 3)] if vorne else [(0, 2, 1), (0, 3, 2)]
+        for t in tris:
+            q = [np.array(X[k]) for k in t]
+            if np.linalg.norm(np.cross(q[1] - q[0], q[2] - q[0])) >= MIN_FLAECHE2:   # keine Dreiecke ohne Flaeche
+                self.F.append((i0 + t[0], i0 + t[1], i0 + t[2], m))
 
     def dreieck(self, key, p, uv, n):
         """Dreieck p0..p2 (je (x, y, z)), sichtbar zur Seite n"""
@@ -91,8 +95,8 @@ class Mesh:
         X = [(q[0], q[2], q[1]) for q in p]
         N = (n[0], n[2], n[1])
         a, b, c = (np.array(X[i]) for i in range(3))
-        if np.linalg.norm(np.cross(b - a, c - a)) < 1e-9:
-            return
+        if np.linalg.norm(np.cross(b - a, c - a)) < MIN_FLAECHE2:
+            return                                     # keine Dreiecke ohne Flaeche (Baupruefer)
         vorne = np.dot(np.cross(b - a, c - a), N) >= 0
         i0 = len(self.V)
         for (x, y, z), (u, v) in zip(X, uv):
@@ -178,6 +182,14 @@ def trennstreifen(seite, s):
 WAND = 0.5               # Dicke der Trennwand
 
 
+def portal_stationen(achse):
+    """Achs-Stationen der beiden Trogenden (Nord, Sued) wie ring_kreuzung.trog"""
+    from .ring_kreuzung import TROG_SEITE
+    s_n = float(achse.projektion([[1084.0, TROG_SEITE[0]]])[0, 0])
+    s_s = float(achse.projektion([[1083.0, TROG_SEITE[1]]])[0, 0])
+    return np.array([s_n, s_s])
+
+
 def aus_entwurf(entwurf, dgm, E0, N0, nn0, schritt=SCHRITT):
     """Stationen aus dem Entwurf (ring_entwurf: Achse, Kantenabstaende, Gradienten) - alles glatt, parallel zur
     Achse. Je Station dasselbe Format wie frueher die Messung: p, quer (nach Osten), d (Nord -> Sued), s, zr (Ring),
@@ -191,6 +203,10 @@ def aus_entwurf(entwurf, dgm, E0, N0, nn0, schritt=SCHRITT):
     # Bereich: die ganze Achse - ueber die gemessenen Waende hinaus, bis die Rampen eingemuendet sind und der Ring
     # weiterlaeuft (die Waende enden von selbst, wo Rampe und Gelaende auf Ring-Hoehe liegen)
     S = np.arange(0.0, achse.laenge + 1e-6, schritt)
+    # Anschlusspunkte: die Trogenden an den Portalen (ring_kreuzung.trog) liegen genau auf einer Station, dort enden
+    # Trennwand und Bruestung und der Portal-Spline (ring_waende.portal_splines) setzt an
+    S_PORTAL = portal_stationen(achse)
+    S = np.unique(np.round(np.concatenate([S, S_PORTAL]), 6))
     A = achse.punkte(S)
     zr = G['ring'].z(S)
     # Kanten: Entwurf t > 0 = rechts von Nord -> Sued = West; hier quer nach Osten -> Vorzeichen drehen
@@ -211,7 +227,7 @@ def aus_entwurf(entwurf, dgm, E0, N0, nn0, schritt=SCHRITT):
         ra = tq['ring_w'][i] if not np.isnan(tq['ring_w'][i]) else -4.6
         rb = tq['ring_o'][i] if not np.isnan(tq['ring_o'][i]) else 4.6
         e = dict(s=float(s), p=np.array([x, y]), quer=quer, d=d, zr=float(zr[i]), ra=float(ra), rb=float(rb),
-                 unter_decke=DECKE[1] <= y <= DECKE[0])
+                 unter_decke=bool(S_PORTAL[0] + 1e-6 < s < S_PORTAL[1] - 1e-6))
         for sd, vz in (('w', -1), ('o', 1)):
             aussen_t = tq[f'rampe_aussen_{sd}'][i]
             if np.isnan(aussen_t):
@@ -505,27 +521,26 @@ def aussenwand(roh, seite, o):
     return m
 
 
-def decke(T, z_top, o):
+def decke(T, z_top, o, portale=None):
     """Unterfuehrung: Betonplatte zwischen den Trogwaenden unter dem Kreuzungsobjekt; an beiden Enden endet der Trog
     halbrund (Luftbild): die Stirnseite der Decke folgt dem Halbkreis. Unterseite dunkler Beton"""
     from .ring_kreuzung import fein_dreiecke
     m = Mesh()
     dicke = 1.1
-    for c in fein_dreiecke(T['decke'], 4.0):
+    # 30 cm in die Trogwaende hinein: kein Spalt zwischen Deckenrand und Wand
+    from shapely.ops import unary_union as _uu
+    platte = T['decke'].buffer(0.3, join_style=2).difference(_uu([T['nord']['offen'], T['sued']['offen']]))
+    if portale:
+        # Anschluss an den Portal-Spline: das Deckenloch ist sein Halbkreis (Wandmitte) - die Deckenkante liegt im
+        # Wandkoerper, ohne Spalt und ohne Absatz
+        from .ring_waende import halbscheibe
+        from shapely.geometry import LineString
+        voll = _uu([T['decke'].buffer(0.2, join_style=2)] + [halbscheibe(c, R + 0.2, dd) for c, R, dd in portale.values()])
+        loch = _uu([halbscheibe(c, R, dd).union(LineString([c, c - dd * 60]).buffer(R, cap_style=2)) for c, R, dd in portale.values()])
+        platte = voll.difference(loch)
+    for c in fein_dreiecke(platte, 4.0):
         m.dreieck('decke', [(x - o[0], y - o[1], z_top - dicke - o[2]) for x, y in c], [(x / 4, y / 4) for x, y in c], (0, 0, -1))
         m.dreieck('beton', [(x - o[0], y - o[1], z_top - o[2]) for x, y in c], [(x / 4, y / 4) for x, y in c], (0, 0, 1))
-    for name in ('nord', 'sued'):
-        info = T[name]
-        mitte, rr, d = info['mitte'], info['r'], info['richtung']
-        quer = np.array([d[1], -d[0]])
-        pts = [mitte + quer * rr * math.cos(w) + d * rr * math.sin(w) for w in np.linspace(0, math.pi, 33)]
-        for a, b in zip(pts[:-1], pts[1:]):
-            mid = (a + b) / 2
-            nrm = (mitte - mid) / np.linalg.norm(mitte - mid)        # zur Trogoeffnung hin
-            L = float(np.linalg.norm(b - a))
-            m.quad('beton', [(a[0] - o[0], a[1] - o[1], z_top - dicke - 0.3 - o[2]), (b[0] - o[0], b[1] - o[1], z_top - dicke - 0.3 - o[2]),
-                             (b[0] - o[0], b[1] - o[1], z_top - o[2]), (a[0] - o[0], a[1] - o[1], z_top - o[2])],
-                   [(0, 0), (L / 4, 0), (L / 4, 0.35), (0, 0.35)], (nrm[0], nrm[1], 0))
     return m
 
 
@@ -950,6 +965,10 @@ def bauen(omsi, karte, osm_pfad, entwurf_pfad, nn0, ost0, nord0, cache, bauplan_
         bp['waende'] = waende_vorgabe(roh, bp.get('lsw') or lsw_vorgabe(roh))
         bp.pop('lsw', None)
         geaendert = True
+    # Gelaender um die Trogenden bringt jetzt der Portal-Spline mit (ring_waende.portal_splines)
+    alt = len(bp.get('gelaender', []))
+    bp['gelaender'] = [g_ for g_ in bp.get('gelaender', []) if g_.get('unten') != 'trog']
+    geaendert |= len(bp['gelaender']) != alt
     if geaendert:
         rb.schreiben(bauplan_pfad, bp)
     waende_zuordnen(roh, bp['waende'])
@@ -971,7 +990,9 @@ def bauen(omsi, karte, osm_pfad, entwurf_pfad, nn0, ost0, nord0, cache, bauplan_
     T = kz['trog']
     zs = [float(kz['zf'](x, y)) for g_ in rk._polys(T['decke']) for x, y in np.array(g_.exterior.coords)]
     o = np.array([T['nord']['mitte'][0], T['nord']['mitte'][1], 0.0])
-    schreiben(ordner, rel, 'Unterfuehrung', decke(T, min(zs) - 0.12, o), o, liste)
+    from . import ring_waende as rw
+    portal, portal_dateien, portal_geo = rw.portal_splines(roh, kz['zf'], min(zs) - 0.12 - 1.1 - 0.3)
+    schreiben(ordner, rel, 'Unterfuehrung', decke(T, min(zs) - 0.12, o, portal_geo), o, liste)
     st_w = next(st for st in strassen if st['name'] == 'Schiesshausbruecke')
     o = np.array([st_w['elemente'][0]['x'], st_w['elemente'][0]['y'], 0.0])
     bb, _ = bahnbruecke(st_w, gel, o, kz['zf'])
@@ -979,6 +1000,8 @@ def bauen(omsi, karte, osm_pfad, entwurf_pfad, nn0, ost0, nord0, cache, bauplan_
     # Waende als Spline-Ketten entlang der Wandlinien (ring_waende, wie Staedtedreieck/Ahlheim)
     from . import ring_waende as rw
     wand_splines, wand_dateien = rw.splines(roh, kz['zf'], omsi)
+    wand_splines += portal
+    wand_dateien.update(portal_dateien)
     rw.schreiben(omsi, wand_dateien, os.path.join(ordner, 'texture'))
     print(f'Waende: {len(wand_splines)} Spline-Ketten, {sum(len(w_["elemente"]) for w_ in wand_splines)} Elemente, '
           f'{len(wand_dateien)} Profile')

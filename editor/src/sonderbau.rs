@@ -446,7 +446,21 @@ mod tests {
                 (DVec3::new(1056.0, -266.0, 6.0), 0.0, -12.0, 35.0, "bahnbruecke"),
                 (DVec3::new(1060.0, -268.0, 5.2), 2.0, -3.0, 32.0, "bahntunnel"),
             ];
-            for (ziel, gier, neigung, abstand, name) in ansichten {
+            // eigene Ansichten: OMSI_ANSICHTEN="x,y,z,gier,neigung,abstand,name;..." (Nahaufnahmen von Stossstellen)
+            let eigene: Vec<(DVec3, f32, f32, f64, String)> = std::env::var("OMSI_ANSICHTEN").unwrap_or_default().split(';').filter_map(|a| {
+                let w: Vec<&str> = a.split(',').map(|x| x.trim()).collect();
+                if w.len() != 7 {
+                    return None;
+                }
+                let z = |i: usize| w[i].parse::<f64>().ok();
+                Some((DVec3::new(z(0)?, z(1)?, z(2)?), z(3)? as f32, z(4)? as f32, z(5)?, w[6].to_string()))
+            }).collect();
+            let alle: Vec<(DVec3, f32, f32, f64, String)> = if eigene.is_empty() {
+                ansichten.iter().map(|(a, b, c, d, e)| (*a, *b as f32, *c as f32, *d, e.to_string())).collect()
+            } else {
+                eigene
+            };
+            for (ziel, gier, neigung, abstand, name) in alle {
                 let kam = crate::kamera::Kamera { ziel, gier, neigung, abstand, fov: 60.0 };
                 let px = v.render_image(1280, 800, &kam.camera()).unwrap();
                 image::save_buffer(bild.with_extension(format!("{name}.png")), &px, 1280, 800, image::ColorType::Rgba8).unwrap();

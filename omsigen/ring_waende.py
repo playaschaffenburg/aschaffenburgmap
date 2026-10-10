@@ -82,6 +82,16 @@ def profil(art, material, variante, laerm, r, tiefe):
     p = Profil()
     m = material if material in ('klinker', 'beton', 'gabionen') else 'klinker'
     u = -tiefe
+    if art == 'portal':
+        # Stirn des Trogendes ueber der Unterfuehrung: Beton bis unter die Decke, Bruestung und Gelaender wie die
+        # Trennwand (laufen ohne Absatz aus ihr heraus)
+        h = DICKE_TRENN / 2
+        xr, xa = r * h, -r * h
+        p.flaeche('beton', xr, u, BRUESTUNG, r)
+        p.oben('beton', xr, xa, BRUESTUNG)
+        p.flaeche('beton', xa, -0.3, BRUESTUNG, -r)
+        p.beidseitig('stab', 0.0, BRUESTUNG, BRUESTUNG + GELAENDER)
+        return p
     if art == 'trenn':
         h = DICKE_TRENN / 2
         xr, xa = r * h, -r * h                         # Ring-Seite, Rampen-Seite
@@ -194,7 +204,12 @@ def laeufe(roh, art, seite, linie, krone, unten, variante):
         if akt is not None and (akt[0] is bt and akt[1] == v):
             akt[2].append(pkt)
             continue
-        neu = (bt, v, [akt[2][-1], pkt] if akt is not None else [pkt])
+        if akt is not None and akt[1] == 'flach':
+            # unter der Decke -> Bruestung: der Wechselpunkt (Portal-Station) gehoert zu beiden, die Bruestung beginnt dort
+            akt[2].append(pkt)
+            neu = (bt, v, [pkt])
+        else:
+            neu = (bt, v, [akt[2][-1], pkt] if akt is not None else [pkt])
         out.append(neu)
         akt = neu
     return [l for l in out if len(l[2]) >= 2]
@@ -273,6 +288,57 @@ def splines(roh, platte, omsi):
                 out.append(dict(name=f"Wand_{art}_{seite}_{bt.get('id', 'x')}_{nr}", art='wand', bauteil=bt.get('id'),
                                 sli=f'Splines\\Aschaffenburg\\{name}.sli', elemente=kette(P, Z)))
     return out, dateien
+
+
+def portal_splines(roh, platte, z_unten):
+    """je Trogende ein Halbkreis-Spline von der West- zur Ost-Trennwand (ueber die Unterfuehrung): beginnt und endet
+    genau an deren Endpunkten (Anschlusspunkte = Portal-Stationen), Krone wie dort (Kreuzungsflaeche + 5 cm),
+    Stirnflaeche bis z_unten (Unterkante der Decke) -> (Ketten, Dateien)"""
+    from .sonderbau_ring import fuge, welt
+    out, dateien, geometrie = [], {}, {}
+    s_portal = [e for e in roh if any(abs(e['s'] - sp) < 1e-6 for sp in _portale(roh))]
+    for name, e in zip(('nord', 'sued'), s_portal):
+        tw, to = fuge(e, 'w'), fuge(e, 'o')
+        if tw is None or to is None:
+            continue
+        pw, po = welt(e, tw, 0)[:2], welt(e, to, 0)[:2]
+        c = (pw + po) / 2
+        R = float(np.linalg.norm(pw - c))
+        u = (pw - c) / R
+        dd = np.asarray(e['d'], float) * (1 if name == 'nord' else -1)      # in die Decke hinein
+        w = np.linspace(0.0, math.pi, 37)
+        P = np.array([c + u * R * math.cos(a) + dd * R * math.sin(a) for a in w])
+        Z = np.array([float(platte(x, y)) + 0.05 for x, y in P])
+        # Seite des Trogs (Mittelpunkt) in Profil-x: links der Laufrichtung -> -1
+        kreuz = dd[0] * (c - pw)[1] - dd[1] * (c - pw)[0]
+        rr = -1 if kreuz > 0 else 1
+        tiefe = math.ceil(max(Z) - z_unten + 0.5)
+        datei_ = f'AB_SB_Wand_portal_beton_{name}_{int(tiefe)}m'
+        dateien[datei_] = profil('portal', 'beton', 'bogen', 'keine', rr, tiefe).text(
+            f'File created with omsigen (Sonderbau Ring). Portal {name}: Stirn, Bruestung, Gelaender. Tiefe {tiefe:.0f} m.')
+        els = kette(P, Z, knoten=2.5)
+        geometrie[name] = (c, R, dd)
+        out.append(dict(name=f'Wand_portal_{name}', art='wand', bauteil=None, sli=f'Splines\\Aschaffenburg\\{datei_}.sli', elemente=els))
+    return out, dateien, geometrie
+
+
+def halbscheibe(c, R, dd, n=48):
+    """Halbkreisflaeche um c mit Radius R in Richtung dd (shapely)"""
+    from shapely.geometry import Polygon
+    u = np.array([dd[1], -dd[0]])
+    pts = [c + u * R * math.cos(a) + dd * R * math.sin(a) for a in np.linspace(0, math.pi, n)]
+    return Polygon(pts)
+
+
+def _portale(roh):
+    # Stationen aus dem Raster selbst: Wechsel von 'unter_decke' (das Portal ist die letzte Station davor/danach)
+    out = []
+    for a, b in zip(roh, roh[1:]):
+        if not a['unter_decke'] and b['unter_decke']:
+            out.append(a['s'])
+        if a['unter_decke'] and not b['unter_decke']:
+            out.append(b['s'])
+    return out
 
 
 def schreiben(omsi, dateien, objekt_texturen):

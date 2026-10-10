@@ -177,13 +177,7 @@ def vorgabe(achse, K, strassen, arme_roh, gel, verbindungen, phasen, pfeile, ram
                         abs(a_[1] - y_) < 0.05 and abs(b_[1] - y_) < 0.05 for y_ in rk.ECK_ENDE.values()):
                     continue
                 segmente.append((a_, b_, 'gelaende'))
-    for name in ('nord', 'sued'):
-        c = list(T[name]['offen'].exterior.coords)
-        insel = F['inseln'].buffer(0.05)
-        for a_, b_ in zip(c[:-1], c[1:]):
-            mitte = Point((a_[0] + b_[0]) / 2, (a_[1] + b_[1]) / 2)
-            if insel.contains(mitte) and abs(mitte.distance(Point(T[name]['mitte'])) - T[name]['r']) < 0.3:
-                segmente.append((a_, b_, 'trog'))
+    # (die Trogenden bekommen Bruestung und Gelaender vom Portal-Spline, ring_waende.portal_splines)
     for punkte, art in ketten(segmente):
         plan['gelaender'].append(dict(id=neu('gelaender'), punkte=[_r(p) for p in LineString(punkte).simplify(0.02).coords], unten=art))
     plan['tunnel'] = dict(x0=rk.BAHN_X[0], x1=rk.BAHN_X[1], sohle=rk.BAHN_SOHLE)
@@ -409,7 +403,7 @@ def bauen(plan, achse, K, arme_roh, gel):
                 n = -n
             A = lambda p, dn, z: (p[0] + n[0] * dn - O[0], p[1] + n[1] * dn - O[1], z)
             if g_.get('unten') == 'trog':
-                unten_a, unten_b = za - 1.2, zb - 1.2
+                continue                         # ersetzt durch den Portal-Spline (ring_waende.portal_splines)
             else:
                 ga, gb = (float(gel.h(np.array([q[0] + n[0]]), np.array([q[1] + n[1]]))[0]) for q in (a_, b_))
                 unten_a, unten_b = min(ga, za) - 0.5, min(gb, zb) - 0.5
