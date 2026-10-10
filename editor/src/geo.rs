@@ -130,6 +130,16 @@ fn zaehler() -> usize {
 }
 
 /// Zwischenspeicher der Geodaten (DGM-Kacheln, Luftbilder)
+/// Luftbild eines Ausschnitts (Kartenkoordinaten x0, y0, x1, y1) als JPEG-Datei im Cache, None ohne Luftbild
+pub fn ausschnitt(b: &Bezug, bereich: [f64; 4], pixel: u32) -> Result<Option<PathBuf>> {
+    let datei = PathBuf::from(cache()).join("auftrag").join(format!("ausschnitt-{}-{}.jpg", std::process::id(), zaehler()));
+    let erg = python(&serde_json::json!({
+        "auftrag": "ausschnitt", "zone": b.zone, "ost0": b.ost0, "nord0": b.nord0, "bereich": bereich, "pixel": pixel,
+        "datei": datei.to_string_lossy(), "cache": cache(),
+    }))?;
+    Ok(erg["datei"].as_str().map(PathBuf::from))
+}
+
 pub fn cache() -> String {
     let basis = std::env::var_os("LOCALAPPDATA").map(PathBuf::from).unwrap_or_else(std::env::temp_dir);
     basis.join("omsi-editor").join("geodaten").to_string_lossy().replace('\\', "/")

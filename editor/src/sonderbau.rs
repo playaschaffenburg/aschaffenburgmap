@@ -175,6 +175,151 @@ pub fn kreuzung_anlegen(ae: &mut crate::aendern::Aendern, v: &mut openomsi_game:
     Ok(g.signale.len())
 }
 
+/// Eintraege je Kachel (fuer `einsetzen`)
+type JeKachel = std::collections::BTreeMap<(i32, i32), Vec<Vec<String>>>;
+
+fn kachel_von(p: DVec2) -> (i32, i32) {
+    let ts = omsi_map::tile_size();
+    ((p.x / ts).floor() as i32, (p.y / ts).floor() as i32)
+}
+
+/// den ganzen Sonderbau in die Karte (Sitzung) setzen: Gelaende absenken (ein Rueckgaengig-Schritt im Gelaende),
+/// alles an der Stelle entfernen (Strassen, Objekte - auch einen frueher eingesetzten Sonderbau) und Bauwerk, Strassen
+/// und Kreuzung samt Ampeln eintragen (ein Rueckgaengig-Schritt) -> Meldung. `gel_ordner`: Sitzungsordner der Karte
+pub fn einsetzen(ae: &mut crate::aendern::Aendern, gel: &mut crate::gelaende::Gelaende, v: &mut openomsi_game::viewer::Viewer, root: &Path,
+                 gel_ordner: &Path, json: &Path) -> Result<String> {
+    let teile = lesen(json)?;
+    let strassen = strassen_lesen(json)?;
+    let kreuzungen = kreuzungen_lesen(json)?;
+    let senken = gelaende_lesen(json)?;
+    // Bereich: alle Strassen des Sonderbaus, 8 m Rand
+    let mut lo = DVec2::splat(f64::MAX);
+    let mut hi = DVec2::splat(f64::MIN);
+    for e in strassen.iter().flat_map(|s| s.elemente.iter()) {
+        lo = lo.min(e.pos);
+        hi = hi.max(e.pos);
+    }
+    if lo.x > hi.x {
+        anyhow::bail!("der Sonderbau hat keine Strassen");
+    }
+    let (lo, hi) = (lo - DVec2::splat(8.0), hi + DVec2::splat(8.0));
+    let im_bereich = |p: DVec2| p.x >= lo.x && p.x <= hi.x && p.y >= lo.y && p.y <= hi.y;
+    v.tiles_around(((lo + hi) * 0.5).extend(0.0), 1)?;
+    // 1. Gelaende (vor den Ampeln: ihre Hoehe ueber dem Gelaende haengt davon ab)
+    let mut kacheln: std::collections::HashMap<(i32, i32), omsi_map::Terrain> = Default::default();
+    for (k, spalte, zeile, z) in &senken {
+        if !kacheln.contains_key(k) {
+            let Some(t) = v.tile_terrain(k.0, k.1) else { continue };
+            kacheln.insert(*k, t);
+        }
+        let t = kacheln.get_mut(k).unwrap();
+        let i = zeile * (t.cells + 1) + spalte;
+        if i < t.heights.len() {
+            t.heights[i] = t.heights[i].min(*z);
+        }
+    }
+    let neu: Vec<((i32, i32), Vec<f32>)> = kacheln.iter().map(|(k, t)| (*k, t.heights.clone())).collect();
+    let n_gel = gel.uebernehmen(v, gel_ordner, neu)?;
+    v.tiles_around(((lo + hi) * 0.5).extend(0.0), 1)?;
+    // 2. was weg muss: Strassen mit einem Punkt im Bereich
+    ae.aktualisieren(v);
+    let weg_ids: std::collections::HashSet<i64> = ae.kacheln.values().flatten()
+        .filter(|s| s.punkte().iter().any(|(q, _)| im_bereich(q.truncate()))).map(|s| s.id).collect();
+    // 3. neue Eintraege
+    let z = crate::kreuzung::zahl;
+    let ts = omsi_map::tile_size();
+    let mut je: JeKachel = Default::default();
+    let mut n_obj = 0;
+    for t in &teile {
+        let k = kachel_von(t.pos);
+        let id = ae.neue_ids(v, 1);
+        je.entry(k).or_default().push(vec!["[object]".to_string(), "0".into(), t.rel.clone(), id.to_string(), z(t.pos.x - k.0 as f64 * ts),
+                                            z(t.pos.y - k.1 as f64 * ts), z(t.hoehe), "0".into(), "0".into(), "0".into(), "0".into()]);
+        n_obj += 1;
+    }
+    let mut n_spl = 0;
+    for st in &strassen {
+        if st.elemente.is_empty() {
+            continue;
+        }
+        let sli = crate::querschnitt::schreiben(root, &st.querschnitt, &st.querschnitt.datei())?;
+        v.forget_spline_type(&sli);
+        let id0 = ae.neue_ids(v, st.elemente.len() as i64);
+        for (i, e) in st.elemente.iter().enumerate() {
+            let k = kachel_von(e.pos);
+            let id = id0 + i as i64;
+            je.entry(k).or_default().push(vec![
+                "[spline_h]".to_string(), "0".into(), sli.clone(), id.to_string(),
+                if i > 0 { (id - 1).to_string() } else { "0".into() },
+                if i + 1 < st.elemente.len() { (id + 1).to_string() } else { "0".into() },
+                z(e.pos.x - k.0 as f64 * ts), z(e.z), z(e.pos.y - k.1 as f64 * ts), z(e.richtung.rem_euclid(360.0)), z(e.laenge),
+                z(e.radius), z(e.stg_a), z(e.stg_e), z(e.dh), "0".into(), "0".into(), "0".into(), "0".into(), z(e.kum),
+            ]);
+            n_spl += 1;
+        }
+    }
+    let mut n_sig = 0;
+    for plan in &kreuzungen {
+        let mut g = plan.gesetzt.clone();
+        for (sg, boden) in g.signale.iter_mut().zip(&plan.boden) {
+            if let (Some(p), Some(b)) = (sg.pos, boden) {
+                sg.hoehe += b - v.terrain_height(p.x, p.y).unwrap_or(*b);
+            }
+        }
+        let mut id = ae.neue_ids(v, 1 + g.signale.len() as i64);
+        let (k, eintraege) = crate::speichern::kreuzung_eintraege(&g, &mut id);
+        n_sig += g.signale.len();
+        je.entry(k).or_default().extend(eintraege);
+    }
+    // 4. eine Aenderung ueber alle betroffenen Kacheln
+    let mut betroffen: Vec<(i32, i32)> = je.keys().copied().collect();
+    for k in v.loaded_tile_keys() {
+        let (a, b) = (DVec2::new(k.0 as f64 * ts, k.1 as f64 * ts), DVec2::new((k.0 + 1) as f64 * ts, (k.1 + 1) as f64 * ts));
+        if a.x <= hi.x && b.x >= lo.x && a.y <= hi.y && b.y >= lo.y && !betroffen.contains(&k) && v.tile_file(k.0, k.1).is_some() {
+            betroffen.push(k);
+        }
+    }
+    let mut entfernt = 0;
+    ae.kacheln_aendern(v, &betroffen, |k, zeilen| {
+        let o = DVec2::new(k.0 as f64 * ts, k.1 as f64 * ts);
+        let f = |i: usize| zeilen.get(i).and_then(|x| x.trim().parse::<f64>().ok());
+        // Eintraege als Bereiche [Anfang, Ende)
+        let starts: Vec<usize> = (0..zeilen.len()).filter(|&i| crate::kreuzung::ist_eintrag(&zeilen[i])).collect();
+        let mut weg: Vec<(usize, usize)> = Vec::new();
+        let mut weg_obj: std::collections::HashSet<i64> = Default::default();
+        for (n, &i) in starts.iter().enumerate() {
+            let ende = starts.get(n + 1).copied().unwrap_or(zeilen.len());
+            let w = zeilen[i].trim().to_ascii_lowercase();
+            let id = f(i + 3).map(|x| x as i64);
+            let raus = match w.as_str() {
+                "[spline]" | "[spline_h]" => id.map(|x| weg_ids.contains(&x)).unwrap_or(false)
+                    || f(i + 6).zip(f(i + 8)).map(|(x, y)| im_bereich(o + DVec2::new(x, y))).unwrap_or(false),
+                "[object]" => f(i + 4).zip(f(i + 5)).map(|(x, y)| im_bereich(o + DVec2::new(x, y))).unwrap_or(false),
+                "[attachobj]" => f(i + 4).map(|p| weg_obj.contains(&(p as i64))).unwrap_or(false),
+                _ => false,
+            };
+            if raus {
+                if let Some(id) = id {
+                    weg_obj.insert(id);
+                }
+                weg.push((i, ende));
+            }
+        }
+        for (a, b) in weg.iter().rev() {
+            zeilen.drain(*a..*b);
+        }
+        let neu = je.get(&k).cloned().unwrap_or_default();
+        for e in &neu {
+            zeilen.push(String::new());
+            zeilen.extend(e.iter().cloned());
+        }
+        entfernt += weg.len();
+        Ok(weg.len() + neu.len())
+    })?;
+    Ok(format!("Sonderbau eingesetzt: {n_obj} Objekte, {n_spl} Splines, {} Kreuzung(en) mit {n_sig} Ampelteilen; {entfernt} alte Eintraege an der Stelle entfernt, Gelaende in {n_gel} Kachel(n) abgesenkt",
+               kreuzungen.len()))
+}
+
 /// abzusenkende Gelaendepunkte: (Kachel, Spalte, Zeile ab Sueden, Hoehe)
 pub fn gelaende_lesen(datei: &Path) -> Result<Vec<((i32, i32), usize, usize, f32)>> {
     let j: serde_json::Value = serde_json::from_slice(&std::fs::read(datei)?)?;
@@ -213,60 +358,16 @@ mod tests {
         let mitte = DVec3::new(1084.0, -265.0, 0.0);
         v.tiles_around(mitte, 1).unwrap();
         let mut ae = crate::aendern::Aendern::neu(&v);
-        // bisherige Strassen an der Stelle weg (nur in der Sitzung), damit das Bild das Bauwerk zeigt
-        ae.aktualisieren(&v);
-        let im_bereich = |p: DVec2| (1030.0..1140.0).contains(&p.x) && (-428.0..-130.0).contains(&p.y);
-        ae.auswahl = ae.kacheln.values().flatten().filter(|s| {
-            s.punkte().iter().any(|(q, _)| im_bereich(q.truncate()))
-        }).map(|s| s.id).collect();
-        println!("{} Splines an der Stelle entfernt", ae.loeschen(&mut v).unwrap());
-        let ts = omsi_map::tile_size();
-        let kacheln_hier: Vec<(i32, i32)> = v.loaded_tile_keys().into_iter().collect();
-        let weg = ae.kacheln_aendern(&mut v, &kacheln_hier, |k, z| {
-            let mut n = 0;
-            let mut i = 0;
-            while i < z.len() {
-                let lage = || Some(DVec2::new(z.get(i + 4)?.trim().parse::<f64>().ok()? + k.0 as f64 * ts, z.get(i + 5)?.trim().parse::<f64>().ok()? + k.1 as f64 * ts));
-                if z[i].trim() == "[object]" && lage().map(im_bereich).unwrap_or(false) {
-                    let mut j = i + 1;
-                    while j < z.len() && !z[j].trim_start().starts_with('[') {
-                        j += 1;
-                    }
-                    z.drain(i..j);
-                    n += 1;
-                } else {
-                    i += 1;
-                }
-            }
-            Ok(n)
-        }).unwrap();
-        println!("{weg} Objekte an der Stelle entfernt");
-        for t in &teile {
-            ae.objekt_anlegen_hoehe(&mut v, &t.rel, t.pos, t.hoehe, 0.0, &[]).unwrap();
-        }
-        // Etappe 2: Strassen
+        let mut gel = crate::gelaende::Gelaende::default();
+        let gel_ordner = ae.sitzung.join("maps").join("Aburg_Newgen");
+        let msg = einsetzen(&mut ae, &mut gel, &mut v, root, &gel_ordner, &json).unwrap();
+        println!("{msg}");
         let strassen = strassen_lesen(&json).unwrap();
         assert!(strassen.len() >= 5, "{} Strassen", strassen.len());
-        println!("{} Splines angelegt", strassen_anlegen(&mut ae, &mut v, root, &strassen).unwrap());
+        // die Kreuzung trifft die Strassen: Oberflaeche 1 m innerhalb jedes Strassenendes = Spline + 0,10 m
         v.tiles_around(mitte, 1).unwrap();
-        let senken = gelaende_lesen(&json).unwrap();
-        let mut kacheln: std::collections::HashMap<(i32, i32), omsi_map::Terrain> = Default::default();
-        for (k, spalte, zeile, z) in &senken {
-            let t = kacheln.entry(*k).or_insert_with(|| v.tile_terrain(k.0, k.1).unwrap());
-            let i = zeile * (t.cells + 1) + spalte;
-            t.heights[i] = t.heights[i].min(*z);
-        }
-        // wie beim Speichern: abgesenktes Gelaende als .terrain in die Sitzung (Objekte am Boden stehen dann darauf)
-        let neu: Vec<((i32, i32), Vec<f32>)> = kacheln.iter().map(|(k, t)| (*k, t.heights.clone())).collect();
-        let n_k = crate::gelaende::Gelaende::default().uebernehmen(&mut v, &ae.sitzung.join("maps").join("Aburg_Newgen"), neu).unwrap();
-        println!("{} Gelaendepunkte in {} Kacheln abgesenkt", senken.len(), n_k);
-        // Etappe 3: Kreuzung (Ampeln auf Gehwegen und Inseln, ueber dem abgesenkten Gelaende)
         for plan in kreuzungen_lesen(&json).unwrap() {
-            let n = kreuzung_anlegen(&mut ae, &mut v, &plan).unwrap();
-            println!("{}: {} Signale/Masten, {} Regeln, Phasen {:?}, Umlauf {:?} s", plan.name, n, plan.gesetzt.rules.len(), plan.phasen, plan.umlauf);
-            assert!(n >= 12);
-            // die Kreuzung trifft die Strassen: Oberflaeche 1 m innerhalb jedes Strassenendes = Spline + 0,10 m
-            v.tiles_around(mitte, 1).unwrap();
+            assert!(plan.gesetzt.signale.len() >= 12);
             let o = plan.gesetzt.pos.truncate();
             for st in &strassen {
                 for (p, z, h) in [st.elemente.first().map(|e| (e.pos, e.z, e.richtung + 180.0)), st.elemente.last().map(|e| {
@@ -285,6 +386,12 @@ mod tests {
                 }
             }
         }
+        // ein zweites Einsetzen (nach "Anwenden" im Objekt-Editor) ersetzt den ersten, statt ihn zu verdoppeln
+        let vorher: usize = v.loaded_tile_keys().iter().filter_map(|k| v.tile_file(k.0, k.1)).map(|d| std::fs::read(ae.kopie(&v, &d)).map(|b| b.len()).unwrap_or(0)).sum();
+        einsetzen(&mut ae, &mut gel, &mut v, root, &gel_ordner, &json).unwrap();
+        let nachher: usize = v.loaded_tile_keys().iter().filter_map(|k| v.tile_file(k.0, k.1)).map(|d| std::fs::read(ae.kopie(&v, &d)).map(|b| b.len()).unwrap_or(0)).sum();
+        println!("Kacheln vorher {vorher} B, nach erneutem Einsetzen {nachher} B");
+        assert!((nachher as f64 - vorher as f64).abs() < vorher as f64 * 0.02, "erneutes Einsetzen verdoppelt");
         v.tiles_around(mitte, 1).unwrap();
         let z = v.terrain_height(1084.0, -265.0).unwrap_or(10.0);
         println!("Gelaende an der Kreuzung: {z:.2} m");

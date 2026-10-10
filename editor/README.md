@@ -317,6 +317,20 @@ Namen je Sitzung, nichts Vorhandenes wird ersetzt).
 darüber, neue Objekte stehen als `[object]`-Einträge mit eindeutigen IDs in ihrer Kachel, `global.cfg` bekommt den
 neuen Namen und `[NextIDCode]`; die geöffnete Karte bleibt unverändert.
 
+**Objekt-Editor** (Knopf oben, bei Karten mit Ort): bearbeitet den Sonderbau Ring/Ludwigsallee Bauteil für Bauteil.
+Grundlage ist der Bauplan `sonderbau/ring/bauplan.json` (Format in `omsigen/ring_bauplan.py`); die Draufsicht zeigt
+das Luftbild (DOP40) und die Flächen mit ihren echten Texturen in derselben Lage wie im Objekt. Bauteile: Flächen
+(Fahrbahn, Gehweg, Insel Beton, Insel bepflanzt, Sperrfläche, Radfurt, Busspur Beton – erhöhte schneiden die Fahrbahn
+aus, Bordsteine entstehen von selbst), Linien (Breite, Strich/Lücke), Haltlinien (je Zufahrt; dort halten die
+Fahrzeuge), Pfeile und BUS, Ampeln (Kfz/Fußgänger, kleiner Mast/Ausleger, Phase), Geländer, Fußgängerfurten,
+Gehpfade; dazu Lärmschutzwände (Bereiche entlang der Ring-Achse), Bahntunnel und Ampelphasen.
+Bedienung: Klick wählt, Ziehen verschiebt, Eckpunkte ziehen (rastet an Punkten ein, Strg ohne), Doppelklick auf eine
+Kante fügt einen Punkt ein, Rechtsklick löscht ihn; **Alt+Ziehen verschiebt die Textur** einer Fläche, Alt+Rad
+skaliert sie, Strg+Rad dreht (Textur bzw. Pfeil/Ampel); rechte/mittlere Maustaste schiebt die Ansicht, Rad zoomt,
+Pfeiltasten 5 cm (Umschalt 50 cm), Entf löscht; eigene Rückgängig-Liste. **Anwenden** speichert den Bauplan, baut mit
+omsigen alle Objekte neu (`python -m omsigen.sonderbau_ring … --bauplan …`) und setzt den Sonderbau in die Karte
+(Sitzung: ersetzt Straßen und Objekte an der Stelle, Gelände abgesenkt; Rückgängig und Speichern wie gewohnt).
+
 **Protokoll und Berichte** (Knopf „Protokolle“ oben öffnet den Ordner `%LOCALAPPDATA%\omsi-editor\logs`): jede
 Sitzung schreibt eine Logdatei (die letzten 10 bleiben; Stufe über `RUST_LOG`, Standard `warn,omsi_editor=info`),
 beim Kreuzungsbau jeden Schritt mit Zeit. Absturz: `absturz-<Zeit>.txt` mit Stelle, Backtrace und den letzten

@@ -25,6 +25,7 @@ mod knoten;
 mod kreuzung;
 mod luftbild;
 mod netz;
+mod objekteditor;
 mod orte;
 mod protokoll;
 mod querschnitt;
@@ -283,6 +284,10 @@ struct App {
     ort_gelaende: bool,
     /// Querschnitt-Baukasten (Fenster offen)
     baukasten: Option<baukasten::Baukasten>,
+    /// Objekt-Editor fuer den Sonderbau (Kreuzung Ludwigsallee am Ring)
+    objekteditor: Option<objekteditor::ObjektEditor>,
+    /// OMSI_OBJEKTEDITOR: Objekt-Editor nach dem Laden der Karte einmal oeffnen (Pruefung)
+    objekteditor_auto: bool,
     /// Messwerkzeug (M): an, Anfangs- und Endpunkt der letzten Messung
     messen: bool,
     mess_a: Option<DVec3>,
@@ -412,6 +417,10 @@ enum UiAktion {
     HaltLoeschen(orte::Haltestelle),
     HaltAufnehmen(orte::Haltestelle),
     Hinfahren(DVec3),
+    /// Objekt-Editor oeffnen/schliessen
+    ObjektEditor,
+    /// Objekt-Editor hat neu gebaut: (sonderbau_ring.json, in die Karte setzen?)
+    SonderbauGebaut(PathBuf, bool),
     /// Strasse bauen mit diesem Querschnitt (Pipette)
     StrasseUebernehmen(String),
     SplineLoeschen,
@@ -526,6 +535,8 @@ impl App {
             ort_setzen_job: None,
             ort_gelaende: true,
             baukasten: None,
+            objekteditor: None,
+            objekteditor_auto: std::env::var_os("OMSI_OBJEKTEDITOR").is_some(),
             messen: false,
             mess_a: None,
             mess_b: None,
@@ -1249,6 +1260,10 @@ impl App {
                     if ui.selectable_label(self.messen, "Messen (M)").on_hover_text("Strecke messen (waagerecht, mit Hoehenunterschied) - z. B. Strassenbreiten im Luftbild").clicked() {
                         aktionen.push(UiAktion::Messen);
                     }
+                    if self.karte.as_ref().map(|k| self.root.join("maps").join(k).join("omsi-editor-geo.cfg").is_file()).unwrap_or(false)
+                        && ui.selectable_label(self.objekteditor.is_some(), "Objekt-Editor").on_hover_text("Sonderbau Ring/Ludwigsallee: jedes Bauteil der Kreuzung bearbeiten (Flaechen, Texturen, Markierungen, Pfeile, Ampeln, Gelaender, Laermschutz) und neu bauen").clicked() {
+                        aktionen.push(UiAktion::ObjektEditor);
+                    }
                     if ui.selectable_label(self.pipette, "\u{1F58C} Pipette (I)").on_hover_text("Klick auf ein Objekt, einen Baum, eine Strasse oder einen Kreisverkehr: wechselt ins passende Werkzeug und uebernimmt es").clicked() {
                         aktionen.push(UiAktion::Pipette);
                     }
@@ -1305,6 +1320,24 @@ impl App {
             }
             self.karten_dialoge(ctx, &mut aktionen);
             let messung = self.messung();
+            if self.objekteditor_auto && self.viewer.is_some() && self.objekteditor.is_none() {
+                self.objekteditor_auto = false;
+                aktionen.push(UiAktion::ObjektEditor);
+            }
+            if let Some(oe) = self.objekteditor.as_mut() {
+                let mut offen = true;
+                match oe.ui(ctx, &mut offen) {
+                    Some(objekteditor::Aktion::Gebaut { json, einsetzen }) => aktionen.push(UiAktion::SonderbauGebaut(json, einsetzen)),
+                    Some(objekteditor::Aktion::Kamera(p)) => aktionen.push(UiAktion::Hinfahren(p)),
+                    None => {}
+                }
+                if !offen {
+                    if oe.geaendert {
+                        let _ = oe.speichern();
+                    }
+                    self.objekteditor = None;
+                }
+            }
             if let Some(bk) = self.baukasten.as_mut() {
                 let mut offen = true;
                 if let Some(baukasten::Ergebnis::Gespeichert(rel, q, bauen)) = bk.ui(ctx, &self.root, &mut offen, messung) {
@@ -3081,6 +3114,38 @@ impl App {
                     let daten = if gelaende { geo::kacheln(&b, &kacheln, true, false)?.0 } else { Vec::new() };
                     Ok((b, daten))
                 }));
+            }
+            UiAktion::ObjektEditor => {
+                if let Some(oe) = self.objekteditor.as_mut() {
+                    if oe.geaendert {
+                        let _ = oe.speichern();
+                    }
+                    self.objekteditor = None;
+                    return;
+                }
+                let Some(karte) = self.karte.clone() else { return };
+                match objekteditor::ObjektEditor::neu(&self.root, &karte) {
+                    Ok(oe) => self.objekteditor = Some(oe),
+                    Err(e) => self.meldung = format!("Objekt-Editor: {e}"),
+                }
+            }
+            UiAktion::SonderbauGebaut(json, einsetzen) => {
+                let objekte = self.objekteditor.as_ref().map(|o| o.objekte()).unwrap_or_default();
+                let ordner = self.sitzungsordner();
+                let (Some(v), Some(a), Some(ordner)) = (self.viewer.as_mut(), self.aendern.as_mut(), ordner) else { return };
+                for rel in &objekte {
+                    v.forget_object_type(rel);
+                }
+                if einsetzen {
+                    self.meldung = match sonderbau::einsetzen(a, &mut self.gelaende, v, &self.root, &ordner, &json) {
+                        Ok(m) => m,
+                        Err(e) => format!("Sonderbau nicht eingesetzt: {e:#}"),
+                    };
+                } else {
+                    let keys = v.loaded_tile_keys();
+                    let _ = v.reload_tiles(&keys);
+                    self.meldung = "Sonderbau neu gebaut (nicht eingesetzt)".into();
+                }
             }
             UiAktion::Baukasten(q) => {
                 self.baukasten = Some(baukasten::Baukasten::neu(&self.root, q));

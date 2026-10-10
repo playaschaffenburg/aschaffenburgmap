@@ -252,6 +252,19 @@ def kacheln(a):
     return {'kacheln': aus, 'quellen': sorted(quellen)}
 
 
+def ausschnitt(a):
+    """Luftbild eines beliebigen Ausschnitts (Kartenkoordinaten x0..x1, y0..y1) als JPEG-Datei -> {'datei', 'quellen'}"""
+    zone, e0, n0 = int(a['zone']), float(a['ost0']), float(a['nord0'])
+    x0, y0, x1, y1 = (float(v) for v in a['bereich'])
+    daten = luftbild(zone, e0 + x0, n0 + y0, e0 + x1, n0 + y1, int(a.get('pixel', 1024)), a.get('cache', '.cache'))
+    if not daten:
+        return {'datei': None, 'quellen': []}
+    os.makedirs(os.path.dirname(a['datei']), exist_ok=True)
+    with open(a['datei'], 'wb') as f:
+        f.write(daten)
+    return {'datei': a['datei'], 'quellen': [QUELLE_DOP]}
+
+
 def main():
     try:
         a = json.load(sys.stdin)
@@ -262,6 +275,8 @@ def main():
             erg = bezug(float(a['lat']), float(a['lon']), a.get('cache', '.cache'))
         elif art == 'kacheln':
             erg = kacheln(a)
+        elif art == 'ausschnitt':
+            erg = ausschnitt(a)
         else:
             erg = {'fehler': f'unbekannter Auftrag {art!r}'}
     except Exception as ex:
