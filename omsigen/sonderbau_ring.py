@@ -348,7 +348,30 @@ def trennwand(roh, seite, o, platte=None):
     return m
 
 
-def aussenwand(roh, seite, o):
+def lsw_vorgabe(roh):
+    """Laermschutzwaende wie bisher (West ueberall, Ost wo das Gelaende hoeher ist; nicht an der Kreuzung) als
+    Bereiche [s0, s1] je Seite fuer den Bauplan"""
+    out = {}
+    for seite in ('w', 'o'):
+        an = []
+        for e in roh:
+            r_ = e[seite]
+            ok = aussen(e, seite) is not None and not (LSW_FREI[0] <= e['s'] <= LSW_FREI[1]) and (seite == 'w' or r_['g'] > r_['z'] + 1.0)
+            an.append(ok)
+        bereiche, start = [], None
+        for e, ok in zip(roh, an):
+            if ok and start is None:
+                start = e['s']
+            if not ok and start is not None:
+                bereiche.append([round(start, 1), round(e['s'], 1)])
+                start = None
+        if start is not None:
+            bereiche.append([round(start, 1), round(roh[-1]['s'], 1)])
+        out[seite] = bereiche
+    return out
+
+
+def aussenwand(roh, seite, o, lsw_bereiche=None):
     """Aussenwand neben der Rampe `seite`: West Gabionen + gruene LSW, Ost Klinker (ab 3,5 m zweistufig mit
     Pflanzstreifen) + Glas-LSW"""
     m = Mesh()
@@ -400,8 +423,7 @@ def aussenwand(roh, seite, o):
             lsw, lsw_h = 'glas', 2.5
             lsw_t = (stufen[-1][0] + vz * 0.2, stufen[-1][1] + vz * 0.2)
         # Laermschutzwand oben (nur wo die Wand das Gelaende haelt: Gelaende ueber der Rampe)
-        nah = LSW_FREI[0] <= ea['s'] <= LSW_FREI[1]
-        if not nah and (seite == 'w' or ga > za + 1.0 and gb > zb + 1.0):
+        if any(a0 <= (ea['s'] + eb['s']) / 2 <= a1 for a0, a1 in (lsw_bereiche or [])):
             m.quad(lsw, [p(ea, lsw_t[0], hoch_a), p(eb, lsw_t[1], hoch_b), p(eb, lsw_t[1], hoch_b + lsw_h), p(ea, lsw_t[0], hoch_a + lsw_h)],
                    [(s_ges / 2, 0), ((s_ges + laenge) / 2, 0), ((s_ges + laenge) / 2, 1), (s_ges / 2, 1)], n_innen, beidseitig=True)
             if int((s_ges + laenge) // 3) > int(s_ges // 3):     # Pfosten alle 3 m
@@ -811,7 +833,7 @@ def schreiben(ordner, rel_ordner, name, mesh, o, liste, rendertype=None):
     liste.append(dict(name=name, rel=rel_ordner + '\\' + name + '.sco', x=float(o[0]), y=float(o[1]), z=float(o[2]), dreiecke=len(mesh.F)))
 
 
-def bauen(omsi, karte, osm_pfad, entwurf_pfad, nn0, ost0, nord0, cache):
+def bauen(omsi, karte, osm_pfad, entwurf_pfad, nn0, ost0, nord0, cache, bauplan_pfad=None, neuer_bauplan=False):
     ordner = os.path.join(omsi, 'Sceneryobjects', 'Aschaffenburg', karte, 'Sonderbau_Ring')
     rel = f'Sceneryobjects\\Aschaffenburg\\{karte}\\Sonderbau_Ring'
     os.makedirs(os.path.join(ordner, 'model'), exist_ok=True)
@@ -835,8 +857,18 @@ def bauen(omsi, karte, osm_pfad, entwurf_pfad, nn0, ost0, nord0, cache):
     from shapely.ops import unary_union
     achse = achse_aus_json(entwurf['achse'])
     K = {k_: versatz_aus_json(v) for k_, v in entwurf['kanten'].items()}
-    kz = rk.bauen(achse, K, strassen, arme, gel, rs.VERBINDUNGEN, rs.PHASEN, rs.PFEILE,
-                  [n_ for n_ in rs.RAMPEN])
+    # Bauplan (Objekt-Editor): vorhanden -> daraus bauen, sonst aus dem Luftbild-Stand anlegen
+    from . import ring_bauplan as rb
+    bauplan_pfad = bauplan_pfad or os.path.join(os.path.dirname(entwurf_pfad), '..', 'bauplan.json')
+    if neuer_bauplan or not os.path.isfile(bauplan_pfad):
+        bp = rb.vorgabe(achse, K, strassen, arme, gel, rs.VERBINDUNGEN, rs.PHASEN, rs.PFEILE, [n_ for n_ in rs.RAMPEN])
+        bp['lsw'] = lsw_vorgabe(roh)
+        rb.schreiben(bauplan_pfad, bp)
+        print(f'Bauplan angelegt: {os.path.abspath(bauplan_pfad)}')
+    bp = rb.lesen(bauplan_pfad)
+    if 'lsw' not in bp:
+        bp['lsw'] = lsw_vorgabe(roh)
+    kz = rb.bauen(bp, achse, K, arme, gel)
     O = kz['O']
     name = 'Kreuzung_Ludwigsallee'
     alpha = [TEX[k_] for k_ in kz['mesh'].mats if TEX[k_].endswith('.tga')]
@@ -866,18 +898,28 @@ def bauen(omsi, karte, osm_pfad, entwurf_pfad, nn0, ost0, nord0, cache):
         o = np.array([teil[0]['p'][0], teil[0]['p'][1], 0.0])
         for seite in ('w', 'o'):
             schreiben(ordner, rel, f'Trennwand_{seite}_{k // n:02d}', trennwand(teil, seite, o, kz['zf']), o, liste)
-            schreiben(ordner, rel, f'Aussenwand_{seite}_{k // n:02d}', aussenwand(teil, seite, o), o, liste)
+            schreiben(ordner, rel, f'Aussenwand_{seite}_{k // n:02d}', aussenwand(teil, seite, o, bp['lsw'].get(seite, [])), o, liste)
         schreiben(ordner, rel, f'Sohle_{k // n:02d}', flaechen(teil, o), o, liste)
         schreiben(ordner, rel, f'Deckel_{k // n:02d}', deckel(teil, karte_gel, o), o, liste)
     messung = [dict(s=e['s'], x=float(e['p'][0]), y=float(e['p'][1]), ring=[float(e['ra']), float(e['rb']), float(e['zr'])],
                     west=None if e['w'] is None else [e['w'][k] for k in ('a', 'b', 'z', 'g')],
                     ost=None if e['o'] is None else [e['o'][k] for k in ('a', 'b', 'z', 'g')], decke=bool(e['unter_decke'])) for e in roh]
     platte = unary_union([F['fahrbahn'], F['gehweg'], F['inseln']])
-    out = dict(karte=karte, nn0=nn0, objekte=liste, strassen=strassen, kreuzungen=[kreuzung],
+    kontext = dict(bauplan=os.path.abspath(bauplan_pfad),
+                   offen=[[_xy(p) for p in g_.exterior.coords] for g_ in rk._polys(F['offen'])],
+                   arme=[dict(name=a.name, pos=_xy(a.p), h=a.h, links=_xy(a.punkt(0, a.links_rand)), rechts=_xy(a.punkt(0, a.rechts_rand)),
+                              spuren=len(a.spuren()[0]), raus=len(a.spuren()[1])) for a in kz['arme']],
+                   achse=[_xy(achse.punkt(t_)[:2]) for t_ in np.arange(0, achse.laenge, 2.0)],
+                   lose_signale=kz['lose_signale'])
+    out = dict(karte=karte, nn0=nn0, objekte=liste, strassen=strassen, kreuzungen=[kreuzung], kontext=kontext,
                gelaende=gelaende(roh) + platte_gelaende(platte, kz['zf']) + tunnel_gelaende(kz['tunnel']), messung=messung, quellen=['OpenStreetMap (ODbL)', 'DGM1/DOP40 Bayerische Vermessungsverwaltung (CC BY 4.0)'])
     with open(os.path.join(ordner, 'sonderbau_ring.json'), 'w', encoding='utf-8') as f:
         json.dump(out, f, indent=1)
     return out
+
+
+def _xy(p):
+    return [round(float(p[0]), 3), round(float(p[1]), 3)]
 
 
 def main():
@@ -886,6 +928,8 @@ def main():
     ap.add_argument('--karte', required=True)
     ap.add_argument('--osm', required=True)
     ap.add_argument('--entwurf', default=os.path.join('sonderbau', 'ring', 'entwurf', 'entwurf.json'))
+    ap.add_argument('--bauplan', default=None, help='Bauplan der Kreuzung (Objekt-Editor), Vorgabe sonderbau/ring/bauplan.json')
+    ap.add_argument('--neuer-bauplan', action='store_true', help='Bauplan aus dem Luftbild-Stand neu anlegen (ueberschreibt)')
     ap.add_argument('--cache', default=os.path.join(os.environ.get('LOCALAPPDATA', '.'), 'omsi-editor', 'geodaten'))
     a = ap.parse_args()
     geo = {}
@@ -894,7 +938,8 @@ def main():
             if '=' in z and not z.startswith('#'):
                 k, v = z.split('=', 1)
                 geo[k.strip()] = v.strip()
-    out = bauen(a.omsi, a.karte, a.osm, a.entwurf, float(geo['nn0']), float(geo['ost0']), float(geo['nord0']), a.cache)
+    out = bauen(a.omsi, a.karte, a.osm, a.entwurf, float(geo['nn0']), float(geo['ost0']), float(geo['nord0']), a.cache,
+                a.bauplan, a.neuer_bauplan)
     for o in out['objekte']:
         print(f"{o['name']:24s} {o['dreiecke']:6d} Dreiecke  bei {o['x']:.1f} {o['y']:.1f}")
     print(f"{len(out['objekte'])} Objekte, {len(out['messung'])} Querschnitte")

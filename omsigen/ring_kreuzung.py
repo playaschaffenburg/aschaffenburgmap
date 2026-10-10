@@ -208,10 +208,11 @@ def flaechen(achse, arme, T, rampen):
     insel_w = box(INSEL_W[0][0], INSEL_W[0][1], INSEL_W[1][0], INSEL_W[1][1])
     rund = lambda p: p.buffer(-1.0, join_style='round').buffer(1.0, join_style='round')
     inseln = unary_union([rund(Polygon(INSEL_N)), rund(Polygon(INSEL_S)), insel_o, insel_w]).difference(offen)
+    fahrbahn_roh = fahrbahn.difference(offen)
     fahrbahn = fahrbahn.difference(offen).difference(inseln)
     gehweg = fahrbahn.buffer(GEHWEG_BREITE, 32).difference(fahrbahn).difference(offen).difference(inseln)
     gehweg = unary_union([gehweg.intersection(z) for z in GEHWEG_ZONEN])
-    return dict(fahrbahn=fahrbahn, gehweg=gehweg, inseln=inseln, offen=offen,
+    return dict(fahrbahn=fahrbahn, fahrbahn_roh=fahrbahn_roh, gehweg=gehweg, inseln=inseln, insel_gruen=insel_o, offen=offen,
                 bruestung=[gehweg.intersection(GEHWEG_ZONEN[i]) for i in BRUESTUNG_ZONEN])
 
 
