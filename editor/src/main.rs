@@ -1357,6 +1357,10 @@ impl App {
                 match oe.ui(ctx, &mut offen) {
                     Some(objekteditor::Aktion::Gebaut { json, einsetzen }) => aktionen.push(UiAktion::SonderbauGebaut(json, einsetzen)),
                     Some(objekteditor::Aktion::Kamera(p)) => aktionen.push(UiAktion::Hinfahren(p)),
+                    Some(objekteditor::Aktion::KameraNah(p)) => {
+                        self.kam.ziel = p;
+                        self.kam.abstand = 14.0;
+                    }
                     Some(objekteditor::Aktion::Querschnitt(name, q)) => aktionen.push(UiAktion::SonderbauQuerschnitt(name, q)),
                     None => {}
                 }

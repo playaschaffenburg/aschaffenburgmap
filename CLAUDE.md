@@ -12,6 +12,9 @@ Projekt: `omsigen` erzeugt OMSI-2-Karten aus OpenStreetMap (siehe README.md). Sp
   ältere Karten verweisen noch dorthin, der Editor erkennt beide).
 - Nach jeder Änderung: `python -m pytest` und einen Beispiellauf mit `--osm-datei samples/...` und
   `--vorschau`. Ziel: „ohne Anschluss: 0“. Das PNG ansehen.
+- Jedes gebaute Objekt/Bauwerk durch den Bauprüfer: `python -m omsigen.baupruefer <bauwerk.json> --liste` (Spalte,
+  verzerrte Texturen, doppelte Flächen, offene Enden, schwebende Ampeln; läuft beim Sonderbau automatisch, Funde im
+  Objekt-Editor). Ziel: 0 Funde; erst dann fertig melden. Funde und Stoßstellen aus der Nähe ansehen.
 - Zusätzlich `python -m omsigen.ansicht <Karte> --png …` (Ziel: Beinahe-Anschlüsse 0) und für installierte
   Karten `python -m omsigen.openomsi <Karte> --png … --cam …` (Spielbild aus openOMSI). Bilder ansehen.
 - Standardkarten (Grundorf, Berlin-Spandau) sind die Referenz: mit `omsigen.ansicht` nachsehen, wie OMSI etwas

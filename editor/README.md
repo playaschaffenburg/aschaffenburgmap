@@ -339,6 +339,11 @@ Rückgängig-Liste (Strg+Z/Strg+Y). **Anwenden** speichert den Bauplan, baut mit
 Objekte an der Stelle, Gelände abgesenkt; Rückgängig und Speichern wie gewohnt); „automatisch“ baut 1,5 s nach jeder
 Änderung von selbst neu.
 
+**Bauprüfung:** Nach jedem Bau prüft `omsigen/baupruefer.py` die geschriebenen Dateien (Objekte, Wand- und
+Straßen-Splines, Ampeln) auf Spalte zwischen Teilen, verzerrte Texturen, Flächen ohne Fläche, deckungsgleiche Flächen,
+offene Wandenden und schwebende/versunkene Ampeln (Verdecktes zählt nicht) und schreibt `baupruefung.json`. Der
+Objekt-Editor zeigt die Funde als Liste je Art und als rote Kreise in 3D; ein Klick fährt die Kamera nah hin.
+
 **Fläche markieren** (L): Rechteck ziehen oder Vieleck klicken, alles darin (Objekte/Bäume, Straßen-Splines, wählbar)
 mit Entf löschen – ein Rückgängig-Schritt.
 

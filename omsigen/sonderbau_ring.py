@@ -1009,6 +1009,9 @@ def bauen(omsi, karte, osm_pfad, entwurf_pfad, nn0, ost0, nord0, cache, bauplan_
                gelaende=gelaende(roh) + platte_gelaende(platte, kz['zf']) + tunnel_gelaende(kz['tunnel']), messung=messung, quellen=['OpenStreetMap (ODbL)', 'DGM1/DOP40 Bayerische Vermessungsverwaltung (CC BY 4.0)'])
     with open(os.path.join(ordner, 'sonderbau_ring.json'), 'w', encoding='utf-8') as f:
         json.dump(out, f, indent=1)
+    # Baupruefung der geschriebenen Dateien (baupruefung.json daneben, im Objekt-Editor als Liste)
+    from . import baupruefer
+    print(baupruefer.text(baupruefer.sonderbau_pruefen(os.path.join(ordner, 'sonderbau_ring.json'), omsi)).splitlines()[0])
     return out
 
 

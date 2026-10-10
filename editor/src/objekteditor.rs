@@ -321,8 +321,33 @@ impl Raster {
     }
 }
 
+/// Fund des Bauprüfers (omsigen/baupruefer.py, baupruefung.json neben sonderbau_ring.json)
+#[derive(Clone, Debug, Default)]
+pub struct Fund {
+    pub art: String,
+    pub text: String,
+    pub teil: String,
+    pub pos: DVec3,
+    pub anzahl: usize,
+}
+
+pub fn fund_art(art: &str) -> &str {
+    match art {
+        "textur_verzerrt" => "Textur verzerrt",
+        "dreieck_entartet" => "Dreieck ohne Flaeche",
+        "doppelte_flaeche" => "Flaechen uebereinander (Flimmern)",
+        "spalt" => "Spalt zwischen Teilen",
+        "offenes_ende" => "offenes Wandende",
+        "ampel_schwebt" => "Ampel schwebt",
+        "ampel_versinkt" => "Ampel im Boden",
+        "ampel_ohne_mast" => "Ampel ohne Mast",
+        a => a,
+    }
+}
+
 #[derive(Clone, Debug, Default)]
 pub struct Kontext {
+    pub funde: Vec<Fund>,
     pub offen: Vec<Vec<DVec2>>,
     pub arme: Vec<Arm>,
     pub stationen: Vec<Station>,
@@ -337,7 +362,16 @@ impl Kontext {
         let Ok(j) = serde_json::from_slice::<serde_json::Value>(&b) else { return Kontext::default() };
         let k = &j["kontext"];
         let h = &k["hoehen"];
+        let funde = std::fs::read(datei.with_file_name("baupruefung.json")).ok()
+            .and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+            .and_then(|b| b["funde"].as_array().map(|a| a.iter().map(|f| Fund {
+                art: s(f, "art"), text: s(f, "text"), teil: s(f, "teil"),
+                pos: DVec3::new(f["pos"][0].as_f64().unwrap_or(0.0), f["pos"][1].as_f64().unwrap_or(0.0), f["pos"][2].as_f64().unwrap_or(0.0)),
+                anzahl: f["anzahl"].as_u64().unwrap_or(1) as usize,
+            }).collect()))
+            .unwrap_or_default();
         Kontext {
+            funde,
             offen: k["offen"].as_array().map(|a| a.iter().map(pl).collect()).unwrap_or_default(),
             arme: k["arme"].as_array().map(|a| a.iter().map(|v| Arm { name: s(v, "name"), pos: p2(&v["pos"]), links: p2(&v["links"]), rechts: p2(&v["rechts"]) }).collect()).unwrap_or_default(),
             stationen: k["stationen"].as_array().map(|a| a.iter().map(|v| Station {
@@ -508,6 +542,8 @@ pub enum Aktion {
     Gebaut { json: PathBuf, einsetzen: bool },
     /// Kamera der 3D-Ansicht auf diesen Punkt
     Kamera(DVec3),
+    /// Kamera nah an diesen Punkt (Fund des Bauprüfers)
+    KameraNah(DVec3),
     /// Querschnitt dieser Strasse im Baukasten bearbeiten (Baukasten-JSON)
     Querschnitt(String, serde_json::Value),
 }
@@ -578,6 +614,9 @@ pub struct ObjektEditor {
     pub plan2d: bool,
     mitte: DVec2,
     m_px: f32,
+    /// Funde des Bauprüfers in 3D markieren
+    pub funde_zeigen: bool,
+    fund_wahl: Option<usize>,
 }
 
 const EBENEN: [&str; 10] = ["Flaechen", "Linien", "Haltlinien", "Symbole", "Ampeln", "Gelaender", "Furten", "Gehpfade", "Waende", "Strassen"];
@@ -614,7 +653,7 @@ impl ObjektEditor {
             letzte: None, undo: vec![], redo: vec![], offen_aenderung: None, geaendert: false, zuletzt_geaendert: Instant::now(), job: None,
             meldung: String::new(), luftbild: None, luft_job: None, luft_alpha: 0.55, texturen: Default::default(), einsetzen: true,
             automatisch: false, einrasten: true, neue_art: 0, zeige: [true; 10], drei_d: true, fuellen_3d: false, plan2d: false,
-            mitte: DVec2::new(1084.0, -265.0), m_px: 6.0,
+            mitte: DVec2::new(1084.0, -265.0), m_px: 6.0, funde_zeigen: true, fund_wahl: None,
         }
     }
 
@@ -728,7 +767,7 @@ impl ObjektEditor {
             let erg = match cmd.output() {
                 Ok(o) if o.status.success() => {
                     let t = String::from_utf8_lossy(&o.stdout);
-                    Ok(t.lines().filter(|l| l.starts_with("Kreuzung:") || l.contains("Objekte,")).collect::<Vec<_>>().join(" | "))
+                    Ok(t.lines().filter(|l| l.starts_with("Kreuzung:") || l.contains("Objekte,") || l.starts_with("Baupruefung:")).collect::<Vec<_>>().join(" | "))
                 }
                 Ok(o) => Err(String::from_utf8_lossy(&o.stderr).lines().last().unwrap_or("Fehler").to_string()),
                 Err(e) => Err(format!("{python} starten: {e}")),
@@ -1518,6 +1557,18 @@ impl ObjektEditor {
                 p.circle_filled(*q, if i == 0 { 6.0 } else { 4.0 }, c);
             }
         }
+        if self.funde_zeigen {
+            for (i, f) in self.kontext.funde.iter().enumerate() {
+                if let Some(c) = bild(f.pos) {
+                    let gewaehlt = self.fund_wahl == Some(i);
+                    let farbe = if f.art.starts_with("ampel") { egui::Color32::from_rgb(255, 80, 200) } else { egui::Color32::from_rgb(255, 90, 40) };
+                    p.circle_stroke(c, if gewaehlt { 14.0 } else { 7.0 }, egui::Stroke::new(if gewaehlt { 3.0 } else { 2.0 }, farbe));
+                    if gewaehlt {
+                        p.text(c + egui::vec2(16.0, -16.0), egui::Align2::LEFT_BOTTOM, &f.text, egui::FontId::proportional(13.0), egui::Color32::WHITE);
+                    }
+                }
+            }
+        }
         self.kontext.hoehen = raster;
     }
 
@@ -1644,6 +1695,9 @@ impl ObjektEditor {
         if !self.meldung.is_empty() {
             ui.label(egui::RichText::new(&self.meldung).small());
         }
+        if let Some(a) = self.pruefung_ui(ui) {
+            erg = Some(a);
+        }
         if self.kontext.lose > 0 {
             ui.colored_label(egui::Color32::from_rgb(255, 120, 90), format!("{} Ampelteile stehen nicht auf Gehweg/Insel", self.kontext.lose));
         }
@@ -1712,6 +1766,34 @@ impl ObjektEditor {
         });
         self.bauwerk_ui(ui);
         self.liste(ui);
+        erg
+    }
+
+    /// Bauprüfung: Zusammenfassung, Funde je Art, Klick fährt die Kamera hin
+    fn pruefung_ui(&mut self, ui: &mut egui::Ui) -> Option<Aktion> {
+        let mut erg = None;
+        let n = self.kontext.funde.len();
+        let titel = if n == 0 { egui::RichText::new("Baupruefung: keine Funde").color(egui::Color32::from_rgb(120, 220, 120)) }
+                    else { egui::RichText::new(format!("Baupruefung: {n} Funde")).color(egui::Color32::from_rgb(255, 150, 90)) };
+        egui::CollapsingHeader::new(titel).id_salt("oe_pruefung").default_open(n > 0).show(ui, |ui| {
+            ui.checkbox(&mut self.funde_zeigen, "Funde in 3D markieren");
+            let mut arten: Vec<String> = self.kontext.funde.iter().map(|f| f.art.clone()).collect();
+            arten.sort();
+            arten.dedup();
+            for art in arten {
+                let idx: Vec<usize> = (0..n).filter(|&i| self.kontext.funde[i].art == art).collect();
+                egui::CollapsingHeader::new(format!("{} ({})", fund_art(&art), idx.len())).id_salt(("oe_fund", art.clone())).show(ui, |ui| {
+                    for i in idx.into_iter().take(200) {
+                        let f = &self.kontext.funde[i];
+                        let t = format!("{} - {}{}", f.teil, f.text, if f.anzahl > 1 { format!(" (x{})", f.anzahl) } else { String::new() });
+                        if ui.selectable_label(self.fund_wahl == Some(i), egui::RichText::new(t).small()).clicked() {
+                            self.fund_wahl = Some(i);
+                            erg = Some(Aktion::KameraNah(f.pos));
+                        }
+                    }
+                });
+            }
+        });
         erg
     }
 
