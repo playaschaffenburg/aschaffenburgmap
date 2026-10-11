@@ -42,18 +42,23 @@ def querschnitt(P, ys, breite=0.3, zelle=0.2, klassen=(2,)):
     return x0 + (np.arange(n) + 0.5) * zelle, zs
 
 
-def kanten(xs, zs, sprung=0.5, luecke=2.0):
+def kanten(xs, zs, sprung=0.5, luecke=2.0, lage='hoch', luecke_hoch=None):
     """Hoehenspruenge im Querschnitt: zwischen zwei Zellen mit Punkten (hoechstens `luecke` m Abstand, dazwischen
     nichts = senkrechte Flaeche ohne Laserpunkte) mehr als `sprung` m Unterschied -> [(x, z_unten, z_oben, Seite)]
-    Seite: +1 = oben liegt rechts (Osten), -1 = oben liegt links"""
+    Seite: +1 = oben liegt rechts (Osten), -1 = oben liegt links.
+    lage: 'hoch' = Wand an der Kante der hoeheren Flaeche, 'tief' = am Fuss (Ende der tieferen Flaeche = Wandflaeche).
+    luecke_hoch: groessere Luecke fuer Spruenge ueber 2 m (bepflanzte Mauerkronen haben keine Bodenpunkte)"""
     ok = ~np.isnan(zs)
     X, Z = xs[ok], zs[ok]
     out = []
     for a in range(len(X) - 1):
         dx, dz = X[a + 1] - X[a], Z[a + 1] - Z[a]
-        if dx <= luecke and abs(dz) > sprung:
-            # Lage der Wand: an der Seite der hoeheren Flaeche (dort steht sie), Mitte der Luecke sonst
-            x = X[a + 1] - 0.1 if dz > 0 else X[a] + 0.1
+        grenze = luecke_hoch if (luecke_hoch and abs(dz) > 2.0) else luecke
+        if dx <= grenze and abs(dz) > sprung:
+            if lage == 'tief':
+                x = X[a] + 0.1 if dz > 0 else X[a + 1] - 0.1
+            else:
+                x = X[a + 1] - 0.1 if dz > 0 else X[a] + 0.1
             out.append((round(float(x), 2), round(float(min(Z[a], Z[a + 1])), 2), round(float(max(Z[a], Z[a + 1])), 2), 1 if dz > 0 else -1))
     return out
 

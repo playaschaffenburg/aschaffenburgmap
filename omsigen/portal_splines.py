@@ -150,7 +150,7 @@ def markierungen(m, dop, bereich):
     ns = len(ax.s)
     funde = []
     for k in range(ns):
-        ts = np.arange(-M.T_OST + 1, M.T_WEST - 1, 0.1)
+        ts = np.arange(m.get('t0', -M.T_OST) + 1, m.get('t1', M.T_WEST) - 1, 0.1)
         Q = ax.p[k][None, :] + ts[:, None] * ax.n[k][None, :]
         px = np.clip(((Q[:, 0] - x0) * 5).astype(int), 0, W - 1)
         py = np.clip(((y1 - Q[:, 1]) * 5).astype(int), 0, H - 1)
@@ -333,16 +333,27 @@ def fahrbahnen(m, linien, seiten, sperr=()):
         teil = [x for x in teil if lo + 0.5 < x < hi - 0.5]
         kanten_ = [lo] + teil + [hi]
         spuren = [(a_ + b_) / 2 for a_, b_ in zip(kanten_[:-1], kanten_[1:]) if b_ - a_ >= 2.5]
-        seite = 'trog' if j == seiten['trog'] else ('ost' if j < seiten['trog'] else 'west')
-        name = f'AB_LS_Fahrbahn_{seite}_{breite:.1f}m_{len(spuren)}'.replace('.', '_')
+        if not spuren:
+            spuren = [(lo + hi) / 2]
+        info = m.get('streifen_info', {}).get(j, {})
+        seite = info.get('name') or ('trog' if j == seiten['trog'] else ('ost' if j < seiten['trog'] else 'west'))
+        if info.get('spuren'):                                       # vom Nutzer: gleich breite Fahrstreifen
+            n_ = int(info['spuren'])
+            spuren = [lo + (hi - lo) * (i + 0.5) / n_ for i in range(n_)]
+        name = f'{m.get("praefix", "AB_LS")}_Fahrbahn_{j}'                  # fester Name: neu bauen ueberschreibt
         s = Sli(f'File created with omsigen (portal_splines). Fahrbahn {seite}, gemessene Breite {breite:.2f} m, {len(spuren)} Fahrstreifen.')
         s.hoehen.append((-breite / 2, breite / 2, 0.0))
         s.flach('asphalt', -breite / 2, breite / 2, 0.0, u_abs=True)
         for x in spuren:
-            if seite == 'trog':
+            rv = info.get('richtung')
+            if rv in ('vor', 'zurueck'):
+                r = 0 if rv == 'vor' else 1
+            elif rv == 'beide' or seite == 'trog':
                 r = 0 if x > 0 else 1                                # Rechtsverkehr: rechts der Achse in Achsrichtung
-            else:
+            elif seite in RICHTUNG:
                 r = 0 if RICHTUNG[seite] > 0 else 1
+            else:                                                    # ohne Angabe: ab 2 Fahrstreifen Gegenverkehr
+                r = (0 if x > 0 else 1) if len(spuren) >= 2 else 0
             s.pfade.append((0, x, 0.0, 3.0, r))
         dateien[name] = s.text()
         Z = np.array([m['a'][k, j] + m['b'][k, j] * tc[k] for k in ks])
@@ -351,7 +362,7 @@ def fahrbahnen(m, linien, seiten, sperr=()):
         # Hoehe der gebauten Fahrbahn je Station (Auflagen wie die Schraffur liegen genau darauf)
         sb = np.r_[0, np.cumsum(np.hypot(*np.diff(P, axis=0).T))]
         m.setdefault('gebaut', {})[j] = np.array([kette_hoehe(els, x) for x in sb])
-        out.append(dict(name=f'Fahrbahn_{seite}', art='weg', sli=f'Splines\\Aschaffenburg\\{ORDNER}\\{name}.sli',
+        out.append(dict(name=f'Fahrbahn_{j}_{seite}', art='weg', sli=f'Splines\\Aschaffenburg\\{m.get("ordner", ORDNER)}\\{name}.sli',
                         elemente=els))
     return out, dateien
 
@@ -366,7 +377,7 @@ def markierung_splines(m, linien):
     for n, (ks, T, durch) in enumerate(linien):
         Z = np.array([z_bei(m, k, t) for k, t in zip(ks, T)]) + 0.02
         out.append(dict(name=f'Markierung_{n}', art='markierung',
-                        sli=f'Splines\\Aschaffenburg\\{ORDNER}\\{"AB_LS_Linie" if durch else "AB_LS_Leitlinie"}.sli',
+                        sli=f'Splines\\Aschaffenburg\\{m.get("ordner", ORDNER)}\\{"AB_LS_Linie" if durch else "AB_LS_Leitlinie"}.sli',
                         elemente=kette(linie_xy(m['ax'], ks, T), Z, knoten=5.0)))
     return out, dateien
 
@@ -386,28 +397,33 @@ def waende(m):
         krone = np.maximum(zl, zr)
         diff = np.abs(zr - zl)
         tiefe = math.ceil(float(diff.max()) + 1.0)
-        trog = kk['unten'] < ringsohle + 1.0 and kk['hoehe'] > 3.0
+        if not kk.get('bauen', True):
+            continue
+        trog = kk['art'] == 'trog' if 'art' in kk else (kk['unten'] < ringsohle + 1.0 and kk['hoehe'] > 3.0)
+        material = kk.get('material') or ('paneel' if trog else 'beton')
+        mit_gelaender = kk.get('gelaender', kk['hoehe'] > 2.0)
         tief = -hoch                                                           # Sichtseite der Wand
         s = Sli(f'File created with omsigen (portal_splines). Wand {ki}: {"Trog, Paneele, Bruestung" if trog else "Beton"}, '
                 f'gemessen {kk["hoehe"]:.1f} m, Tiefe {tiefe} m.')
         if trog:
-            s.senkrecht('paneel', 0.0, -tiefe, -0.3, tief)
+            s.senkrecht(material, 0.0, -tiefe, -0.3, tief)
             s.senkrecht('beton', 0.0, -0.3, BRUESTUNG, tief)
             s.flach('beton', 0.0, hoch * 0.3, BRUESTUNG)
             s.senkrecht('beton', hoch * 0.3, -0.3, BRUESTUNG, hoch)
-            s.senkrecht('stab', hoch * 0.15, BRUESTUNG, BRUESTUNG + GELAENDER, -1)
-            s.senkrecht('stab', hoch * 0.15, BRUESTUNG, BRUESTUNG + GELAENDER, 1)
+            if mit_gelaender:
+                s.senkrecht('stab', hoch * 0.15, BRUESTUNG, BRUESTUNG + GELAENDER, -1)
+                s.senkrecht('stab', hoch * 0.15, BRUESTUNG, BRUESTUNG + GELAENDER, 1)
         else:
             # Kappe 15 cm ueber dem Boden der hohen Seite (liegt nicht deckungsgleich auf dem Boden-Spline)
-            s.senkrecht('beton', 0.0, -tiefe, 0.15, tief)
+            s.senkrecht(material, 0.0, -tiefe, 0.15, tief)
             s.flach('beton', 0.0, hoch * 0.35, 0.15)
             s.senkrecht('beton', hoch * 0.35, -0.3, 0.15, hoch)
-            if kk['hoehe'] > 2.0:
+            if mit_gelaender:
                 s.senkrecht('stab', hoch * 0.2, 0.15, 0.15 + GELAENDER, -1)
                 s.senkrecht('stab', hoch * 0.2, 0.15, 0.15 + GELAENDER, 1)
-        name = f'AB_LS_Wand_{ki}'
+        name = f'{m.get("praefix", "AB_LS")}_Wand_{ki}'
         dateien[name] = s.text()
-        out.append(dict(name=f'Wand_{ki}', art='wand', sli=f'Splines\\Aschaffenburg\\{ORDNER}\\{name}.sli',
+        out.append(dict(name=f'Wand_{ki}', art='wand', sli=f'Splines\\Aschaffenburg\\{m.get("ordner", ORDNER)}\\{name}.sli',
                         elemente=kette(linie_xy(ax, ks, kk['t'][ks]), krone, knoten=4.0)))
     return out, dateien
 
@@ -427,7 +443,10 @@ def boden(m):
         tc = M.glatt((tl + tr) / 2, 9)
         dt, asph = m['quer'][j]
         geh = M.glatt((asph > 0.5).astype(float), 5) > 0.5              # Laeufe unter 1 m gehen im Nachbarn auf
-        name = f'AB_LS_Boden_{j}'
+        wahl = m.get('streifen_info', {}).get(j, {}).get('material', 'auto')
+        if wahl in ('gras', 'gehweg'):
+            geh = np.full(len(dt), wahl == 'gehweg')
+        name = f'{m.get("praefix", "AB_LS")}_Boden_{j}'
         s = Sli(f'File created with omsigen (portal_splines). Boden {breite:.2f} m, Gras/Gehweg quer nach DOP20.')
         s.hoehen.append((-breite / 2 - 0.1, breite / 2 + 0.1, 0.0))
         rand = [0] + [i for i in range(1, len(dt)) if geh[i] != geh[i - 1]] + [len(dt)]
@@ -437,7 +456,7 @@ def boden(m):
             s.flach('gehweg' if geh[i0] else 'gras', xa, min(xb, breite / 2 + 0.1), 0.0, u_abs=True)
         dateien[name] = s.text()
         Z = np.array([m['a'][k, j] + m['b'][k, j] * tc[k] for k in ks])
-        out.append(dict(name=f'Boden_{j}', art='boden', sli=f'Splines\\Aschaffenburg\\{ORDNER}\\{name}.sli',
+        out.append(dict(name=f'Boden_{j}', art='boden', sli=f'Splines\\Aschaffenburg\\{m.get("ordner", ORDNER)}\\{name}.sli',
                         elemente=kette(linie_xy(ax, ks, tc), Z, knoten=5.0)))
     return out, dateien
 
@@ -447,7 +466,7 @@ def gelaende(m, bereich, tief=0.4, umkreis=7.2):
     ax, g = m['ax'], m['grenzen']
     Q = []
     for k in range(len(ax.s)):
-        for t in np.arange(-M.T_OST, M.T_WEST + 0.01, 1.0):
+        for t in np.arange(m.get('t0', -M.T_OST), m.get('t1', M.T_WEST) + 0.01, 1.0):
             p = ax.welt(k, t)
             Q.append((p[0], p[1], z_bei(m, k, t)))
     Q = np.array(Q)
@@ -459,18 +478,17 @@ def gelaende(m, bereich, tief=0.4, umkreis=7.2):
                 for spalte in range(61):
                     x, y = kx * 300 + spalte * 5.0, ky * 300 + zeile * 5.0
                     k_, t_ = ax.st(np.array([x]), np.array([y]))
-                    if not (0 < k_[0] < len(ax.s) - 1 and -M.T_OST + 0.5 < t_[0] < M.T_WEST - 0.5):
+                    if not (0 < k_[0] < len(ax.s) - 1 and m.get('t0', -M.T_OST) + 0.5 < t_[0] < m.get('t1', M.T_WEST) - 0.5):
                         continue                                       # nur Rasterpunkte unter den Splines
                     d = np.hypot(Q[:, 0] - x, Q[:, 1] - y)
                     out.append([kx, ky, spalte, zeile, round(float(Q[d < umkreis, 2].min()) - tief, 3)])
     return out
 
 
-def texturen(omsi, ziel):
+def texturen(omsi, ziel, quellen=None):
     from PIL import Image
     os.makedirs(ziel, exist_ok=True)
-    quellen = [os.path.join(omsi, 'Sceneryobjects', 'Aschaffenburg', 'Aburg_Lernstueck', 'Lernstueck', 'texture'),
-               os.path.join(omsi, 'Splines', 'Marcel', 'texture')]
+    quellen = (quellen or [os.path.join(omsi, 'Sceneryobjects', 'Aschaffenburg', 'Aburg_Lernstueck', 'Lernstueck', 'texture')]) +         [os.path.join(omsi, 'Splines', 'Marcel', 'texture')]
     for k, (datei, _) in TEX.items():
         if k == 'strich':
             continue

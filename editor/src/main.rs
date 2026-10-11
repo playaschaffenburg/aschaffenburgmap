@@ -37,6 +37,7 @@ mod speichern;
 mod spuren;
 mod strasse;
 mod uebergang;
+mod vermessen;
 mod vorschau;
 mod welt;
 
@@ -303,6 +304,10 @@ struct App {
     messen: bool,
     /// Flaechen-Markierung (F): Flaeche aufziehen/klicken, alles darin loeschen
     markierer: markieren::Markierer,
+    /// Werkzeug Vermessen (Laserdaten -> Splines); Mausdruck fuer die Klick-Erkennung
+    vermessen: Option<vermessen::Vermessen>,
+    vm_druck: Option<(f32, f32)>,
+    vermessen_auto_erledigt: bool,
     mess_a: Option<DVec3>,
     mess_b: Option<DVec3>,
     /// Strasse bauen, Uebergang setzen: an, feste Laenge (sonst Vorschlag), freies Ende unter der Maus mit Plan
@@ -397,6 +402,10 @@ enum UiAktion {
     Messen,
     /// Flaechen-Markierung an/aus
     Markieren,
+    /// Werkzeug Vermessen an/aus
+    Vermessen,
+    /// Aufmass gebaut: Sonderbau-JSON einsetzen, Objekte neu einlesen
+    AufmassGebaut(PathBuf, Vec<String>),
     /// alles in der markierten Flaeche loeschen
     FlaecheLoeschen,
     /// Inhalt der markierten Flaeche neu bestimmen (Arten geaendert)
@@ -567,6 +576,9 @@ impl App {
             objekteditor_auto: std::env::var_os("OMSI_OBJEKTEDITOR").is_some(),
             messen: false,
             markierer: markieren::Markierer::neu(),
+            vermessen: None,
+            vm_druck: None,
+            vermessen_auto_erledigt: false,
             mess_a: None,
             mess_b: None,
             uebergang_modus: false,
@@ -1297,6 +1309,10 @@ impl App {
                         && ui.selectable_label(self.objekteditor.is_some(), "Objekt-Editor").on_hover_text("Sonderbau Ring/Ludwigsallee: jedes Bauteil der Kreuzung bearbeiten (Flaechen, Texturen, Markierungen, Pfeile, Ampeln, Gelaender, Laermschutz) und neu bauen").clicked() {
                         aktionen.push(UiAktion::ObjektEditor);
                     }
+                    if self.karte.as_ref().map(|k| self.root.join("maps").join(k).join("omsi-editor-geo.cfg").is_file()).unwrap_or(false)
+                        && ui.selectable_label(self.vermessen.is_some(), "Vermessen").on_hover_text("Bauwerk entlang einer Achse aus Laserdaten und Luftbild vermessen, pruefen und als Splines bauen (Bayern)").clicked() {
+                        aktionen.push(UiAktion::Vermessen);
+                    }
                     if ui.selectable_label(self.pipette, "\u{1F58C} Pipette (I)").on_hover_text("Klick auf ein Objekt, einen Baum, eine Strasse oder einen Kreisverkehr: wechselt ins passende Werkzeug und uebernimmt es").clicked() {
                         aktionen.push(UiAktion::Pipette);
                     }
@@ -1356,6 +1372,26 @@ impl App {
             if self.objekteditor_auto && self.viewer.is_some() && self.objekteditor.is_none() {
                 self.objekteditor_auto = false;
                 aktionen.push(UiAktion::ObjektEditor);
+            }
+            // OMSI_VERMESSEN=<Name>: Werkzeug mit dieser Messung oeffnen (Pruefen ohne Klicks)
+            if self.vermessen.is_none() && self.viewer.is_some() {
+                if let (Some(n), Some(k)) = (std::env::var_os("OMSI_VERMESSEN").filter(|_| !self.vermessen_auto_erledigt), self.karte.clone()) {
+                    self.vermessen_auto_erledigt = true;
+                    let mut vm = vermessen::Vermessen::neu(&self.root, &k);
+                    vm.oeffnen(&n.to_string_lossy());
+                    if let Some(p) = vm.mitte_achse() {
+                        aktionen.push(UiAktion::Hinfahren(p));
+                    }
+                    self.vermessen = Some(vm);
+                }
+            }
+            if let Some(vm) = self.vermessen.as_mut() {
+                match vm.ui(ctx.ctx()) {
+                    Some(vermessen::Aktion::Gebaut { json, objekte }) => aktionen.push(UiAktion::AufmassGebaut(json, objekte)),
+                    Some(vermessen::Aktion::Kamera(p)) => aktionen.push(UiAktion::Hinfahren(p)),
+                    Some(vermessen::Aktion::Schliessen) => aktionen.push(UiAktion::Vermessen),
+                    None => {}
+                }
             }
             let mut foto_neu: Option<(foto::FotoPose, Option<f64>)> = None;
             if let Some(oe) = self.objekteditor.as_mut() {
@@ -2185,6 +2221,12 @@ impl App {
                     let fuellen = oe.fuellen_3d;
                     oe.zeichnen(&ctx2, &maler, &bild, &boden, m, fuellen, false, 110);
                 }
+            }
+            if let (Some(vm), Some(v)) = (self.vermessen.as_mut(), self.viewer.as_ref()) {
+                let kam = self.kam.clone();
+                let bild = |w: DVec3| bearbeiten::projizieren(&kam, w, bw, bh).map(|(x, y, _)| egui::pos2(x, y));
+                let hoehe = |q: glam::DVec2| v.surface_height(q.x, q.y).or_else(|| v.ground_height(q.x, q.y)).unwrap_or(0.0);
+                vm.zeichnen(&maler, bild, hoehe);
             }
             if self.markierer.an {
                 if let Some(v) = self.viewer.as_ref() {
@@ -3331,6 +3373,28 @@ impl App {
                     self.strasse.bauwerke_aktualisieren(v);
                 }
             }
+            UiAktion::Vermessen => {
+                if self.vermessen.is_some() {
+                    self.vermessen = None;
+                } else if let Some(k) = self.karte.clone() {
+                    self.markierer.an = false;
+                    self.messen = false;
+                    self.pipette = false;
+                    self.vermessen = Some(vermessen::Vermessen::neu(&self.root, &k));
+                    self.meldung = "Vermessen: Achse des Bauwerks klicken (in Fahrtrichtung), Breite einstellen, dann Vermessen".into();
+                }
+            }
+            UiAktion::AufmassGebaut(json, objekte) => {
+                let ordner = self.sitzungsordner();
+                let (Some(v), Some(a), Some(ordner)) = (self.viewer.as_mut(), self.aendern.as_mut(), ordner) else { return };
+                for rel in &objekte {
+                    v.forget_object_type(rel);
+                }
+                self.meldung = match sonderbau::einsetzen(a, &mut self.gelaende, v, &self.root, &ordner, &json) {
+                    Ok(m) => format!("Aufmass: {m}"),
+                    Err(e) => format!("Aufmass nicht eingesetzt: {e:#}"),
+                };
+            }
             UiAktion::Markieren => {
                 self.markierer.umschalten();
                 if self.markierer.an {
@@ -3833,6 +3897,18 @@ impl App {
             KeyCode::KeyI if !self.strg => Some(UiAktion::Pipette),
             KeyCode::KeyM if !self.strg => Some(UiAktion::Messen),
             KeyCode::KeyL if !self.strg => Some(UiAktion::Markieren),
+            KeyCode::Backspace if self.vermessen.is_some() => {
+                if let Some(vm) = self.vermessen.as_mut() {
+                    vm.zurueck();
+                }
+                None
+            }
+            KeyCode::Escape if self.vermessen.as_ref().is_some_and(|v| v.wahl.is_some()) => {
+                if let Some(vm) = self.vermessen.as_mut() {
+                    vm.wahl = None;
+                }
+                None
+            }
             KeyCode::Enter if self.markierer.an && !self.markierer.punkte.is_empty() => {
                 if self.markierer.schliessen() {
                     Some(UiAktion::FlaecheNeu)
@@ -4633,6 +4709,24 @@ impl ApplicationHandler for App {
                         }
                     }
                     return;
+                }
+                if button == MouseButton::Left && self.vermessen.is_some() {
+                    if state == ElementState::Pressed && !egui_will {
+                        self.vm_druck = self.maus;
+                    }
+                    if state == ElementState::Released {
+                        if let (Some(a), Some(p)) = (self.vm_druck.take(), self.maus) {
+                            if (a.0 - p.0).abs() + (a.1 - p.1).abs() < 6.0 {
+                                let (bw, bh) = self.bildgroesse();
+                                let (o, d) = self.kam.strahl(p.0, p.1, bw, bh);
+                                let g = treffer(o, d, |x, y| self.boden(x, y), 6000.0);
+                                if let Some(vm) = self.vermessen.as_mut() {
+                                    vm.klick(g, egui::pos2(p.0, p.1));
+                                }
+                                return;
+                            }
+                        }
+                    }
                 }
                 if state == ElementState::Pressed && !egui_will && button == MouseButton::Left && self.markierer.an {
                     if let Some(p) = self.maus {

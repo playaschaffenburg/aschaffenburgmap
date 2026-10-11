@@ -380,6 +380,23 @@ setzen den aktuellen Bau nur in der Sitzung ein (`omsi-editor --posen liste.json
 **Fläche markieren** (L): Rechteck ziehen oder Vieleck klicken, alles darin (Objekte/Bäume, Straßen-Splines, wählbar)
 mit Entf löschen – ein Rückgängig-Schritt.
 
+**Vermessen** (Knopf oben, nur Karten mit Geobezug, Bayern): ein reales Bauwerk aus Laserdaten und Luftbild der
+Bayerischen Vermessungsverwaltung (CC BY 4.0) nachbauen.
+1. Achse klicken (Mitte des Bauwerks, in Fahrtrichtung; Rücktaste nimmt einen Punkt zurück), Breite links/rechts.
+2. „Vermessen“: `omsigen.aufmass messen` sucht je Meter im Querschnitt Höhensprünge (Wände, Wandfuß = Ende der
+   tieferen Fläche), Streifen dazwischen (Fahrbahn ab 5 m Asphalt im Luftbild, sonst Boden), Markierungen und
+   Sperrflächen. Fehlen Laserdaten (km-Kacheln, je etwa 250 MB, Zwischenspeicher `%LOCALAPPDATA%\omsi-editor\geodaten\laser`),
+   fragt das Werkzeug mit Größe, bevor es lädt.
+3. Prüfen: alles erscheint in der 3D-Ansicht (Trogwand rot, Wand orange, Fahrbahn blau mit Richtungspfeilen, Boden
+   grün, Markierungen weiß, Sperrflächen gelb). Klick wählt ein Teil; im Fenster stehen seine Annahmen: Wand bauen,
+   Art, Wandfläche, Geländer – Fahrbahn/Boden, Richtung (Gegenverkehr, Einbahn mit/gegen die Achse), Fahrstreifen,
+   Material – Markierung durchgehend/Leitlinie, bauen ja/nein. Die Messung liegt als
+   `Sceneryobjects\Aschaffenburg\<Karte>\Aufmass\<Name>\messung.json` und lässt sich später wieder öffnen.
+4. „Bauen und einsetzen“: Splines (`Splines\Aschaffenburg\Aufmass\<Karte>_<Name>`), Sperrflächen-Objekt und
+   `aufmass.json`; die Sitzung bekommt sie wie einen Sonderbau (Rückgängig, Speichern schreibt die Karte), die
+   Baupruefung steht im Fenster.
+Zum Prüfen ohne Klicks: `OMSI_VERMESSEN=<Name>` öffnet die Messung beim Start (`OMSI_VERMESSEN_WAHL=kante:1` wählt ein Teil).
+
 Tastenkürzel: Strg+Z/Strg+Y richten sich nach dem Zeichen der Taste (auch auf QWERTZ richtig), alle anderen nach der
 Lage (WASD). Ein angeklickter Knopf behält die Tasten nicht mehr – nur beim Tippen in ein Feld gehen sie an die Leiste.
 
