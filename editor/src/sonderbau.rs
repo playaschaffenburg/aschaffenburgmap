@@ -215,6 +215,9 @@ pub fn einsetzen(ae: &mut crate::aendern::Aendern, gel: &mut crate::gelaende::Ge
 /// anderen Abschnitte bleiben genau wie auf der Karte
 pub fn einsetzen_nur(ae: &mut crate::aendern::Aendern, gel: &mut crate::gelaende::Gelaende, v: &mut openomsi_game::viewer::Viewer, root: &Path,
                      gel_ordner: &Path, json: &Path, nur: Option<&str>) -> Result<String> {
+    // Kennung "RA_NW__" auch einfach ("RA_NW_"): der Editor schreibt .sli aus Querschnitten mit einem Unterstrich
+    let kurz = nur.map(|mk| format!("{}_", mk.trim_end_matches('_')));
+    let nur = kurz.as_deref();
     if let Some(mk) = nur {
         anyhow::ensure!(crate::abschnitte::hat_marker(v, mk),
             "der Abschnitt {mk} steht in der Karte nicht als eigener Abschnitt (Kreuzung nicht aufgeteilt oder durch \"Anwenden\" ganz neu eingesetzt) - erst aufteilen, sonst entstuende er doppelt");
