@@ -2438,6 +2438,17 @@ impl ObjektEditor {
         }
         if self.abschnitte.is_empty() {
             self.abschnitte = crate::abschnitte::lesen(&self.plan_abschnitte()).unwrap_or_default();
+            // OMSI_ABSCHNITT_BAUEN=<Kurz>: diesen Abschnitt beim Oeffnen neu bauen (Pruefen ohne Klicks)
+            // "NW?" nur hinsehen, nicht bauen
+            if let (Ok(a), true, None) = (std::env::var("OMSI_ABSCHNITT_BAUEN"), self.aufgeteilt, self.ab_job.as_ref()) {
+                let (a, nur_sehen) = (a.trim_end_matches('?').to_string(), a.ends_with('?'));
+                if let Some(m) = self.abschnitte.iter().find(|x| x.kurz == a).map(|x| x.mitte) {
+                    erg = Some(Aktion::KameraNah(m.extend(f64::NAN)));
+                }
+                if !nur_sehen {
+                    self.ab_starten(Some(a));
+                }
+            }
         }
         egui::CollapsingHeader::new("Abschnitte (einzeln neu bauen)").id_salt("oe_abschnitte").default_open(true).show(ui, |ui| {
             if !self.aufgeteilt {

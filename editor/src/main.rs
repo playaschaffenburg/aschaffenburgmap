@@ -5161,7 +5161,10 @@ fn posen_bilder(root: &Path, karte: &str, liste: &Path, sonderbau_json: Option<&
             };
             eprintln!("Sonderbau eingesetzt (Sitzung): {msg}");
         }
-        v.tiles_around(mitte, KACHEL_RADIUS)?;
+        // OMSI_POSEN_WIE_EDITOR: nicht nachladen (wie das Einsetzen im Fenster) - zum Pruefen veralteter Anzeige
+        if std::env::var_os("OMSI_POSEN_WIE_EDITOR").is_none() {
+            v.tiles_around(mitte, KACHEL_RADIUS)?;
+        }
     }
     for p in &posen {
         // "ueber": Kamera so hoch ueber der gerenderten Oberflaeche (Strassen, Objekte, Gelaende) statt fester Hoehe
