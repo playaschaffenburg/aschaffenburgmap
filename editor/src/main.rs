@@ -26,6 +26,7 @@ mod karten;
 mod katalog;
 mod knoten;
 mod kreuzung;
+mod lod2;
 mod luftbild;
 mod markieren;
 mod netz;
@@ -308,6 +309,8 @@ struct App {
     markierer: markieren::Markierer,
     /// Werkzeug Vermessen (Laserdaten -> Splines); Mausdruck fuer die Klick-Erkennung
     vermessen: Option<vermessen::Vermessen>,
+    /// Import Gebaeude aus LoD2
+    lod2: Option<lod2::Lod2>,
     vm_druck: Option<(f32, f32)>,
     vermessen_auto_erledigt: bool,
     mess_a: Option<DVec3>,
@@ -406,6 +409,8 @@ enum UiAktion {
     Markieren,
     /// Werkzeug Vermessen an/aus
     Vermessen,
+    /// Import Gebaeude aus LoD2 an/aus
+    Lod2,
     /// Aufmass gebaut: Sonderbau-JSON einsetzen, Objekte neu einlesen (auch ein Abschnitt der Kreuzung)
     AufmassGebaut(PathBuf, Vec<String>),
     /// Kreuzung nach dem Plan in Abschnitte teilen
@@ -581,6 +586,7 @@ impl App {
             messen: false,
             markierer: markieren::Markierer::neu(),
             vermessen: None,
+            lod2: None,
             vm_druck: None,
             vermessen_auto_erledigt: false,
             mess_a: None,
@@ -1320,6 +1326,13 @@ impl App {
                             ui.close();
                         }
                     });
+                    ui.menu_button("Import ...", |ui| {
+                        if ui.add_enabled(mit_geo, egui::Button::selectable(self.lod2.is_some(), "Gebaeude aus LoD2 (Bayern)"))
+                            .on_hover_text("3D-Gebaeudemodelle der Bayerischen Vermessungsverwaltung um die Blickmitte als Objekte einsetzen (Karte mit Geobezug)").clicked() {
+                            aktionen.push(UiAktion::Lod2);
+                            ui.close();
+                        }
+                    });
                     if self.karte.as_ref().map(|k| self.root.join("maps").join(k).join("omsi-editor-geo.cfg").is_file()).unwrap_or(false)
                         && ui.selectable_label(self.objekteditor.is_some(), "Objekt-Editor").on_hover_text("Sonderbau Ring/Ludwigsallee: jedes Bauteil der Kreuzung bearbeiten (Flaechen, Texturen, Markierungen, Pfeile, Ampeln, Gelaender, Laermschutz) und neu bauen").clicked() {
                         aktionen.push(UiAktion::ObjektEditor);
@@ -1394,6 +1407,13 @@ impl App {
                         aktionen.push(UiAktion::Hinfahren(p));
                     }
                     self.vermessen = Some(vm);
+                }
+            }
+            if let Some(l) = self.lod2.as_mut() {
+                match l.ui(ctx.ctx(), self.kam.ziel.truncate()) {
+                    Some(lod2::Aktion::Gebaut { json, objekte }) => aktionen.push(UiAktion::AufmassGebaut(json, objekte)),
+                    Some(lod2::Aktion::Schliessen) => aktionen.push(UiAktion::Lod2),
+                    None => {}
                 }
             }
             if let Some(vm) = self.vermessen.as_mut() {
@@ -3389,6 +3409,13 @@ impl App {
                     self.strasse.bauwerke_aktualisieren(v);
                 }
             }
+            UiAktion::Lod2 => {
+                if self.lod2.is_some() {
+                    self.lod2 = None;
+                } else if let Some(k) = self.karte.clone() {
+                    self.lod2 = Some(lod2::Lod2::neu(&self.root, &k));
+                }
+            }
             UiAktion::Vermessen => {
                 if self.vermessen.is_some() {
                     self.vermessen = None;
@@ -3409,7 +3436,8 @@ impl App {
                 // Abschnitt der Kreuzung: nur dessen Eintraege ersetzen
                 let marker = abschnitte::marker(&json);
                 self.meldung = match sonderbau::einsetzen_nur(a, &mut self.gelaende, v, &self.root, &ordner, &json, marker.as_deref()) {
-                    Ok(m) if marker.is_some() => format!("Abschnitt {}: {m}", marker.as_deref().unwrap_or("").trim_start_matches("RA_").trim_end_matches('_')),
+                    Ok(m) if marker.as_deref().is_some_and(|k| k.starts_with("RA_")) => format!("Abschnitt {}: {m}", marker.as_deref().unwrap_or("").trim_start_matches("RA_").trim_end_matches('_')),
+                    Ok(m) if marker.is_some() => format!("LoD2-Gebaeude: {m}"),
                     Ok(m) => format!("Aufmass: {m}"),
                     Err(e) => format!("nicht eingesetzt: {e:#}"),
                 };

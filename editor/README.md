@@ -388,6 +388,13 @@ Wand-/Randenden) werden an den Grenzen geteilt – die Kreuzung sieht danach pix
 Abschnitt baut wie bisher aus dem Bauplan, setzt aber nur diesen Abschnitt ein; die anderen bleiben unverändert.
 „Anwenden“ baut weiterhin alles und hebt die Aufteilung auf. Speichern schreibt die Karte (mit Sicherung).
 
+**Import … → Gebäude aus LoD2** (Karten mit Geobezug, Bayern): die 3D-Gebäudemodelle der Bayerischen
+Vermessungsverwaltung (Open Data, CC BY 4.0: Grundrisse aus dem Kataster, Dächer aus Laserdaten) im Umkreis der
+Blickmitte als OMSI-Objekte (`omsigen/lod2.py`): je Gebäude ein Objekt mit absoluter Höhe, Wände 1 m unter den Boden,
+Fassaden-/Dachtexturen nach Gebäudefunktion und Dachneigung; Brücken und Mauern bleiben weg (die baut OMSIgen selbst).
+LoD2-Kacheln (2 km, bis ~120 MB) liegen in `%LOCALAPPDATA%\omsi-editor\geodaten\lod2`, fehlende erst nach Rückfrage.
+Erneutes Einsetzen ersetzt nur LoD2-Gebäude (Kennung `\LoD2\`).
+
 **Messen** (Knopf oben, Menü): „Strecke messen (M)“ und „Bauwerk vermessen (Laserdaten)“.
 
 **Vermessen** (im Menü Messen, nur Karten mit Geobezug, Bayern): ein reales Bauwerk aus Laserdaten und Luftbild der

@@ -216,9 +216,10 @@ pub fn einsetzen(ae: &mut crate::aendern::Aendern, gel: &mut crate::gelaende::Ge
 pub fn einsetzen_nur(ae: &mut crate::aendern::Aendern, gel: &mut crate::gelaende::Gelaende, v: &mut openomsi_game::viewer::Viewer, root: &Path,
                      gel_ordner: &Path, json: &Path, nur: Option<&str>) -> Result<String> {
     // Kennung "RA_NW__" auch einfach ("RA_NW_"): der Editor schreibt .sli aus Querschnitten mit einem Unterstrich
-    let kurz = nur.map(|mk| format!("{}_", mk.trim_end_matches('_')));
+    let kurz = nur.map(|mk| if mk.starts_with("RA_") { format!("{}_", mk.trim_end_matches('_')) } else { mk.to_string() });
     let nur = kurz.as_deref();
-    if let Some(mk) = nur {
+    // Kreuzungs-Abschnitte muessen aufgeteilt vorliegen (sonst doppelt); andere Kennungen (z. B. \LoD2\) duerfen neu sein
+    if let Some(mk) = nur.filter(|mk| mk.starts_with("RA_")) {
         anyhow::ensure!(crate::abschnitte::hat_marker(v, mk),
             "der Abschnitt {mk} steht in der Karte nicht als eigener Abschnitt (Kreuzung nicht aufgeteilt oder durch \"Anwenden\" ganz neu eingesetzt) - erst aufteilen, sonst entstuende er doppelt");
     }
@@ -233,6 +234,13 @@ pub fn einsetzen_nur(ae: &mut crate::aendern::Aendern, gel: &mut crate::gelaende
     for e in strassen.iter().flat_map(|s| s.elemente.iter()) {
         lo = lo.min(e.pos);
         hi = hi.max(e.pos);
+    }
+    // nur mit Kennung: auch reine Objekt-Listen (z. B. LoD2-Gebaeude), Bereich aus den Objekten
+    if nur.is_some() {
+        for t in &teile {
+            lo = lo.min(t.pos);
+            hi = hi.max(t.pos);
+        }
     }
     if lo.x > hi.x {
         anyhow::bail!("der Sonderbau hat keine Strassen");
