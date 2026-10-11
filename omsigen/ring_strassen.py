@@ -35,6 +35,9 @@ ABSCHNITTE = {
     # Ring ab y -400: Spitzwinkel-Sperrflaechen auf den Trennfugen (Luftbild mit Linien geprueft) bis zum Zusammenlauf;
     # nachgebildet als schraffierte Ringraender
     'Ring': [(264.0, 'sperr_raender')],
+    # Rampe West Nord (Fotos des Nutzers, Luftbild): zwischen Ring und Rampe erst eine Sperrflaeche, ab der
+    # Inselspitze (y -149) der Hochbord; '<' = der Abschnitt VOR dieser Station bekommt die Abwandlung
+    'Rampe_West_Nord': [(15.0, '<ohne_insel')],
 }
 
 
@@ -50,7 +53,10 @@ def abgewandelt(q, art):
             t['belag'] = 'asphalt'
         if art == 'sperr_raender' and i in (0, len(teile) - 1):
             t['belag'] = 'sperr'
-    q['name'] = q.get('name', 'SB') + ('_ohne_Sperr' if art == 'ohne_sperr' else '_Sperrraender')
+    if art == 'ohne_insel' and teile and teile[0].get('art') == 'gehweg':
+        # vor der Inselspitze: statt des Hochbords links (zum Ring) eine Sperrflaeche gleicher Breite
+        teile[0] = dict(art='parkstreifen', belag='sperr', breite=teile[0]['breite'], richtung='vor')
+    q['name'] = q.get('name', 'SB') + {'ohne_sperr': '_ohne_Sperr', 'ohne_insel': '_ohne_Insel'}.get(art, '_Sperrraender')
     return q
 
 
@@ -210,6 +216,11 @@ def planen(entwurf, gel, ways, ueberschreiben=None):
     def geteilt(name, art, t, a, b, z, **extra):
         """Strasse von Station a bis b, an den ABSCHNITTE-Stationen in eigene Splines geteilt"""
         grenzen = [(a, None)] + [(s_, w) for s_, w in ABSCHNITTE.get(name, []) if a < s_ < b]
+        # '<art': die Abwandlung gilt fuer den Abschnitt davor, danach wieder der Grundquerschnitt
+        for k in range(1, len(grenzen)):
+            if grenzen[k][1] and grenzen[k][1].startswith('<'):
+                grenzen[k - 1] = (grenzen[k - 1][0], grenzen[k][1][1:])
+                grenzen[k] = (grenzen[k][0], None)
         teile = []
         for k, (s0, w) in enumerate(grenzen):
             s1 = grenzen[k + 1][0] if k + 1 < len(grenzen) else b
