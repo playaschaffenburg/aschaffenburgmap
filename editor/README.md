@@ -380,7 +380,17 @@ setzen den aktuellen Bau nur in der Sitzung ein (`omsi-editor --posen liste.json
 **Fläche markieren** (L): Rechteck ziehen oder Vieleck klicken, alles darin (Objekte/Bäume, Straßen-Splines, wählbar)
 mit Entf löschen – ein Rückgängig-Schritt.
 
-**Vermessen** (Knopf oben, nur Karten mit Geobezug, Bayern): ein reales Bauwerk aus Laserdaten und Luftbild der
+**Abschnitte der Kreuzung Ring/Ludwigsallee** (Objekt-Editor, Bereich „Abschnitte“): „Kreuzung in Abschnitte aufteilen“
+nimmt den gespeicherten Stand der Karte und ordnet jeden Eintrag einem von 9 Abschnitten zu (NW, NT, NO Nord-West/-Trog/
+-Ost, PL Platte mit Kreuzung und Ampeln, SW, ST, SO Süd, BW Brücken West, LO Ludwigsallee Ost; `omsigen/ring_abschnitte.py`).
+Jeder Abschnitt bekommt eigene Dateien (`RA_<Kurz>__…`), Objekte über mehrere Abschnitte (Sohle, Geländedeckel,
+Wand-/Randenden) werden an den Grenzen geteilt – die Kreuzung sieht danach pixelgleich aus. „neu bauen“ an einem
+Abschnitt baut wie bisher aus dem Bauplan, setzt aber nur diesen Abschnitt ein; die anderen bleiben unverändert.
+„Anwenden“ baut weiterhin alles und hebt die Aufteilung auf. Speichern schreibt die Karte (mit Sicherung).
+
+**Messen** (Knopf oben, Menü): „Strecke messen (M)“ und „Bauwerk vermessen (Laserdaten)“.
+
+**Vermessen** (im Menü Messen, nur Karten mit Geobezug, Bayern): ein reales Bauwerk aus Laserdaten und Luftbild der
 Bayerischen Vermessungsverwaltung (CC BY 4.0) nachbauen.
 1. Achse klicken (Mitte des Bauwerks, in Fahrtrichtung; Rücktaste nimmt einen Punkt zurück), Breite links/rechts.
 2. „Vermessen“: `omsigen.aufmass messen` sucht je Meter im Querschnitt Höhensprünge (Wände, Wandfuß = Ende der

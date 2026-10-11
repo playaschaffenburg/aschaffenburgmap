@@ -339,6 +339,11 @@ impl Aendern {
 
     /// `n` neue, in der Karte freie IDs (fuer Splines und Objekte) -> erste
     pub(crate) fn neue_ids(&mut self, v: &Viewer, n: i64) -> i64 {
+        // [NextIDCode] kann hinter den Kacheln zurueckliegen (Kreuzung samt Ampeln eingesetzt, global.cfg alt):
+        // einmal alle Kacheldateien nach der hoechsten belegten ID durchsuchen
+        if self.naechste_objekt_id == 0 {
+            self.naechste_objekt_id = hoechste_id_in_kacheln(v) + 1;
+        }
         let id = v.next_object_id().max(self.naechste_objekt_id);
         self.naechste_objekt_id = id + n;
         id
@@ -823,4 +828,27 @@ mod sperren_nutzer {
         assert_eq!(gesperrt(&v), g0, "nicht wieder frei");
         drop(a);
     }
+}
+
+/// hoechste ID aller Eintraege ([object], [spline], [spline_h], [attachObj] ...) in allen Kacheldateien der Karte
+fn hoechste_id_in_kacheln(v: &Viewer) -> i64 {
+    let mut max = 0;
+    for (tx, ty) in v.map_tiles() {
+        let Some(p) = v.tile_file(tx, ty) else { continue };
+        let Ok(b) = std::fs::read(&p) else { continue };
+        let t = if b.starts_with(&[0xFF, 0xFE]) {
+            String::from_utf16_lossy(&b[2..].chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect::<Vec<_>>())
+        } else {
+            String::from_utf8_lossy(&b).into_owned()
+        };
+        let z: Vec<&str> = t.lines().collect();
+        for i in 0..z.len() {
+            if crate::kreuzung::ist_eintrag(z[i]) {
+                if let Some(id) = z.get(i + 3).and_then(|x| x.trim().parse::<f64>().ok()) {
+                    max = max.max(id as i64);
+                }
+            }
+        }
+    }
+    max
 }

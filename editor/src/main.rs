@@ -10,6 +10,7 @@
 //! Bedienung: rechte Maustaste drehen/neigen, mittlere verschieben, Mausrad zoomen,
 //! W A S D / Pfeile verschieben, Q / E drehen, R / F neigen.
 
+mod abschnitte;
 mod aendern;
 mod anschluss;
 mod aufnahme;
@@ -404,8 +405,10 @@ enum UiAktion {
     Markieren,
     /// Werkzeug Vermessen an/aus
     Vermessen,
-    /// Aufmass gebaut: Sonderbau-JSON einsetzen, Objekte neu einlesen
+    /// Aufmass gebaut: Sonderbau-JSON einsetzen, Objekte neu einlesen (auch ein Abschnitt der Kreuzung)
     AufmassGebaut(PathBuf, Vec<String>),
+    /// Kreuzung nach dem Plan in Abschnitte teilen
+    AbschnitteAnwenden(PathBuf),
     /// alles in der markierten Flaeche loeschen
     FlaecheLoeschen,
     /// Inhalt der markierten Flaeche neu bestimmen (Arten geaendert)
@@ -1302,16 +1305,23 @@ impl App {
                     if ui.selectable_label(self.markierer.an, "Flaeche markieren (L)").on_hover_text("Flaeche auf der Karte markieren (Rechteck ziehen oder Ecken klicken) und alles darin loeschen").clicked() {
                         aktionen.push(UiAktion::Markieren);
                     }
-                    if ui.selectable_label(self.messen, "Messen (M)").on_hover_text("Strecke messen (waagerecht, mit Hoehenunterschied) - z. B. Strassenbreiten im Luftbild").clicked() {
-                        aktionen.push(UiAktion::Messen);
-                    }
+                    // Messen: ein Knopf, Unterfunktionen im Menue
+                    let mit_geo = self.karte.as_ref().map(|k| self.root.join("maps").join(k).join("omsi-editor-geo.cfg").is_file()).unwrap_or(false);
+                    let mess_an = self.messen || self.vermessen.is_some();
+                    ui.menu_button(egui::RichText::new("Messen ...").color(if mess_an { ui.visuals().selection.stroke.color } else { ui.visuals().text_color() }), |ui| {
+                        if ui.selectable_label(self.messen, "Strecke messen (M)").on_hover_text("Strecke messen (waagerecht, mit Hoehenunterschied) - z. B. Strassenbreiten im Luftbild").clicked() {
+                            aktionen.push(UiAktion::Messen);
+                            ui.close();
+                        }
+                        if ui.add_enabled(mit_geo, egui::Button::selectable(self.vermessen.is_some(), "Bauwerk vermessen (Laserdaten)"))
+                            .on_hover_text("Bauwerk entlang einer Achse aus Laserdaten und Luftbild vermessen, pruefen und als Splines bauen (Bayern, Karte mit Geobezug)").clicked() {
+                            aktionen.push(UiAktion::Vermessen);
+                            ui.close();
+                        }
+                    });
                     if self.karte.as_ref().map(|k| self.root.join("maps").join(k).join("omsi-editor-geo.cfg").is_file()).unwrap_or(false)
                         && ui.selectable_label(self.objekteditor.is_some(), "Objekt-Editor").on_hover_text("Sonderbau Ring/Ludwigsallee: jedes Bauteil der Kreuzung bearbeiten (Flaechen, Texturen, Markierungen, Pfeile, Ampeln, Gelaender, Laermschutz) und neu bauen").clicked() {
                         aktionen.push(UiAktion::ObjektEditor);
-                    }
-                    if self.karte.as_ref().map(|k| self.root.join("maps").join(k).join("omsi-editor-geo.cfg").is_file()).unwrap_or(false)
-                        && ui.selectable_label(self.vermessen.is_some(), "Vermessen").on_hover_text("Bauwerk entlang einer Achse aus Laserdaten und Luftbild vermessen, pruefen und als Splines bauen (Bayern)").clicked() {
-                        aktionen.push(UiAktion::Vermessen);
                     }
                     if ui.selectable_label(self.pipette, "\u{1F58C} Pipette (I)").on_hover_text("Klick auf ein Objekt, einen Baum, eine Strasse oder einen Kreisverkehr: wechselt ins passende Werkzeug und uebernimmt es").clicked() {
                         aktionen.push(UiAktion::Pipette);
@@ -1399,6 +1409,8 @@ impl App {
                 oe.mitte_setzen(self.kam.ziel.truncate());
                 match oe.ui(ctx, &mut offen) {
                     Some(objekteditor::Aktion::Gebaut { json, einsetzen }) => aktionen.push(UiAktion::SonderbauGebaut(json, einsetzen)),
+                    Some(objekteditor::Aktion::AbschnitteAnwenden(p)) => aktionen.push(UiAktion::AbschnitteAnwenden(p)),
+                    Some(objekteditor::Aktion::AbschnittGebaut { json, objekte }) => aktionen.push(UiAktion::AufmassGebaut(json, objekte)),
                     Some(objekteditor::Aktion::Kamera(p)) => aktionen.push(UiAktion::Hinfahren(p)),
                     Some(objekteditor::Aktion::KameraNah(mut p)) => {
                         // Hoehe unbekannt (Abweichung der Bauaufnahme neben der Platte): Gelaende
@@ -3285,7 +3297,10 @@ impl App {
                 }
                 let Some(karte) = self.karte.clone() else { return };
                 match objekteditor::ObjektEditor::neu(&self.root, &karte) {
-                    Ok(oe) => self.objekteditor = Some(oe),
+                    Ok(mut oe) => {
+                        oe.aufgeteilt = self.viewer.as_ref().map(abschnitte::aufgeteilt).unwrap_or(false);
+                        self.objekteditor = Some(oe)
+                    }
                     Err(e) => self.meldung = format!("Objekt-Editor: {e}"),
                 }
             }
@@ -3390,10 +3405,25 @@ impl App {
                 for rel in &objekte {
                     v.forget_object_type(rel);
                 }
-                self.meldung = match sonderbau::einsetzen(a, &mut self.gelaende, v, &self.root, &ordner, &json) {
+                // Abschnitt der Kreuzung: nur dessen Eintraege ersetzen
+                let marker = abschnitte::marker(&json);
+                self.meldung = match sonderbau::einsetzen_nur(a, &mut self.gelaende, v, &self.root, &ordner, &json, marker.as_deref()) {
+                    Ok(m) if marker.is_some() => format!("Abschnitt {}: {m}", marker.as_deref().unwrap_or("").trim_start_matches("RA_").trim_end_matches('_')),
                     Ok(m) => format!("Aufmass: {m}"),
-                    Err(e) => format!("Aufmass nicht eingesetzt: {e:#}"),
+                    Err(e) => format!("nicht eingesetzt: {e:#}"),
                 };
+            }
+            UiAktion::AbschnitteAnwenden(plan) => {
+                let (Some(v), Some(a)) = (self.viewer.as_mut(), self.aendern.as_mut()) else { return };
+                match abschnitte::anwenden(a, v, &plan) {
+                    Ok(m) => {
+                        self.meldung = m;
+                        if let Some(oe) = self.objekteditor.as_mut() {
+                            oe.aufgeteilt = true;
+                        }
+                    }
+                    Err(e) => self.meldung = format!("Aufteilen fehlgeschlagen: {e:#}"),
+                }
             }
             UiAktion::Markieren => {
                 self.markierer.umschalten();
@@ -5119,8 +5149,18 @@ fn posen_bilder(root: &Path, karte: &str, liste: &Path, sonderbau_json: Option<&
         let mut ae = aendern::Aendern::neu(&v);
         let mut gel = gelaende::Gelaende::default();
         let gel_ordner = ae.sitzung.join("maps").join(karte);
-        let msg = sonderbau::einsetzen(&mut ae, &mut gel, &mut v, root, &gel_ordner, j)?;
-        eprintln!("Sonderbau eingesetzt (Sitzung): {msg}");
+        // mehrere Dateien mit '|' nacheinander; Abschnitts-Plan (omsigen.ring_abschnitte): Kreuzung aufteilen;
+        // abschnitt_<X>.json: nur diesen Abschnitt ersetzen
+        for teil in j.to_string_lossy().split('|') {
+            let j = Path::new(teil);
+            let msg = if j.file_name().is_some_and(|n| n == "abschnitte_plan.json") {
+                abschnitte::anwenden(&mut ae, &mut v, j)?
+            } else {
+                let marker = abschnitte::marker(j);
+                sonderbau::einsetzen_nur(&mut ae, &mut gel, &mut v, root, &gel_ordner, j, marker.as_deref())?
+            };
+            eprintln!("Sonderbau eingesetzt (Sitzung): {msg}");
+        }
         v.tiles_around(mitte, KACHEL_RADIUS)?;
     }
     for p in &posen {

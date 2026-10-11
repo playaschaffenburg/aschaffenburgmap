@@ -207,6 +207,14 @@ fn kachel_von(p: DVec2) -> (i32, i32) {
 /// und Kreuzung samt Ampeln eintragen (ein Rueckgaengig-Schritt) -> Meldung. `gel_ordner`: Sitzungsordner der Karte
 pub fn einsetzen(ae: &mut crate::aendern::Aendern, gel: &mut crate::gelaende::Gelaende, v: &mut openomsi_game::viewer::Viewer, root: &Path,
                  gel_ordner: &Path, json: &Path) -> Result<String> {
+    einsetzen_nur(ae, gel, v, root, gel_ordner, json, None)
+}
+
+/// wie `einsetzen`; mit `nur` (Abschnitts-Kennung im Dateinamen, z. B. "RA_NT__") werden nicht alle Eintraege an der
+/// Stelle entfernt, sondern nur die dieses Abschnitts (dazu Ampelmasten und Anhaenge an entfernten Objekten) - die
+/// anderen Abschnitte bleiben genau wie auf der Karte
+pub fn einsetzen_nur(ae: &mut crate::aendern::Aendern, gel: &mut crate::gelaende::Gelaende, v: &mut openomsi_game::viewer::Viewer, root: &Path,
+                     gel_ordner: &Path, json: &Path, nur: Option<&str>) -> Result<String> {
     let teile = lesen(json)?;
     let strassen = strassen_lesen(json)?;
     let kreuzungen = kreuzungen_lesen(json)?;
@@ -222,7 +230,8 @@ pub fn einsetzen(ae: &mut crate::aendern::Aendern, gel: &mut crate::gelaende::Ge
     if lo.x > hi.x {
         anyhow::bail!("der Sonderbau hat keine Strassen");
     }
-    let (lo, hi) = (lo - DVec2::splat(8.0), hi + DVec2::splat(8.0));
+    let rand = if nur.is_some() { 120.0 } else { 8.0 };       // Abschnitt: auch Kacheln, in denen er frueher lag
+    let (lo, hi) = (lo - DVec2::splat(rand), hi + DVec2::splat(rand));
     let im_bereich = |p: DVec2| p.x >= lo.x && p.x <= hi.x && p.y >= lo.y && p.y <= hi.y;
     v.tiles_around(((lo + hi) * 0.5).extend(0.0), 1)?;
     // 1. Gelaende (vor den Ampeln: ihre Hoehe ueber dem Gelaende haengt davon ab)
@@ -255,8 +264,9 @@ pub fn einsetzen(ae: &mut crate::aendern::Aendern, gel: &mut crate::gelaende::Ge
     v.tiles_around(((lo + hi) * 0.5).extend(0.0), 1)?;
     // 2. was weg muss: Strassen mit einem Punkt im Bereich
     ae.aktualisieren(v);
-    let weg_ids: std::collections::HashSet<i64> = ae.kacheln.values().flatten()
-        .filter(|s| s.punkte().iter().any(|(q, _)| im_bereich(q.truncate()))).map(|s| s.id).collect();
+    let weg_ids: std::collections::HashSet<i64> = if nur.is_some() { Default::default() } else {
+        ae.kacheln.values().flatten().filter(|s| s.punkte().iter().any(|(q, _)| im_bereich(q.truncate()))).map(|s| s.id).collect()
+    };
     // 3. neue Eintraege
     let z = crate::kreuzung::zahl;
     let ts = omsi_map::tile_size();
@@ -319,10 +329,39 @@ pub fn einsetzen(ae: &mut crate::aendern::Aendern, gel: &mut crate::gelaende::Ge
         let starts: Vec<usize> = (0..zeilen.len()).filter(|&i| crate::kreuzung::ist_eintrag(&zeilen[i])).collect();
         let mut weg: Vec<(usize, usize)> = Vec::new();
         let mut weg_obj: std::collections::HashSet<i64> = Default::default();
+        if let Some(mk) = nur {
+            // erst alle Eintraege des Abschnitts (Masten koennen vor ihrer Kreuzung in der Datei stehen)
+            for &i in &starts {
+                // nur Objekte: IDs von Splines und Objekten koennen gleich sein
+                if zeilen[i].trim().eq_ignore_ascii_case("[object]") && zeilen.get(i + 2).is_some_and(|p| p.contains(mk)) {
+                    if let Some(id) = f(i + 3) {
+                        weg_obj.insert(id as i64);
+                    }
+                }
+            }
+        }
         for (n, &i) in starts.iter().enumerate() {
             let ende = starts.get(n + 1).copied().unwrap_or(zeilen.len());
             let w = zeilen[i].trim().to_ascii_lowercase();
             let id = f(i + 3).map(|x| x as i64);
+            if let Some(mk) = nur {
+                let pfad = zeilen.get(i + 2).map(|x| x.as_str()).unwrap_or("");
+                // Ampelmast einer entfernten Kreuzung: [varparent] mit deren ID im Block
+                let mast = w == "[object]" && (i..ende).any(|q| zeilen[q].trim().eq_ignore_ascii_case("[varparent]")
+                    && zeilen.get(q + 1).and_then(|x| x.trim().parse::<f64>().ok()).is_some_and(|p| weg_obj.contains(&(p as i64))));
+                let raus = match w.as_str() {
+                    "[spline]" | "[spline_h]" | "[object]" => pfad.contains(mk) || mast,
+                    "[attachobj]" => f(i + 4).map(|p| weg_obj.contains(&(p as i64))).unwrap_or(false),
+                    _ => false,
+                };
+                if raus {
+                    if let (Some(id), true) = (id, w == "[object]") {
+                        weg_obj.insert(id);
+                    }
+                    weg.push((i, ende));
+                }
+                continue;
+            }
             let raus = match w.as_str() {
                 "[spline]" | "[spline_h]" => id.map(|x| weg_ids.contains(&x)).unwrap_or(false)
                     || f(i + 6).zip(f(i + 8)).map(|(x, y)| im_bereich(o + DVec2::new(x, y))).unwrap_or(false),

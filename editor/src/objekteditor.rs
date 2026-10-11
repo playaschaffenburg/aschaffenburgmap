@@ -619,6 +619,10 @@ pub enum Aktion {
     Querschnitt(String, serde_json::Value),
     /// Fotovergleich mit diesem Foto (Bodenhoehe am Standort, falls auf der Kreuzungsflaeche)
     Foto(crate::foto::FotoPose, Option<f64>),
+    /// Abschnitts-Plan in der Sitzung anwenden (Kreuzung aufteilen)
+    AbschnitteAnwenden(PathBuf),
+    /// ein Abschnitt neu gebaut: nur seine Eintraege ersetzen
+    AbschnittGebaut { json: PathBuf, objekte: Vec<String> },
 }
 
 #[derive(Clone, Copy, PartialEq, Debug)]
@@ -675,6 +679,10 @@ pub struct ObjektEditor {
     pub geaendert: bool,
     zuletzt_geaendert: Instant,
     job: Option<Receiver<Result<String, String>>>,
+    /// Abschnitte der Kreuzung (aus dem Plan) und ob die Karte schon aufgeteilt ist (setzt main)
+    abschnitte: Vec<crate::abschnitte::Abschnitt>,
+    pub aufgeteilt: bool,
+    ab_job: Option<Receiver<Result<(bool, serde_json::Value), String>>>,
     pub meldung: String,
     luftbild: Option<(egui::TextureHandle, [f64; 4])>,
     luft_job: Option<Receiver<Option<(egui::ColorImage, [f64; 4])>>>,
@@ -767,6 +775,7 @@ impl ObjektEditor {
             aufnahme: Aufnahme::default(), aufnahme_pfad: PathBuf::new(), aufnahme_art: 1, abweichungen: vec![], rev: 1, abw_rev: 0,
             abgleich_zeigen: true, abw_wahl: None, bezug: None, aufnahme_vorne: true,
             fotos: vec![], fotos_job: None, fotos_zeigen: true, foto_ab: 2023, foto_klick: None, foto_aktiv: None,
+            abschnitte: vec![], aufgeteilt: false, ab_job: None,
         }
     }
 
@@ -2344,8 +2353,125 @@ impl ObjektEditor {
                 }
             });
         });
+        if let Some(a) = self.abschnitte_ui(ui) {
+            erg = Some(a);
+        }
         self.bauwerk_ui(ui);
         self.liste(ui);
+        erg
+    }
+
+    fn plan_abschnitte(&self) -> PathBuf {
+        self.json.with_file_name("abschnitte_plan.json")
+    }
+
+    /// omsigen im Hintergrund: (Plan?, Antwort); bei Abschnitt erst der ganze Bau, dann nur der Abschnitt
+    fn ab_starten(&mut self, abschnitt: Option<String>) {
+        let (tx, rx) = channel();
+        let (root, karte, plan) = (self.root.clone(), self.karte.clone(), self.plan_pfad.clone());
+        std::thread::spawn(move || {
+            let repo = crate::kreuzung::omsigen_ordner();
+            let python = std::env::var("OMSIGEN_PYTHON").unwrap_or_else(|_| "python".into());
+            let lauf = |args: Vec<String>| -> Result<String, String> {
+                let mut cmd = std::process::Command::new(&python);
+                cmd.args(&args).current_dir(&repo);
+                #[cfg(windows)]
+                {
+                    use std::os::windows::process::CommandExt;
+                    cmd.creation_flags(0x0800_0000);
+                }
+                match cmd.output() {
+                    Ok(o) if o.status.success() => Ok(String::from_utf8_lossy(&o.stdout).to_string()),
+                    Ok(o) => Err(String::from_utf8_lossy(&o.stderr).lines().last().unwrap_or("Fehler").to_string()),
+                    Err(e) => Err(format!("{python} starten: {e}")),
+                }
+            };
+            let r = (|| {
+                let omsi = root.display().to_string();
+                let mut args: Vec<String> = vec!["-m".into(), "omsigen.ring_abschnitte".into(), "--omsi".into(), omsi.clone(), "--karte".into(), karte.clone()];
+                if let Some(a) = &abschnitt {
+                    lauf(vec!["-m".into(), "omsigen.sonderbau_ring".into(), "--omsi".into(), omsi.clone(), "--karte".into(), karte.clone(), "--osm".into(),
+                              repo.join("sonderbau").join("ring").join("osm_map.xml").display().to_string(), "--bauplan".into(), plan.display().to_string()])?;
+                    args.extend(["--abschnitt".into(), a.clone()]);
+                }
+                let t = lauf(args)?;
+                let v: serde_json::Value = t.lines().rev().find(|l| l.trim_start().starts_with('{')).and_then(|l| serde_json::from_str(l).ok())
+                    .ok_or_else(|| "keine Antwort von omsigen.ring_abschnitte".to_string())?;
+                if let Some(f) = v["fehler"].as_str() {
+                    return Err(f.to_string());
+                }
+                Ok((abschnitt.is_none(), v))
+            })();
+            let _ = tx.send(r);
+        });
+        self.ab_job = Some(rx);
+    }
+
+    /// Abschnitte: Kreuzung aus dem Kartenstand aufteilen, jeden Abschnitt einzeln neu bauen
+    fn abschnitte_ui(&mut self, ui: &mut egui::Ui) -> Option<Aktion> {
+        let mut erg = None;
+        if let Some(rx) = &self.ab_job {
+            if let Ok(r) = rx.try_recv() {
+                self.ab_job = None;
+                match r {
+                    Ok((true, v)) => {
+                        let plan = PathBuf::from(v["plan"].as_str().unwrap_or(""));
+                        self.abschnitte.clear();
+                        self.meldung = format!("Aufteilung berechnet ({} Eintraege) - wird in die Sitzung gesetzt", v["eintraege"]);
+                        erg = Some(Aktion::AbschnitteAnwenden(plan));
+                    }
+                    Ok((false, v)) => {
+                        let objekte = v["objekte"].as_array().map(|a| a.iter().filter_map(|x| x.as_str().map(|s| s.to_string())).collect()).unwrap_or_default();
+                        self.kontext = Kontext::lesen(&self.json);
+                        erg = Some(Aktion::AbschnittGebaut { json: PathBuf::from(v["json"].as_str().unwrap_or("")), objekte });
+                    }
+                    Err(e) => self.meldung = format!("Abschnitte: {e}"),
+                }
+            } else {
+                ui.ctx().request_repaint_after(std::time::Duration::from_millis(300));
+            }
+        }
+        if self.abschnitte.is_empty() {
+            self.abschnitte = crate::abschnitte::lesen(&self.plan_abschnitte()).unwrap_or_default();
+        }
+        egui::CollapsingHeader::new("Abschnitte (einzeln neu bauen)").id_salt("oe_abschnitte").default_open(true).show(ui, |ui| {
+            if !self.aufgeteilt {
+                ui.label("Die Kreuzung ist noch ein Ganzes. Aufteilen nimmt den Stand, der jetzt auf der Karte gespeichert ist, und gibt jedem Abschnitt eigene Dateien - danach baut \"neu bauen\" nur noch diesen Abschnitt, alle anderen bleiben genau so.");
+                if ui.add_enabled(self.ab_job.is_none(), egui::Button::new("Kreuzung in Abschnitte aufteilen")).on_hover_text("Grundlage: die gespeicherte Karte. Speichern schreibt die Aufteilung in die Karte (mit Sicherung).").clicked() {
+                    self.ab_starten(None);
+                    self.meldung = "teile die Kreuzung auf ...".into();
+                }
+            } else {
+                ui.label(egui::RichText::new("Bauplan bearbeiten, dann den Abschnitt neu bauen - die anderen bleiben unveraendert.").small());
+                let mut bauen = None;
+                egui::Grid::new("oe_abschnitte_grid").num_columns(3).striped(true).show(ui, |ui| {
+                    for a in &self.abschnitte {
+                        ui.label(egui::RichText::new(format!("{} {}", a.kurz, a.name)).strong()).on_hover_text(format!("{} ({} Eintraege)", a.inhalt, a.anzahl));
+                        if ui.small_button("Hinsehen").clicked() {
+                            erg = Some(Aktion::KameraNah(a.mitte.extend(f64::NAN)));
+                        }
+                        if ui.add_enabled(self.ab_job.is_none() && self.job.is_none(), egui::Button::new("neu bauen").small()).clicked() {
+                            bauen = Some(a.kurz.clone());
+                        }
+                        ui.end_row();
+                    }
+                });
+                if let Some(a) = bauen {
+                    if self.geaendert {
+                        let _ = self.speichern();
+                    }
+                    self.meldung = format!("baue Abschnitt {a} ...");
+                    self.ab_starten(Some(a));
+                }
+                ui.label(egui::RichText::new("\"Anwenden\" oben baut weiterhin alles und hebt die Aufteilung auf.").small().weak());
+            }
+            if self.ab_job.is_some() {
+                ui.horizontal(|ui| {
+                    ui.spinner();
+                    ui.label(&self.meldung);
+                });
+            }
+        });
         erg
     }
 
