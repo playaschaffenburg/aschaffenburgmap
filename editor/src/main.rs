@@ -411,6 +411,8 @@ enum UiAktion {
     Vermessen,
     /// Import Gebaeude aus LoD2 an/aus
     Lod2,
+    /// LoD2-Gebaeude fuer diese Kacheln (World Editor)
+    Lod2Kacheln(Vec<(i32, i32)>),
     /// Aufmass gebaut: Sonderbau-JSON einsetzen, Objekte neu einlesen (auch ein Abschnitt der Kreuzung)
     AufmassGebaut(PathBuf, Vec<String>),
     /// Kreuzung nach dem Plan in Abschnitte teilen
@@ -1411,7 +1413,11 @@ impl App {
             }
             if let Some(l) = self.lod2.as_mut() {
                 match l.ui(ctx.ctx(), self.kam.ziel.truncate()) {
-                    Some(lod2::Aktion::Gebaut { json, objekte }) => aktionen.push(UiAktion::AufmassGebaut(json, objekte)),
+                    Some(lod2::Aktion::Gebaut(liste)) => {
+                        for (json, objekte) in liste {
+                            aktionen.push(UiAktion::AufmassGebaut(json, objekte));
+                        }
+                    }
                     Some(lod2::Aktion::Schliessen) => aktionen.push(UiAktion::Lod2),
                     None => {}
                 }
@@ -1931,6 +1937,11 @@ impl App {
                             ui.label(format!("{o} Objekte, {sp} Splines"));
                             if ui.button("Kachel loeschen (Entf)").clicked() {
                                 self.welt_frage = Some(k);
+                            }
+                            if self.luftbild.bezug.is_some() {
+                                if ui.button("LoD2-Gebaeude dieser Kachel laden").on_hover_text("3D-Gebaeudemodelle der Bayerischen Vermessungsverwaltung (CC BY 4.0) fuer diese Kachel bauen und einsetzen; ersetzt nur fruehere LoD2-Gebaeude dieser Kachel").clicked() {
+                                    aktionen.push(UiAktion::Lod2Kacheln(vec![k]));
+                                }
                             }
                         }
                     }
@@ -3407,6 +3418,16 @@ impl App {
             UiAktion::BauwerkeNeu => {
                 if let Some(v) = self.viewer.as_mut() {
                     self.strasse.bauwerke_aktualisieren(v);
+                }
+            }
+            UiAktion::Lod2Kacheln(ks) => {
+                if self.lod2.is_none() {
+                    if let Some(k) = self.karte.clone() {
+                        self.lod2 = Some(lod2::Lod2::neu(&self.root, &k));
+                    }
+                }
+                if let Some(l) = self.lod2.as_mut() {
+                    l.kacheln_bauen(ks);
                 }
             }
             UiAktion::Lod2 => {

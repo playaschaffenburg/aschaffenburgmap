@@ -393,7 +393,8 @@ Vermessungsverwaltung (Open Data, CC BY 4.0: Grundrisse aus dem Kataster, Däche
 Blickmitte als OMSI-Objekte (`omsigen/lod2.py`): je Gebäude ein Objekt mit absoluter Höhe, Wände 1 m unter den Boden,
 Fassaden-/Dachtexturen nach Gebäudefunktion und Dachneigung; Brücken und Mauern bleiben weg (die baut OMSIgen selbst).
 LoD2-Kacheln (2 km, bis ~120 MB) liegen in `%LOCALAPPDATA%\omsi-editor\geodaten\lod2`, fehlende erst nach Rückfrage.
-Erneutes Einsetzen ersetzt nur LoD2-Gebäude (Kennung `\LoD2\`).
+Gebaut wird je OMSI-Kachel (Ordner `LoD2\<x>_<y>`): erneutes Einsetzen ersetzt nur die LoD2-Gebäude dieser Kachel.
+Im **World Editor → Kacheln bearbeiten** lädt „LoD2-Gebäude dieser Kachel laden“ direkt die gewählte Kachel.
 
 **Messen** (Knopf oben, Menü): „Strecke messen (M)“ und „Bauwerk vermessen (Laserdaten)“.
 

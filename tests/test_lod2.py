@@ -44,3 +44,10 @@ def test_dreiecke_mit_loch():
 def test_material():
     assert L.wand_material('31001_1000') == 'wohnen' and L.wand_material('31001_3041') == 'sandstein'
     assert L.wand_material('31001_2463') == 'putz' and L.wand_material('31001_2000') == 'gewerbe'
+
+
+def test_kacheln_im_kreis():
+    ks = L.kacheln_im_kreis((150.0, 150.0), 100.0)
+    assert ks == [(0, 0)]
+    ks = set(L.kacheln_im_kreis((299.0, 150.0), 10.0))
+    assert ks == {(0, 0), (1, 0)}

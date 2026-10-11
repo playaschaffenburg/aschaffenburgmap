@@ -8,7 +8,8 @@ use std::sync::mpsc::{channel, Receiver};
 use glam::DVec2;
 
 pub enum Aktion {
-    Gebaut { json: PathBuf, objekte: Vec<String> },
+    /// je OMSI-Kachel ein lod2.json (Kennung LoD2\<kx>_<ky>\) mit seinen Objekten
+    Gebaut(Vec<(PathBuf, Vec<String>)>),
     Schliessen,
 }
 
@@ -19,20 +20,41 @@ pub struct Lod2 {
     mitte: DVec2,
     job: Option<Receiver<Result<serde_json::Value, String>>>,
     fehlt: Option<String>,
+    /// gewaehlte OMSI-Kacheln (World Editor) statt Umkreis
+    kacheln: Option<Vec<(i32, i32)>>,
     meldung: String,
 }
 
 impl Lod2 {
+    /// LoD2-Gebaeude fuer diese OMSI-Kacheln bauen (aus dem World Editor)
+    pub fn kacheln_bauen(&mut self, ks: Vec<(i32, i32)>) {
+        if self.job.is_some() {
+            return;
+        }
+        self.kacheln = Some(ks);
+        self.starten(false);
+    }
+
     pub fn neu(root: &Path, karte: &str) -> Lod2 {
-        Lod2 { root: root.to_path_buf(), karte: karte.to_string(), radius: 300.0, mitte: DVec2::ZERO, job: None, fehlt: None,
+        Lod2 { root: root.to_path_buf(), karte: karte.to_string(), radius: 300.0, mitte: DVec2::ZERO, job: None, fehlt: None, kacheln: None,
                meldung: "Gebaeude im Umkreis der Blickmitte bauen".into() }
     }
 
     fn starten(&mut self, laden: bool) {
         let (tx, rx) = channel();
         let mut args: Vec<String> = vec!["-m".into(), "omsigen.lod2".into(), "--omsi".into(), self.root.display().to_string(), "--karte".into(),
-                                         self.karte.clone(), "--mitte".into(), format!("{:.1}", self.mitte.x), format!("{:.1}", self.mitte.y),
-                                         "--radius".into(), format!("{:.0}", self.radius)];
+                                         self.karte.clone()];
+        match &self.kacheln {
+            Some(ks) => {
+                args.push("--kacheln".into());
+                for (x, y) in ks {
+                    args.push(x.to_string());
+                    args.push(y.to_string());
+                }
+            }
+            None => args.extend(["--mitte".into(), format!("{:.1}", self.mitte.x), format!("{:.1}", self.mitte.y),
+                                 "--radius".into(), format!("{:.0}", self.radius)]),
+        }
         if laden {
             args.push("--laden".into());
         }
@@ -76,12 +98,16 @@ impl Lod2 {
                             self.meldung = format!("Fehler: {f}");
                         }
                     } else {
-                        self.meldung = format!("{} Gebaeude ({} Dreiecke) gebaut - eingesetzt", v["gebaeude"], v["dreiecke"]);
-                        let json = PathBuf::from(v["json"].as_str().unwrap_or(""));
-                        let objekte = std::fs::read(&json).ok().and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
-                            .and_then(|j| j["objekte"].as_array().map(|a| a.iter().filter_map(|o| o["rel"].as_str().map(|s| s.to_string())).collect()))
-                            .unwrap_or_default();
-                        aktion = Some(Aktion::Gebaut { json, objekte });
+                        let n_k = v["kacheln"].as_array().map(|a| a.len()).unwrap_or(0);
+                        self.meldung = format!("{} Gebaeude ({} Dreiecke) in {n_k} Kachel(n) gebaut - eingesetzt", v["gebaeude"], v["dreiecke"]);
+                        let liste = v["jsons"].as_array().into_iter().flatten().filter_map(|p| p.as_str()).map(|p| {
+                            let json = PathBuf::from(p);
+                            let objekte = std::fs::read(&json).ok().and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+                                .and_then(|j| j["objekte"].as_array().map(|a| a.iter().filter_map(|o| o["rel"].as_str().map(|s| s.to_string())).collect()))
+                                .unwrap_or_default();
+                            (json, objekte)
+                        }).collect();
+                        aktion = Some(Aktion::Gebaut(liste));
                     }
                 }
                 Ok(Err(e)) => {
@@ -93,10 +119,12 @@ impl Lod2 {
         }
         egui::Window::new("Gebaeude aus LoD2").anchor(egui::Align2::RIGHT_TOP, egui::vec2(-12.0, 44.0)).resizable(false).collapsible(true).show(ctx, |ui| {
             ui.label("3D-Gebaeudemodelle (Kataster-Grundrisse, Daecher aus Laserdaten)\nder Bayerischen Vermessungsverwaltung.");
+            ui.label(egui::RichText::new("Gebaut wird je Kachel (300 m): erneutes Einsetzen ersetzt nur die LoD2-Gebaeude dieser Kachel.").small());
             ui.add(egui::Slider::new(&mut self.radius, 50.0..=1500.0).text("m Umkreis um die Blickmitte"));
-            ui.label(format!("Blickmitte: x {:.0}, y {:.0}", mitte.x, mitte.y));
-            if ui.add_enabled(self.job.is_none(), egui::Button::new("Bauen und einsetzen")).on_hover_text("ersetzt fruehere LoD2-Gebaeude, sonst nichts in der Karte").clicked() {
+            ui.label(format!("Blickmitte: x {:.0}, y {:.0} - alle Kacheln, die der Kreis beruehrt", mitte.x, mitte.y));
+            if ui.add_enabled(self.job.is_none(), egui::Button::new("Bauen und einsetzen")).on_hover_text("ersetzt fruehere LoD2-Gebaeude dieser Kacheln, sonst nichts in der Karte").clicked() {
                 self.mitte = mitte;
+                self.kacheln = None;
                 self.starten(false);
             }
             if let Some(k) = self.fehlt.clone() {

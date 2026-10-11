@@ -6,9 +6,10 @@ Texturen. Je Gebaeude ein Objekt (.sco + .x) mit absoluter Hoehe; Waende reichen
 Gelaende). Fassaden und Daecher bekommen erzeugte Texturen nach Gebaeudefunktion und Dachneigung.
 
   laden:  km-Kacheln (2 km) im Zwischenspeicher %LOCALAPPDATA%\\omsi-editor\\geodaten\\lod2; fehlende nur mit --laden
-  bauen:  python -m omsigen.lod2 --karte Aburg_Newgen_testring --mitte 1085 -267 --radius 300
-          -> Sceneryobjects\\Aschaffenburg\\<Karte>\\LoD2\\ (Objekte) und lod2.json (Sonderbau-Format, Kennung "\\LoD2\\":
-          der Editor ersetzt beim erneuten Einsetzen nur LoD2-Gebaeude)
+  bauen:  python -m omsigen.lod2 --karte Aburg_Newgen_testring --kacheln 3 -2 3 -1   (OMSI-Kacheln kx ky ...)
+          oder --mitte x y --radius r (alle Kacheln, die den Kreis beruehren)
+          -> je OMSI-Kachel Sceneryobjects/Aschaffenburg/<Karte>/LoD2/<kx>_<ky>/ mit Objekten, Texturen und lod2.json
+          (Sonderbau-Format, Kennung LoD2/<kx>_<ky>/: erneutes Einsetzen ersetzt nur die LoD2-Gebaeude dieser Kachel)
 
 Bruecken (53001), Mauern (51007/51009_1700), Staumauern/Wehre gehoeren nicht dazu: die baut OMSIgen selbst."""
 import argparse
@@ -230,59 +231,98 @@ def sco_text(name, mats):
     return '\r\n'.join(L) + '\r\n'
 
 
-def bauen(omsi, karte, mitte, radius, laden_erlaubt=False):
+def kacheln_im_kreis(mitte, radius):
+    """OMSI-Kacheln (300 m), die den Kreis beruehren"""
+    cx, cy = mitte
+    out = []
+    for kx in range(math.floor((cx - radius) / 300), math.floor((cx + radius) / 300) + 1):
+        for ky in range(math.floor((cy - radius) / 300), math.floor((cy + radius) / 300) + 1):
+            nx, ny = min(max(cx, kx * 300), kx * 300 + 300), min(max(cy, ky * 300), ky * 300 + 300)
+            if math.hypot(nx - cx, ny - cy) <= radius:
+                out.append((kx, ky))
+    return out
+
+
+def bauen(omsi, karte, omsi_kacheln, laden_erlaubt=False):
+    """LoD2-Gebaeude je OMSI-Kachel (Gebaeudemitte in der Kachel): Objekte in LoD2/<kx>_<ky>/ und je Kachel ein
+    lod2.json mit Kennung LoD2/<kx>_<ky>/ im Pfad - erneutes Einsetzen ersetzt nur die Gebaeude dieser Kachel
+    -> (Liste json-Pfade, Gebaeude, Dreiecke)"""
+    bs = '\\'
     from .aufmass import bezug_lesen
     from .kreuzung import x_file
     bez = bezug_lesen(omsi, karte)
-    cx, cy = mitte
-    bereich = (cx - radius, cy - radius, cx + radius, cy + radius)
-    fehlen = [(e, n) for e, n in kacheln(bez, bereich) if not os.path.isfile(datei(e, n))]
+    kdir = os.path.join(omsi, 'maps', karte)
+    omsi_kacheln = [k for k in omsi_kacheln if os.path.isfile(os.path.join(kdir, f'tile_{k[0]}_{k[1]}.map'))]
+    if not omsi_kacheln:
+        raise RuntimeError('keine dieser Kacheln gibt es in der Karte')
+    noetig = sorted({k for kx, ky in omsi_kacheln for k in kacheln(bez, (kx * 300, ky * 300, kx * 300 + 299.9, ky * 300 + 299.9))})
+    fehlen = [(e, n) for e, n in noetig if not os.path.isfile(datei(e, n))]
     if fehlen and not laden_erlaubt:
         raise RuntimeError('LoD2-Kacheln fehlen: ' + ', '.join(f'{e}_{n}' for e, n in fehlen) + ' (--laden)')
     for e, n in fehlen:
         laden(e, n)
-    ordner = os.path.join(omsi, 'Sceneryobjects', 'Aschaffenburg', karte, 'LoD2')
-    rel = f'Sceneryobjects\\Aschaffenburg\\{karte}\\LoD2'
-    os.makedirs(os.path.join(ordner, 'model'), exist_ok=True)
-    texturen(os.path.join(ordner, 'texture'))
-    kdir = os.path.join(omsi, 'maps', karte)
-    # nur auf Kacheln, die die Karte hat (sonst laesst sich das Objekt nicht eintragen)
-    im_kreis = lambda p: (math.hypot(p[0] - cx, p[1] - cy) <= radius
-                          and os.path.isfile(os.path.join(kdir, f'tile_{math.floor(p[0] / 300)}_{math.floor(p[1] / 300)}.map')))
-    objekte, n_dr = [], 0
-    for e, n in kacheln(bez, bereich):
-        for g in gebaeude(datei(e, n), bez, im_kreis):
+    basis = os.path.join(omsi, 'Sceneryobjects', 'Aschaffenburg', karte, 'LoD2')
+    rel0 = bs.join(['Sceneryobjects', 'Aschaffenburg', karte, 'LoD2'])
+    fertig_tex = set()
+    gewollt = set(map(tuple, omsi_kacheln))
+    je = {k: [] for k in gewollt}
+    x0 = min(k[0] for k in gewollt) * 300
+    y0 = min(k[1] for k in gewollt) * 300
+    x1 = (max(k[0] for k in gewollt) + 1) * 300
+    y1 = (max(k[1] for k in gewollt) + 1) * 300
+    in_kachel = lambda p: (math.floor(p[0] / 300), math.floor(p[1] / 300)) in gewollt
+    n_dr = 0
+    for e, n in noetig:
+        for g in gebaeude(datei(e, n), bez, lambda p: x0 <= p[0] < x1 and y0 <= p[1] < y1 and in_kachel(p)):
+            k = (math.floor(g['mitte'][0] / 300), math.floor(g['mitte'][1] / 300))
             m, o = bauen_gebaeude(g)
             if m.leer():
                 continue
+            ordner = os.path.join(basis, f'{k[0]}_{k[1]}')
+            os.makedirs(os.path.join(ordner, 'model'), exist_ok=True)
+            if k not in fertig_tex:                    # Texturen je Kachelordner (OMSI sucht sie neben dem Objekt)
+                texturen(os.path.join(ordner, 'texture'))
+                fertig_tex.add(k)
             name = g['id'].replace('DEBY_LOD2_', 'B')
             with open(os.path.join(ordner, 'model', name + '.x'), 'w', newline='') as f:
-                f.write(x_file(m.V, m.F, [(k, TEX[k]) for k in m.mats]))
+                f.write(x_file(m.V, m.F, [(kk, TEX[kk]) for kk in m.mats]))
             open(os.path.join(ordner, name + '.sco'), 'w', encoding='cp1252', newline='').write(sco_text(name, m.mats))
-            objekte.append(dict(name=name, rel=f'{rel}\\{name}.sco', x=round(float(o[0]), 3), y=round(float(o[1]), 3), z=0.0,
-                                funktion=g['funktion'], dach=g['dach'], hoehe=g['hoehe']))
+            je[k].append(dict(name=name, rel=bs.join([rel0, f'{k[0]}_{k[1]}', name + '.sco']), x=round(float(o[0]), 3), y=round(float(o[1]), 3),
+                              z=0.0, funktion=g['funktion'], dach=g['dach'], hoehe=g['hoehe']))
             n_dr += len(m.F)
-    out = dict(karte=karte, marker='\\LoD2\\', objekte=objekte, strassen=[], kreuzungen=[], gelaende=[], gelaende_zurueck=[],
-               quellen=[QUELLE])
-    pfad = os.path.join(ordner, 'lod2.json')
-    json.dump(out, open(pfad, 'w', encoding='utf-8'), indent=1, ensure_ascii=False)
-    return pfad, len(objekte), n_dr
+    pfade = []
+    for (kx, ky), objekte in sorted(je.items()):
+        ordner = os.path.join(basis, f'{kx}_{ky}')
+        os.makedirs(ordner, exist_ok=True)
+        out = dict(karte=karte, marker=bs + 'LoD2' + bs + f'{kx}_{ky}' + bs, kachel=[kx, ky], objekte=objekte, strassen=[], kreuzungen=[],
+                   gelaende=[], gelaende_zurueck=[], quellen=[QUELLE])
+        pfad = os.path.join(ordner, 'lod2.json')
+        json.dump(out, open(pfad, 'w', encoding='utf-8'), indent=1, ensure_ascii=False)
+        pfade.append(pfad)
+    return pfade, sum(len(v) for v in je.values()), n_dr
 
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument('--omsi', default=STANDARD_OMSI)
     ap.add_argument('--karte', required=True)
-    ap.add_argument('--mitte', type=float, nargs=2, required=True)
+    ap.add_argument('--kacheln', type=int, nargs='+', help='OMSI-Kacheln kx ky kx ky ...')
+    ap.add_argument('--mitte', type=float, nargs=2, help='statt --kacheln: alle Kacheln, die den Kreis beruehren')
     ap.add_argument('--radius', type=float, default=300.0)
     ap.add_argument('--laden', action='store_true')
     a = ap.parse_args()
     try:
-        pfad, n, d = bauen(a.omsi, a.karte, a.mitte, a.radius, a.laden)
-        erg = dict(json=pfad, gebaeude=n, dreiecke=d)
+        if a.kacheln:
+            ks = list(zip(a.kacheln[0::2], a.kacheln[1::2]))
+        elif a.mitte:
+            ks = kacheln_im_kreis(a.mitte, a.radius)
+        else:
+            raise ValueError('--kacheln oder --mitte angeben')
+        pfade, n, d = bauen(a.omsi, a.karte, ks, a.laden)
+        erg = dict(jsons=pfade, gebaeude=n, dreiecke=d, kacheln=[list(k) for k in ks])
     except Exception as e:
         erg = dict(fehler=f'{type(e).__name__}: {e}')
-    sys.stdout.write(json.dumps(erg, ensure_ascii=False) + '\n')
+    print(json.dumps(erg, ensure_ascii=False))
 
 
 if __name__ == '__main__':
