@@ -1125,6 +1125,12 @@ def texturen(omsi, ziel):
     st[118:124, :] = farbe
     st[:, [x for x in range(128) if x % 16 in (7, 8)]] = farbe
     Image.fromarray(st, 'RGBA').save(os.path.join(ziel, TEX['stab']))
+    # Handlauf auf der Betonbruestung (Spline-Profil: Spalten = quer 0,3 m von unten, Zeilen = laengs 2,5 m):
+    # Rohr oben, eine Stuetze je 2,5 m, sonst durchsichtig
+    hl = np.zeros((256, 32, 4), np.uint8)
+    hl[:, 24:32] = farbe
+    hl[0:12, 0:24] = farbe
+    Image.fromarray(hl, 'RGBA').save(os.path.join(ziel, 'AB_handlauf.tga'))
     # Bodendecker im Pflanzstreifen
     p = (rng.normal(0, 18, (128, 128, 3)) + (70, 105, 55)).clip(0, 255).astype(np.uint8)
     Image.fromarray(p).save(os.path.join(ziel, TEX['pflanzen']))

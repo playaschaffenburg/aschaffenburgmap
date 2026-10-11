@@ -38,9 +38,17 @@ pub fn lesen(plan: &Path) -> Result<Vec<Abschnitt>> {
 
 /// Plan anwenden -> Meldung
 pub fn anwenden(ae: &mut crate::aendern::Aendern, v: &mut openomsi_game::viewer::Viewer, plan: &Path) -> Result<String> {
+    let (m, n) = anwenden_zaehlen(ae, v, plan)?;
+    anyhow::ensure!(n > 0, "{m}");
+    Ok(m)
+}
+
+/// Plan anwenden -> (Meldung, Anzahl umgestellter Eintraege)
+pub fn anwenden_zaehlen(ae: &mut crate::aendern::Aendern, v: &mut openomsi_game::viewer::Viewer, plan: &Path) -> Result<(String, usize)> {
     let j: serde_json::Value = serde_json::from_slice(&std::fs::read(plan)?)?;
-    // je Kachel: (ID, alter Pfad) -> neue Pfade
-    let mut je: HashMap<(i32, i32), HashMap<(i64, String), Vec<String>>> = HashMap::new();
+    // je Kachel: (alter Pfad, Lage auf 1 cm) -> neue Pfade; die IDs taugen nicht (Speichern/Neu-Einsetzen nummeriert neu)
+    let mut je: HashMap<(i32, i32), HashMap<(String, i64, i64), Vec<String>>> = HashMap::new();
+    let cm = |v: f64| (v * 100.0).round() as i64;
     let mut extra = 0i64;
     for e in j["eintraege"].as_array().context("Plan ohne Eintraege")? {
         let k = (e["kachel"][0].as_i64().unwrap_or(0) as i32, e["kachel"][1].as_i64().unwrap_or(0) as i32);
@@ -49,7 +57,7 @@ pub fn anwenden(ae: &mut crate::aendern::Aendern, v: &mut openomsi_game::viewer:
             continue;
         }
         extra += neu.len() as i64 - 1;
-        je.entry(k).or_default().insert((e["id"].as_i64().unwrap_or(-1), e["pfad"].as_str().unwrap_or("").to_string()), neu);
+        je.entry(k).or_default().insert((e["pfad"].as_str().unwrap_or("").to_string(), cm(e["ox"].as_f64().unwrap_or(f64::NAN)), cm(e["oy"].as_f64().unwrap_or(f64::NAN))), neu);
     }
     let mut naechste = ae.neue_ids(v, extra.max(1));
     let kacheln: Vec<(i32, i32)> = je.keys().copied().collect();
@@ -64,9 +72,12 @@ pub fn anwenden(ae: &mut crate::aendern::Aendern, v: &mut openomsi_game::viewer:
             if i + 3 >= zeilen.len() {
                 continue;
             }
-            let Some(id) = zeilen[i + 3].trim().parse::<f64>().ok().map(|x| x as i64) else { continue };
+            let w = zeilen[i].trim().to_ascii_lowercase();
+            let (ix, iy) = if w == "[object]" { (i + 4, i + 5) } else { (i + 6, i + 8) };
+            let lage = |q: usize| zeilen.get(q).and_then(|x| x.trim().parse::<f64>().ok());
+            let (Some(x), Some(y)) = (lage(ix), lage(iy)) else { continue };
             let pfad = zeilen[i + 2].trim().to_string();
-            let Some(neu) = tab.get(&(id, pfad)) else { continue };
+            let Some(neu) = tab.get(&(pfad, cm(x), cm(y))) else { continue };
             gefunden += 1;
             for p in &neu[1..] {
                 let mut b: Vec<String> = zeilen[i..ende].to_vec();
@@ -92,9 +103,18 @@ pub fn anwenden(ae: &mut crate::aendern::Aendern, v: &mut openomsi_game::viewer:
     })?;
     let mut m = format!("Kreuzung in Abschnitte geteilt: {n_um} Eintraege umgestellt, {n_neu} Teilobjekte dazu");
     if n_fehlt > 0 {
-        m += &format!(", {n_fehlt} Eintraege des Plans nicht in der Karte gefunden (Karte seit dem Aufteilen veraendert?)");
+        m += &format!(", {n_fehlt} Eintraege des Plans nicht in der Karte gefunden (Kreuzung in der Sitzung veraendert? erst speichern, dann aufteilen)");
     }
-    Ok(m)
+    Ok((m, n_um))
+}
+
+/// gibt es in den Kacheln der Sitzung Eintraege mit dieser Abschnitts-Kennung?
+pub fn hat_marker(v: &openomsi_game::viewer::Viewer, marker: &str) -> bool {
+    v.map_tiles().into_iter().filter_map(|(x, y)| v.tile_file(x, y)).any(|p| {
+        std::fs::read(&p).map(|b| {
+            String::from_utf16_lossy(&b.get(2..).unwrap_or(&[]).chunks_exact(2).map(|c| u16::from_le_bytes([c[0], c[1]])).collect::<Vec<_>>()).contains(marker)
+        }).unwrap_or(false)
+    })
 }
 
 /// Abschnitts-Kennung eines Sonderbau-JSON (abschnitt_<X>.json von omsigen.ring_abschnitte), sonst None

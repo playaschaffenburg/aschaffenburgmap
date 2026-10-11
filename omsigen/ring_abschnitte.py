@@ -23,13 +23,13 @@ STANDARD_OMSI = r'C:\Program Files (x86)\Steam\steamapps\common\OMSI 2'
 DECKE = (-248.9, -284.0)              # y der Portale (wie sonderbau_ring.DECKE)
 
 ABSCHNITTE = [
-    ('NW', 'Nord-West', 'Westrampe Nord mit Aussenwand'),
-    ('NT', 'Nord-Trog', 'Ring im Trog nord, Trennwaende, Sohle'),
-    ('NO', 'Nord-Ost', 'Ostrampe Nord mit Aussenwand und Weg'),
+    ('NW', 'Nord-West', 'Westrampe Nord mit Aussen- und Trennwand'),
+    ('NT', 'Nord-Trog', 'Ring im Trog nord, Sohle'),
+    ('NO', 'Nord-Ost', 'Ostrampe Nord mit Aussen- und Trennwand, Weg'),
     ('PL', 'Platte', 'Kreuzung auf der Platte mit Ampeln, Unterfuehrung, Portale'),
-    ('SW', 'Sued-West', 'Westrampe Sued mit Aussenwand'),
-    ('ST', 'Sued-Trog', 'Ring im Trog sued, Trennwaende, Sohle'),
-    ('SO', 'Sued-Ost', 'Ostrampe Sued mit Aussenwand, Mauer/Hecke, Weg'),
+    ('SW', 'Sued-West', 'Westrampe Sued mit Aussen- und Trennwand'),
+    ('ST', 'Sued-Trog', 'Ring im Trog sued, Sohle'),
+    ('SO', 'Sued-Ost', 'Ostrampe Sued mit Aussen- und Trennwand, Mauer/Hecke, Weg'),
     ('BW', 'Bruecken-West', 'Bahnbruecke und Schiesshausbruecke'),
     ('LO', 'Ludwigsallee-Ost', 'Ludwigsallee Ost und Weg Ost'),
 ]
@@ -120,7 +120,10 @@ def zuordnen(e, lage):
         return 'PL'
     if n is None:
         return 'PL' if lage.abschnitt(e['x'], e['y']) == 'PL' else lage.abschnitt(e['x'], e['y'])
-    if '_trenn_' in name or 'Ring_Trog' in name:
+    # Trennwand gehoert zur Rampe: ihre Bruestung mit Handlauf steht auf der Rampe (Fotos)
+    if '_trenn_' in name:
+        return n + ('W' if re.search(r'_w(_\d+m)?\.sli$', name) else 'O')
+    if 'Ring_Trog' in name:
         return n + 'T'
     if 'Rampe_West' in name or re.search(r'_aussen_.*_w(_\d+m)?\.sli$', name):
         return n + 'W'

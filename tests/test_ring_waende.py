@@ -44,11 +44,14 @@ def test_kette_trifft_punkte_und_ist_glatt():
 
 
 def test_profil_seiten_und_tiefe():
-    p = rw.profil('trenn', 'klinker', 'bruestung', 'keine', -1, 7.0)
+    # Trennwand an der Rampe: Betonbruestung 1,0 m mit Handlauf (Fotos), Handlauf von beiden Seiten mit u = 0 unten
+    p = rw.profil('trenn', 'klinker', 'betonbr', 'keine', -1, 7.0)
     txt = p.text('Test')
-    assert '[matl_alpha]' in txt and rw.TEX['stab'] in txt
+    assert '[matl_alpha]' in txt and rw.TEX['handlauf'] in txt
     ys = [y for _, pts in p.teile for _, y, _ in pts]
-    assert min(ys) == -7.0 and max(ys) == rw.BRUESTUNG + rw.GELAENDER
+    assert min(ys) == -7.0 and abs(max(ys) - (rw.BR_HOCH + rw.HANDLAUF)) < 1e-9
+    hl = [pts for t, pts in p.teile if t == 'handlauf']
+    assert len(hl) == 2 and all(min(pts, key=lambda q: q[1])[2] == 0.0 for pts in hl)
     # Ring-Seite einer Westwand liegt bei x < 0 (Strasse oestlich, Laufrichtung Nord -> Sued): dort ist die
     # Klinkerflaeche, sichtbar nach links (von unten nach oben gelesen)
     klinker = [pts for t, pts in p.teile if t == 'klinker']

@@ -215,6 +215,10 @@ pub fn einsetzen(ae: &mut crate::aendern::Aendern, gel: &mut crate::gelaende::Ge
 /// anderen Abschnitte bleiben genau wie auf der Karte
 pub fn einsetzen_nur(ae: &mut crate::aendern::Aendern, gel: &mut crate::gelaende::Gelaende, v: &mut openomsi_game::viewer::Viewer, root: &Path,
                      gel_ordner: &Path, json: &Path, nur: Option<&str>) -> Result<String> {
+    if let Some(mk) = nur {
+        anyhow::ensure!(crate::abschnitte::hat_marker(v, mk),
+            "der Abschnitt {mk} steht in der Karte nicht als eigener Abschnitt (Kreuzung nicht aufgeteilt oder durch \"Anwenden\" ganz neu eingesetzt) - erst aufteilen, sonst entstuende er doppelt");
+    }
     let teile = lesen(json)?;
     let strassen = strassen_lesen(json)?;
     let kreuzungen = kreuzungen_lesen(json)?;

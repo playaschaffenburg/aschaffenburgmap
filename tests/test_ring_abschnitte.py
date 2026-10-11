@@ -31,5 +31,8 @@ def test_zuordnung_nach_namen_und_lage():
     assert R.zuordnen(e('Splines\\Aschaffenburg\\AB_SB_Rampe_West_Sued.sli', -8, -350), lage) == 'SW'
     assert R.zuordnen(e('Splines\\Aschaffenburg\\AB_SB_Wand_portal_beton_nord_3m.sli', 0, -250), lage) == 'PL'
     assert R.zuordnen(e('X\\Sonderbau_Ring\\Kreuzung_Ludwigsallee.sco', 0, -267, '[object]'), lage) == 'PL'
+    # Trennwand gehoert zur Rampe (Bruestung steht auf der Rampe)
+    assert R.zuordnen(e('Splines\\Aschaffenburg\\AB_SB_Wand_trenn_klinker_betonbr_keine_w_7m.sli', -5, -150), lage) == 'NW'
+    assert R.zuordnen(e('Splines\\Aschaffenburg\\AB_SB_Wand_trenn_klinker_betonbr_keine_o_8m.sli', 5, -350), lage) == 'SO'
     assert R.zuordnen(e('X\\Sonderbau_Ring\\Sohle_02.sco', 0, -200, '[object]'), lage) == 'teilen'
     assert lage.abschnitt(8, -350) == 'SO' and lage.abschnitt(-8, -150) == 'NW'

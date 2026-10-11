@@ -28,20 +28,27 @@ GELAENDER = 1.0
 STUFE = 2.0               # zweistufige Klinkerwand: Pflanzstreifen so weit unter der Krone
 STUFE_BREIT = 1.5
 LSW_H = 2.5
+# Betonbruestung mit Handlauf an den Rampen (Fotos des Nutzers, Rampe West Nord): Beton bis 1,0 m ueber die Krone
+# (Fahrbahnrand; der Hochbord liegt 0,15 m hoeher), oben 0,4 m breit, darauf ein Handlauf auf Stuetzen (0,3 m)
+BR_HOCH = 1.0
+BR_BREIT = 0.4
+HANDLAUF = 0.3
 MIN_STUECK = 20.0         # m: kuerzere Wechsel einfach/zweistufig werden dem Nachbarn zugeschlagen
 
 # Texturen im Spline-Ordner (Splines\Aschaffenburg\texture), Quelle: Objektordner des Sonderbaus bzw. Marcel
 TEX = {'klinker': 'AB_SB_klinker.bmp', 'beton': 'AB_SB_beton.bmp', 'gabionen': 'AB_SB_gabionen.bmp',
        'pflanzen': 'AB_SB_bodendecker.bmp', 'stab': 'AB_SB_stabgelaender.tga', 'gruen': 'AB_SB_lsw_gruen.bmp',
        'glas': 'AB_SB_glas.tga', 'holz': 'AB_SB_lsw_holz.bmp', 'sandstein': 'AB_SB_sandstein.bmp', 'hecke': 'AB_SB_hecke.bmp',
-       'paneel': 'AB_SB_paneel_rot.bmp'}
+       'paneel': 'AB_SB_paneel_rot.bmp', 'handlauf': 'AB_SB_handlauf.tga'}
 QUELLE = {'klinker': 'AB_klinker.bmp', 'beton': 'betonwand1.bmp', 'gabionen': 'AB_gabionen.bmp',
           'pflanzen': 'AB_bodendecker.bmp', 'stab': 'AB_stabgelaender.tga', 'gruen': 'AB_lsw_gruen.bmp', 'glas': 'AB_glas.tga',
           'holz': 'AB_lsw_holz.bmp', 'sandstein': 'AB_sandstein.bmp', 'hecke': 'AB_hecke.bmp',
-          'paneel': 'AB_paneel_rot.bmp'}
-ALPHA = {'stab', 'glas'}
+          'paneel': 'AB_paneel_rot.bmp', 'handlauf': 'AB_handlauf.tga'}
+ALPHA = {'stab', 'glas', 'handlauf'}
 GROESSE = {'klinker': 2.0, 'beton': 4.0, 'gabionen': 2.0, 'pflanzen': 2.0, 'stab': 1.0, 'gruen': 2.5, 'glas': 2.5, 'holz': 2.5,
-            'sandstein': 1.5, 'hecke': 2.0, 'paneel': 2.5}
+            'sandstein': 1.5, 'hecke': 2.0, 'paneel': 2.5, 'handlauf': 2.5}
+# Textur quer zum Profil anders gross als laengs (Handlauf: 0,3 m hoch, Stuetzen alle 2,5 m)
+QUER = {'handlauf': HANDLAUF}
 # Hoehe der Laermschutzwand je Art (Holzpalisade an der Rampe Ost-Sued nach Fotos hoeher)
 LSW_HOEHE = {'holz': 3.0}
 
@@ -52,9 +59,15 @@ class Profil:
         self.teile = []           # (Textur, [(x, y, u)])
         self.umriss = []          # massive Teile als Vielecke [(x, y)] - daraus die Stirnflaechen an den Kettenenden
 
-    def strecke(self, tex, a, b):
-        L = math.hypot(b[0] - a[0], b[1] - a[1])
-        self.teile.append((tex, [(a[0], a[1], 0.0), (b[0], b[1], L / GROESSE[tex])]))
+    def strecke(self, tex, a, b, umkehren=False):
+        L = math.hypot(b[0] - a[0], b[1] - a[1]) / QUER.get(tex, GROESSE[tex])
+        u0, u1 = (L, 0.0) if umkehren else (0.0, L)
+        self.teile.append((tex, [(a[0], a[1], u0), (b[0], b[1], u1)]))
+
+    def handlauf(self, x, y0):
+        """Handlauf auf Stuetzen bei x, von y0 an HANDLAUF hoch, von beiden Seiten sichtbar (Textur unten = u 0)"""
+        self.strecke('handlauf', (x, y0), (x, y0 + HANDLAUF))
+        self.strecke('handlauf', (x, y0 + HANDLAUF), (x, y0), umkehren=True)
 
     def flaeche(self, tex, x, y0, y1, sicht):
         """senkrechte Flaeche bei x von y0 bis y1, sichtbar zur Seite sicht (-1 links, +1 rechts)"""
@@ -105,7 +118,7 @@ def profil_rand(art, s):
 
 def profil(art, material, variante, laerm, r, tiefe):
     """Profil einer Wand. r: Seite der Fahrbahn in Profil-x (-1/+1); Krone bei y = 0, unten bis -tiefe.
-    variante: trenn 'bruestung'/'flach', aussen 'einfach'/'stufig'"""
+    variante: trenn 'betonbr'/'flach', aussen 'einfach'/'stufig'/'betonbr' (Betonbruestung mit Handlauf)"""
     p = Profil()
     # paneel: rote Laermschutz-Paneele an den Trogwaenden (Fotos 2017/2019)
     m = material if material in ('klinker', 'beton', 'gabionen', 'paneel') else 'klinker'
@@ -126,12 +139,14 @@ def profil(art, material, variante, laerm, r, tiefe):
         xr, xa = r * h, -r * h                         # Ring-Seite, Rampen-Seite
         p.flaeche(m, xr, u, -KAPPE - 0.1, r)
         p.flaeche('beton', xr, -KAPPE - 0.1, 0.0, r)
-        if variante == 'bruestung':
-            p.flaeche('beton', xr, 0.0, BRUESTUNG, r)
-            p.oben('beton', xr, xa, BRUESTUNG)
-            p.flaeche('beton', xa, -0.3, BRUESTUNG, -r)
-            p.beidseitig('stab', 0.0, BRUESTUNG, BRUESTUNG + GELAENDER)
-            p.umriss.append([(xr, u), (xr, BRUESTUNG), (xa, BRUESTUNG), (xa, u)])
+        if variante == 'betonbr':
+            # Rampenseite: Betonbruestung 1,0 m mit Handlauf; Trogseite: Wandflaeche, darueber Beton bis zur Bruestung
+            xb = xr - r * BR_BREIT
+            p.flaeche('beton', xr, 0.0, BR_HOCH, r)
+            p.oben('beton', xr, xb, BR_HOCH)
+            p.flaeche('beton', xb, -0.3, BR_HOCH, -r)
+            p.handlauf((xr + xb) / 2, BR_HOCH)
+            p.umriss.append([(xr, u), (xr, BR_HOCH), (xb, BR_HOCH), (xb, -0.3), (xa, -0.3), (xa, u)])
         else:
             p.oben('beton', xr, xa, 0.0)
             p.flaeche('beton', xa, -0.3, 0.0, -r)
@@ -145,6 +160,14 @@ def profil(art, material, variante, laerm, r, tiefe):
             p.flaeche('gabionen', -r * d, u, 0.0, -r)
             p.umriss.append([(0.0, u), (0.0, 0.0), (-r * d, 0.0), (-r * d, u)])
             lsw_x = -r * 0.5
+        elif variante == 'betonbr':
+            p.flaeche(m, 0.0, u, -KAPPE, r)
+            p.flaeche('beton', 0.0, -KAPPE, BR_HOCH, r)
+            p.oben('beton', 0.0, -r * BR_BREIT, BR_HOCH)
+            p.flaeche('beton', -r * BR_BREIT, u, BR_HOCH, -r)
+            p.handlauf(-r * BR_BREIT / 2, BR_HOCH)
+            p.umriss.append([(0.0, u), (0.0, BR_HOCH), (-r * BR_BREIT, BR_HOCH), (-r * BR_BREIT, u)])
+            lsw_x = None
         elif variante == 'stufig':
             d = 0.35
             p.flaeche(m, 0.0, u, -STUFE - KAPPE, r)
@@ -338,11 +361,18 @@ def splines(roh, zf_platte, omsi, decke_unten=None, platte=None):
         return z + 0.05
 
     def var_trenn(e, seite, bt):
-        return 'flach' if e['unter_decke'] else 'bruestung'
+        # betonbr: Betonbruestung mit Handlauf (neuer Dateiname - aeltere 'bruestung'-Dateien bleiben unveraendert)
+        return 'flach' if e['unter_decke'] else 'betonbr'
+
+    def ueber_gelaende(e, seite):
+        r = e[seite]
+        return r is not None and r['g'] <= r['z'] + 0.5
 
     def krone_aussen(e, seite, bt):
         r = e[seite]
         plus = float(bt.get('hoehe', 0.0))
+        if bt.get('material') != 'gabionen' and ueber_gelaende(e, seite):
+            return r['z'] + 0.05 + plus
         if bt.get('material') == 'gabionen':
             return max(r['g'] + 0.3, r['z'] + 1.0) + plus
         return max(r['g'], r['z']) + 0.3 + plus
@@ -360,7 +390,11 @@ def splines(roh, zf_platte, omsi, decke_unten=None, platte=None):
             e[f'stufig_{sd}'] = bool(stufig[sd][i])
 
     def var_aussen(e, seite, bt):
-        return 'stufig' if stufig[seite][idx[id(e)]] else 'einfach'
+        if stufig[seite][idx[id(e)]]:
+            return 'stufig'
+        if bt.get('material') != 'gabionen' and ueber_gelaende(e, seite):
+            return 'betonbr'
+        return 'einfach'
 
     arten = [('trenn', fuge, krone_trenn, lambda e, sd: e['zr'] - 0.3, var_trenn),
              ('aussen', aussen, krone_aussen, lambda e, sd: min(e[sd]['g'], e[sd]['z']) - 0.5, var_aussen)]

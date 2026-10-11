@@ -2177,8 +2177,13 @@ impl ObjektEditor {
                         if self.offen_aenderung.is_none() && Instant::now().duration_since(self.zuletzt_geaendert) > Duration::from_millis(50) {
                             self.geaendert = self.plan.json().to_string() != std::fs::read_to_string(&self.plan_pfad).map(|t| serde_json::from_str::<serde_json::Value>(&t).map(|v| Bauplan::aus_json(&v).json().to_string()).unwrap_or_default()).unwrap_or_default();
                         }
-                        self.meldung = format!("Neu gebaut: {t}");
-                        erg = Some(Aktion::Gebaut { json: self.json.clone(), einsetzen: self.einsetzen });
+                        if self.aufgeteilt && self.einsetzen {
+                            // aufgeteilte Kreuzung: alles einsetzen wuerde die Aufteilung aufheben - nur Abschnitte einsetzen
+                            self.meldung = format!("Neu gebaut (nicht eingesetzt - die Kreuzung ist aufgeteilt, Abschnitt einzeln \"neu bauen\"): {t}");
+                        } else {
+                            self.meldung = format!("Neu gebaut: {t}");
+                        }
+                        erg = Some(Aktion::Gebaut { json: self.json.clone(), einsetzen: self.einsetzen && !self.aufgeteilt });
                     }
                     Err(e) => self.meldung = format!("Bauen fehlgeschlagen: {e}"),
                 }
@@ -2463,7 +2468,7 @@ impl ObjektEditor {
                     self.meldung = format!("baue Abschnitt {a} ...");
                     self.ab_starten(Some(a));
                 }
-                ui.label(egui::RichText::new("\"Anwenden\" oben baut weiterhin alles und hebt die Aufteilung auf.").small().weak());
+                ui.label(egui::RichText::new("\"Anwenden\" oben baut nur noch zur Pruefung, eingesetzt wird je Abschnitt.").small().weak());
             }
             if self.ab_job.is_some() {
                 ui.horizontal(|ui| {
