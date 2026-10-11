@@ -243,7 +243,7 @@ def kacheln_im_kreis(mitte, radius):
     return out
 
 
-def bauen(omsi, karte, omsi_kacheln, laden_erlaubt=False):
+def bauen(omsi, karte, omsi_kacheln, laden_erlaubt=False, pruefen=True):
     """LoD2-Gebaeude je OMSI-Kachel (Gebaeudemitte in der Kachel): Objekte in LoD2/<kx>_<ky>/ und je Kachel ein
     lod2.json mit Kennung LoD2/<kx>_<ky>/ im Pfad - erneutes Einsetzen ersetzt nur die Gebaeude dieser Kachel
     -> (Liste json-Pfade, Gebaeude, Dreiecke)"""
@@ -252,7 +252,9 @@ def bauen(omsi, karte, omsi_kacheln, laden_erlaubt=False):
     from .kreuzung import x_file
     bez = bezug_lesen(omsi, karte)
     kdir = os.path.join(omsi, 'maps', karte)
-    omsi_kacheln = [k for k in omsi_kacheln if os.path.isfile(os.path.join(kdir, f'tile_{k[0]}_{k[1]}.map'))]
+    # der Editor gibt nur Kacheln seiner Sitzung (auch neue, noch nicht gespeicherte) und prueft selbst
+    if pruefen:
+        omsi_kacheln = [k for k in omsi_kacheln if os.path.isfile(os.path.join(kdir, f'tile_{k[0]}_{k[1]}.map'))]
     if not omsi_kacheln:
         raise RuntimeError('keine dieser Kacheln gibt es in der Karte')
     noetig = sorted({k for kx, ky in omsi_kacheln for k in kacheln(bez, (kx * 300, ky * 300, kx * 300 + 299.9, ky * 300 + 299.9))})
@@ -310,6 +312,7 @@ def main():
     ap.add_argument('--mitte', type=float, nargs=2, help='statt --kacheln: alle Kacheln, die den Kreis beruehren')
     ap.add_argument('--radius', type=float, default=300.0)
     ap.add_argument('--laden', action='store_true')
+    ap.add_argument('--ohne-pruefung', action='store_true', help='Kacheln nicht gegen die gespeicherte Karte pruefen (Editor-Sitzung)')
     a = ap.parse_args()
     try:
         if a.kacheln:
@@ -318,7 +321,7 @@ def main():
             ks = kacheln_im_kreis(a.mitte, a.radius)
         else:
             raise ValueError('--kacheln oder --mitte angeben')
-        pfade, n, d = bauen(a.omsi, a.karte, ks, a.laden)
+        pfade, n, d = bauen(a.omsi, a.karte, ks, a.laden, not a.ohne_pruefung)
         erg = dict(jsons=pfade, gebaeude=n, dreiecke=d, kacheln=[list(k) for k in ks])
     except Exception as e:
         erg = dict(fehler=f'{type(e).__name__}: {e}')

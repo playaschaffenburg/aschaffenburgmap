@@ -10,6 +10,8 @@ use glam::DVec2;
 pub enum Aktion {
     /// je OMSI-Kachel ein lod2.json (Kennung LoD2\<kx>_<ky>\) mit seinen Objekten
     Gebaut(Vec<(PathBuf, Vec<String>)>),
+    /// Meldung fuer die Statuszeile (Fehler sollen nicht nur klein im Fenster stehen)
+    Meldung(String),
     Schliessen,
 }
 
@@ -43,7 +45,7 @@ impl Lod2 {
     fn starten(&mut self, laden: bool) {
         let (tx, rx) = channel();
         let mut args: Vec<String> = vec!["-m".into(), "omsigen.lod2".into(), "--omsi".into(), self.root.display().to_string(), "--karte".into(),
-                                         self.karte.clone()];
+                                         self.karte.clone(), "--ohne-pruefung".into()];
         match &self.kacheln {
             Some(ks) => {
                 args.push("--kacheln".into());
@@ -84,7 +86,7 @@ impl Lod2 {
         self.meldung = if laden { "lade LoD2-Kacheln und baue ...".into() } else { "baue Gebaeude ...".into() };
     }
 
-    pub fn ui(&mut self, ctx: &egui::Context, mitte: DVec2) -> Option<Aktion> {
+    pub fn ui(&mut self, ctx: &egui::Context, mitte: DVec2, karten_kacheln: &[(i32, i32)]) -> Option<Aktion> {
         let mut aktion = None;
         if let Some(rx) = &self.job {
             match rx.try_recv() {
@@ -96,6 +98,7 @@ impl Lod2 {
                             self.meldung = "LoD2-Kacheln fehlen".into();
                         } else {
                             self.meldung = format!("Fehler: {f}");
+                            aktion = Some(Aktion::Meldung(format!("LoD2: {f}")));
                         }
                     } else {
                         let n_k = v["kacheln"].as_array().map(|a| a.len()).unwrap_or(0);
@@ -113,6 +116,7 @@ impl Lod2 {
                 Ok(Err(e)) => {
                     self.job = None;
                     self.meldung = format!("Fehler: {e}");
+                    aktion = Some(Aktion::Meldung(format!("LoD2: {e}")));
                 }
                 Err(_) => ctx.request_repaint_after(std::time::Duration::from_millis(300)),
             }
@@ -123,9 +127,20 @@ impl Lod2 {
             ui.add(egui::Slider::new(&mut self.radius, 50.0..=1500.0).text("m Umkreis um die Blickmitte"));
             ui.label(format!("Blickmitte: x {:.0}, y {:.0} - alle Kacheln, die der Kreis beruehrt", mitte.x, mitte.y));
             if ui.add_enabled(self.job.is_none(), egui::Button::new("Bauen und einsetzen")).on_hover_text("ersetzt fruehere LoD2-Gebaeude dieser Kacheln, sonst nichts in der Karte").clicked() {
+                // Kacheln, die der Kreis beruehrt - nur die der Sitzung (auch neue, noch nicht gespeicherte)
+                let r = self.radius;
+                let ks: Vec<(i32, i32)> = karten_kacheln.iter().copied().filter(|&(kx, ky)| {
+                    let (x0, y0) = (kx as f64 * 300.0, ky as f64 * 300.0);
+                    let n = DVec2::new(mitte.x.clamp(x0, x0 + 300.0), mitte.y.clamp(y0, y0 + 300.0));
+                    (n - mitte).length() <= r
+                }).collect();
                 self.mitte = mitte;
-                self.kacheln = None;
-                self.starten(false);
+                if ks.is_empty() {
+                    self.meldung = "keine Kachel der Karte im Umkreis".into();
+                } else {
+                    self.kacheln = Some(ks);
+                    self.starten(false);
+                }
             }
             if let Some(k) = self.fehlt.clone() {
                 ui.colored_label(egui::Color32::from_rgb(230, 160, 40), format!("Es fehlen LoD2-Kacheln: {k} (je bis etwa 120 MB)."));
@@ -143,6 +158,8 @@ impl Lod2 {
                     ui.spinner();
                     ui.label(&self.meldung);
                 });
+            } else if self.meldung.starts_with("Fehler") {
+                ui.colored_label(egui::Color32::from_rgb(255, 120, 90), &self.meldung);
             } else {
                 ui.label(egui::RichText::new(&self.meldung).small());
             }

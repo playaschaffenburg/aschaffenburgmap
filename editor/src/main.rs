@@ -1412,13 +1412,15 @@ impl App {
                 }
             }
             if let Some(l) = self.lod2.as_mut() {
-                match l.ui(ctx.ctx(), self.kam.ziel.truncate()) {
+                let kk = self.viewer.as_ref().map(|v| v.map_tiles()).unwrap_or_default();
+                match l.ui(ctx.ctx(), self.kam.ziel.truncate(), &kk) {
                     Some(lod2::Aktion::Gebaut(liste)) => {
                         for (json, objekte) in liste {
                             aktionen.push(UiAktion::AufmassGebaut(json, objekte));
                         }
                     }
                     Some(lod2::Aktion::Schliessen) => aktionen.push(UiAktion::Lod2),
+                    Some(lod2::Aktion::Meldung(m)) => self.meldung = m,
                     None => {}
                 }
             }

@@ -106,6 +106,7 @@ def main():
     exe = os.path.join(a.prod, 'editor', 'target', 'release', 'omsi-editor.exe')
     if not a.ohne_push:
         lauf(['git', 'push', '-q', 'origin', 'main', 'prod', tag])
+    lauf([sys.executable, os.path.join(REPO, 'tools', 'verknuepfungen.py')])     # Desktop: "OMSIgen" und "OMSIgen TEST"
     print(f'\nRelease {tag} fertig. PROD-Editor: {exe}')
 
 
