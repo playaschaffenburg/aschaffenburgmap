@@ -32,7 +32,7 @@ static PULS: AtomicU64 = AtomicU64::new(0);
 
 /// Ordner der Protokolle und Berichte
 pub fn ordner() -> PathBuf {
-    std::env::var_os("LOCALAPPDATA").map(PathBuf::from).unwrap_or_else(std::env::temp_dir).join("omsi-editor").join("logs")
+    std::env::var_os("LOCALAPPDATA").map(PathBuf::from).unwrap_or_else(std::env::temp_dir).join("omsi-editor").join(if crate::umgebung::prod() { "logs-prod" } else { "logs" })
 }
 
 fn ms() -> u64 {
@@ -114,7 +114,7 @@ pub fn starten() -> Option<PathBuf> {
         bericht("absturz", &format!("Absturz im Thread {thread}\nStelle: {ort}\nMeldung: {text}\n\nBacktrace:\n{bt}"));
     }));
     std::thread::Builder::new().name("waechter".into()).spawn(waechter).ok();
-    log::info!("omsi-editor {} gestartet, Protokoll {}", env!("CARGO_PKG_VERSION"), pfad.display());
+    log::info!("{} {} ({}) gestartet, Protokoll {}", crate::umgebung::NAME, crate::umgebung::version(), crate::umgebung::umgebung(), pfad.display());
     Some(pfad)
 }
 

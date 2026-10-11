@@ -300,7 +300,7 @@ pub fn neue_karte(root: &Path, n: &NeueKarte) -> Result<PathBuf> {
     if liste.len() > 1 {
         crate::speichern::kachelliste_setzen(&ziel, &liste[..1], &liste)?;
     }
-    let _ = std::fs::write(ziel.join(crate::speichern::MARKE), format!("Mit dem OMSI-Editor (aschaffenburgmap) neu angelegt: \"{anzeige}\".\r\nDiese Karte darf der Editor beim Speichern ueberschreiben (mit Sicherung).\r\n"));
+    let _ = std::fs::write(ziel.join(crate::speichern::MARKE), format!("Mit OMSIgen neu angelegt: \"{anzeige}\".\r\nDiese Karte darf der Editor beim Speichern ueberschreiben (mit Sicherung).\r\n"));
     log::info!("neue Karte maps\\{ordner} (\"{anzeige}\") mit {} Kachel(n), Strasse {sli} und Einsetzpunkt{}", liste.len(),
                n.bezug.as_ref().map(|b| format!(", Ort {} (UTM {} {:.0} {:.0}, NN {:.0} m)", b.ort, b.zone, b.ost0, b.nord0, b.nn0)).unwrap_or_default());
     Ok(ziel)

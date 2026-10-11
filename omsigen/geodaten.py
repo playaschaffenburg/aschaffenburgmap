@@ -31,7 +31,7 @@ import io, json, math, os, re, sys
 import numpy as np
 from .utm import to_utm, from_utm
 
-UA = 'omsigen/0.1 (OMSI-2-Kartengenerator; https://github.com/playaschaffenburg/aschaffenburgmap)'
+UA = 'omsigen/0.1 (OMSI-2-Kartengenerator; https://github.com/playaschaffenburg/OMSIgen)'
 NOMINATIM = 'https://nominatim.openstreetmap.org/search'
 DOP_WMS = 'https://geoservices.bayern.de/od/wms/dop/v1/dop40'
 DOP_EBENE = 'by_dop40c'

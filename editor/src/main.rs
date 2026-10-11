@@ -38,6 +38,7 @@ mod speichern;
 mod spuren;
 mod strasse;
 mod uebergang;
+mod umgebung;
 mod vermessen;
 mod vorschau;
 mod welt;
@@ -614,7 +615,7 @@ impl App {
             self.karte = Some(self.karten[i].ordner.clone());
             self.luftbild.karte(geo::Bezug::lesen(&self.root.join("maps").join(&self.karten[i].ordner)));
             self.meldung = format!("{} geoeffnet in {:.1} s", self.karten[i].ordner, t0.elapsed().as_secs_f32());
-            window.set_title(&format!("{} - OMSI-Editor", self.karten[i].ordner));
+            window.set_title(&format!("{} - {}", self.karten[i].ordner, umgebung::titel()));
             return Ok(());
         }
         // erste Karte: Grafik starten (Pipelines kompilieren), Flaeche anlegen; die Grafik des Startbildschirms geht
@@ -647,7 +648,7 @@ impl App {
         self.karte = Some(self.karten[i].ordner.clone());
         self.luftbild.karte(geo::Bezug::lesen(&self.root.join("maps").join(&self.karten[i].ordner)));
         self.meldung = format!("{} geladen in {:.1} s", self.karten[i].ordner, t0.elapsed().as_secs_f32());
-        window.set_title(&format!("{} - OMSI-Editor", self.karten[i].ordner));
+        window.set_title(&format!("{} - {}", self.karten[i].ordner, umgebung::titel()));
         Ok(())
     }
 
@@ -767,7 +768,7 @@ impl App {
                 ui.label(&self.meldung);
             });
             egui::CentralPanel::default().show(ctx, |ui| {
-                ui.heading("OMSI-Editor");
+                ui.heading(umgebung::titel());
                 ui.label(egui::RichText::new(format!("{} Karten in {}", self.karten.len(), self.root.join("maps").display())).weak());
                 ui.separator();
                 self.kartenwahl_ui(ui, &mut aktionen);
@@ -1287,7 +1288,7 @@ impl App {
         let out = gui.ctx.run_ui(input, |ctx| {
             egui::Panel::top("werkzeuge").show(ctx, |ui| {
                 ui.horizontal(|ui| {
-                    ui.strong("OMSI-Editor");
+                    ui.strong(umgebung::titel()).on_hover_text(format!("{} {} ({})", umgebung::NAME, umgebung::version(), umgebung::umgebung()));
                     if ui.button("Karten ...").on_hover_text("Karte waehlen, oeffnen, umbenennen, loeschen").clicked() {
                         self.kartenwahl_offen = !self.kartenwahl_offen;
                         self.kartenwahl = self.karte.clone();
@@ -4290,7 +4291,7 @@ impl ApplicationHandler for App {
             return;
         }
         let attrs = Window::default_attributes()
-            .with_title("OMSI-Editor")
+            .with_title(umgebung::titel())
             .with_inner_size(winit::dpi::LogicalSize::new(1500.0, 900.0));
         let window = Arc::new(el.create_window(attrs).expect("Fenster"));
         self.window = Some(window.clone());

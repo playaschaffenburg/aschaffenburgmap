@@ -1,7 +1,18 @@
 # Hinweise für Claude Code
 
-Projekt: `omsigen` erzeugt OMSI-2-Karten aus OpenStreetMap (siehe README.md). Sprache im Projekt: Deutsch
-(Ausgaben, Doku, Kommentare). Nutzer: spielt OMSI 2, baut Aschaffenburg nach, testet im nEditor und im Spiel.
+Projekt **OMSIgen**: der Karteneditor (Rust, `editor/`) mit allen Funktionen und der Generator `omsigen` dahinter
+(siehe README.md). Die Karte heisst weiterhin Aschaffenburg. Sprache im Projekt: Deutsch (Ausgaben, Doku, Kommentare).
+Nutzer: spielt OMSI 2, baut Aschaffenburg nach, testet im Editor, im nEditor und im Spiel.
+
+## Test und Prod
+
+- Entwickelt wird nur in **TEST**: Zweig `main`, Ordner `Documents\OMSIgen`, normaler `cargo build` (Titel „OMSIgen TEST“).
+- **PROD** = Releases: Zweig `prod`, Tags `vX.Y.Z`, Ordner `Documents\OMSIgen-Prod` (git worktree). Nie direkt in PROD
+  aendern; ein Release nur auf Wunsch des Nutzers mit `python tools/release.py X.Y.Z "Beschreibung"` (prueft Tests,
+  traegt Version und CHANGELOG ein, baut PROD mit `OMSIGEN_UMGEBUNG=PROD`, pusht main/prod/Tag).
+- Beide bearbeiten dieselben Karten. Protokolle: `%LOCALAPPDATA%\omsi-editor\logs` (TEST) bzw. `logs-prod`.
+- Aenderungen an openOMSI (lokaler Zweig `editor-api`, nie pushen) zusaetzlich als `editor/patches/openomsi-editor-api.patch`
+  (`git format-patch --stdout <Basis>..editor-api`) festhalten, sonst baut PROD bzw. ein frischer Klon ohne sie.
 
 ## Arbeitsweise
 

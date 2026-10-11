@@ -11,7 +11,7 @@ from .utm import to_utm
 
 URL = 'https://download1.bayernwolke.de/a/dgm/dgm1/{e}_{n}.tif'
 QUELLE = 'Gelaende: DGM1 Bayerische Vermessungsverwaltung - www.geodaten.bayern.de (CC BY 4.0)'
-UA = 'omsigen/0.1 (OMSI-2-Kartengenerator; https://github.com/playaschaffenburg/aschaffenburgmap)'
+UA = 'omsigen/0.1 (OMSI-2-Kartengenerator; https://github.com/playaschaffenburg/OMSIgen)'
 
 
 class Gelaende:

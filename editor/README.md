@@ -11,7 +11,7 @@ der Generator für OSM-Import, Kreuzungen, Gelände, Brücken und Tunnel.
    ```powershell
    cd ..\..\OpenOmsi\source
    git checkout -b editor-api
-   git am ..\..\aschaffenburgmap\editor\patches\openomsi-editor-api.patch   # mehrere Commits
+   git am ..\..\OMSIgen\editor\patches\openomsi-editor-api.patch   # mehrere Commits
    ```
    Der Patch fügt nur `crates/omsi-app/src/viewer.rs` (öffentliche Schnittstelle: Karte öffnen/wechseln, Kacheln
    streamen, Bild zeichnen, Bodenhöhe) und eine Zeile in `lib.rs` hinzu und lädt OpenXR zur Laufzeit (kein CMake nötig).

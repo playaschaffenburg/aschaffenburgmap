@@ -3,7 +3,7 @@ Kartendaten (c) OpenStreetMap-Mitwirkende, ODbL."""
 import json, os, re, time, hashlib
 from .config import DRIVABLE
 
-UA = 'omsigen/0.1 (OMSI-2-Kartengenerator; https://github.com/playaschaffenburg/aschaffenburgmap)'
+UA = 'omsigen/0.1 (OMSI-2-Kartengenerator; https://github.com/playaschaffenburg/OMSIgen)'
 NOMINATIM = 'https://nominatim.openstreetmap.org/search'
 OVERPASS = 'https://overpass-api.de/api/interpreter'
 # Ausweichserver, falls der Hauptserver ueberlastet ist (wird reihum versucht)

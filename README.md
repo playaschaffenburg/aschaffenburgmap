@@ -1,4 +1,14 @@
-# aschaffenburgmap – reale Strecken als OMSI-2-Karte
+# OMSIgen – Editor und Generator für OMSI-2-Karten
+
+OMSIgen ist der Karteneditor (Rust, `editor/`) mit allen seinen Funktionen und dem Generator `omsigen` dahinter.
+Die Karte, die damit entsteht, ist Aschaffenburg.
+
+**Test und Prod:** Entwickelt und ausprobiert wird in TEST (Zweig `main`, dieser Ordner, Fenstertitel „OMSIgen TEST“).
+Getestete Stände werden mit `python tools/release.py X.Y.Z "Beschreibung"` zu einem Release: Zweig `prod`, Tag `vX.Y.Z`,
+eigener Ordner `..\OMSIgen-Prod` mit eigenem Build (Fenstertitel „OMSIgen“). Beide bearbeiten dieselben Karten;
+getrennt sind Code, Build und Protokolle. Versionen: `CHANGELOG.md`.
+
+## Generator
 
 `omsigen` baut aus OpenStreetMap-Daten eine befahrbare OMSI-2-Karte: Man gibt eine Stadt, Start und Ziel ein,
 das Tool sucht die Strecke über das echte Straßennetz und erzeugt alle Straßen in einem Korridor darum –

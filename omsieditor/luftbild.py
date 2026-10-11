@@ -11,7 +11,7 @@ from PySide6.QtCore import QObject, QRunnable, QThreadPool, Signal
 WMS = 'https://geoservices.bayern.de/od/wms/dop/v1/dop40'
 EBENE = 'by_dop40c'
 QUELLE = 'Luftbild: Bayerische Vermessungsverwaltung - www.geodaten.bayern.de (CC BY 4.0)'
-UA = 'omsigen-editor/0.1 (https://github.com/playaschaffenburg/aschaffenburgmap)'
+UA = 'omsigen-editor/0.1 (https://github.com/playaschaffenburg/OMSIgen)'
 PIXEL = 512                                  # Kachelgroesse in Bildpunkten
 STUFEN = [0.4 * 2 ** k for k in range(8)]    # Meter je Bildpunkt (0,4 m = volle Aufloesung)
 

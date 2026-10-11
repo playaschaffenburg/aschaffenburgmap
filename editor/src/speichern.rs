@@ -663,7 +663,7 @@ pub fn karte_anlegen(root: &Path, alt: &str, neu: &str, paket: &Paket) -> Result
     // Kreuzungsobjekte der Ausgangskarte (und anderer) in den Ordner der neuen Karte: sie haengt danach von keiner
     // anderen Karte ab (Loeschen oder Umbenennen der alten laesst sie unberuehrt)
     objekte_einsammeln(root, neu)?;
-    let _ = std::fs::write(ziel.join(MARKE), format!("Mit dem OMSI-Editor (aschaffenburgmap) angelegt aus der Karte \"{alt}\".\r\nDiese Karte darf der Editor beim Speichern ueberschreiben (mit Sicherung).\r\n"));
+    let _ = std::fs::write(ziel.join(MARKE), format!("Mit OMSIgen angelegt aus der Karte \"{alt}\".\r\nDiese Karte darf der Editor beim Speichern ueberschreiben (mit Sicherung).\r\n"));
     let _ = std::fs::remove_dir_all(&paket.staging);
     Ok(ziel)
 }
