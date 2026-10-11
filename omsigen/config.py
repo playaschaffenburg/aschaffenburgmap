@@ -1,4 +1,10 @@
 """Zentrale Einstellungen: welche Strassen-Splines fuer welche OSM-Strassen benutzt werden."""
+import os
+
+# Kartendaten der Karte Aschaffenburg (Bauplan der Kreuzung, Bauaufnahme, Entwurf, Korrekturen, Projekte): ein eigener
+# Ordner neben dem Code, den TEST (Documents\OMSIgen) und PROD (Documents\OMSIgen-Prod) gemeinsam benutzen
+KARTENDATEN = os.environ.get('OMSIGEN_KARTENDATEN') or os.path.join(
+    os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__)))), 'Aschaffenburg')
 
 MARCEL = 'Splines\\Marcel\\'          # Standard-Splines aus OMSI 2 (Spandau/Grundorf)
 KI = 'Splines\\Aschaffenburg\\'    # eigene, vom Tool erzeugte Splines

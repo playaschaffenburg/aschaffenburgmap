@@ -10,6 +10,9 @@ Nutzer: spielt OMSI 2, baut Aschaffenburg nach, testet im Editor, im nEditor und
 - **PROD** = Releases: Zweig `prod`, Tags `vX.Y.Z`, Ordner `Documents\OMSIgen-Prod` (git worktree). Nie direkt in PROD
   aendern; ein Release nur auf Wunsch des Nutzers mit `python tools/release.py X.Y.Z "Beschreibung"` (prueft Tests,
   traegt Version und CHANGELOG ein, baut PROD mit `OMSIGEN_UMGEBUNG=PROD`, pusht main/prod/Tag).
+- **Kartendaten** der Karte Aschaffenburg liegen nicht im Code, sondern in `Documents\Aschaffenburg` (gemeinsam fuer TEST und
+  PROD; `omsigen/config.py` KARTENDATEN, `kreuzung::kartendaten_ordner()`, Umgebungsvariable `OMSIGEN_KARTENDATEN`):
+  `sonderbau/ring/` (bauplan.json, aufnahme.json, entwurf, osm_map.xml, PLAN.md), `korrekturen/aschaffenburg.json`, `projekte/`.
 - Beide bearbeiten dieselben Karten. Protokolle: `%LOCALAPPDATA%\omsi-editor\logs` (TEST) bzw. `logs-prod`.
 - Aenderungen an openOMSI (lokaler Zweig `editor-api`, nie pushen) zusaetzlich als `editor/patches/openomsi-editor-api.patch`
   (`git format-patch --stdout <Basis>..editor-api`) festhalten, sonst baut PROD bzw. ein frischer Klon ohne sie.
@@ -73,7 +76,7 @@ im Rust-Editor fertig) → 3 Haltestellen/Linien.
 ## Vorfahrt
 
 Regelwerk in `omsigen/vorfahrt.py` (Reihenfolge: Korrektur, Kreisel, Schild, Vorfahrtstraße, StVO, Vermutung).
-Vermutete Kreuzungen in der HTML-Ansicht orange; Nutzer korrigiert über `korrekturen/*.json`. Muster der
+Vermutete Kreuzungen in der HTML-Ansicht orange; Nutzer korrigiert über `korrekturen/*.json` (Aschaffenburg: in den Kartendaten). Muster der
 Prioritäten aus der Kartenstudie (docs/kartenstudie.md), nicht ändern ohne neue Auswertung.
 
 ## Pfad-Konventionen beim Nutzer

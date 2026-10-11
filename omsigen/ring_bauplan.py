@@ -1,6 +1,6 @@
 """Bauplan der Kreuzung Ludwigsallee (Sonderbau Ring): alle Bauteile des Kreuzungsobjekts als bearbeitbare Liste.
 
-Der Objekt-Editor (omsi-editor, objekteditor.rs) bearbeitet genau diese Datei (sonderbau/ring/bauplan.json); das Objekt
+Der Objekt-Editor (omsi-editor, objekteditor.rs) bearbeitet genau diese Datei (Kartendaten Aschaffenburg/sonderbau/ring/bauplan.json); das Objekt
 entsteht immer daraus neu (`bauen`). Fehlt die Datei, legt `vorgabe` sie aus dem Luftbild-Stand (ring_kreuzung) an.
 
 Format (Kartenkoordinaten in m, Richtungen in Grad im Uhrzeigersinn ab Nord):

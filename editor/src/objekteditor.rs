@@ -6,7 +6,7 @@
 //!
 //! Bedient wird direkt in der 3D-Ansicht (die Leiste rechts zeigt Werkzeuge und Eigenschaften); auf Wunsch zusaetzlich in
 //! einem 2D-Plan ueber dem Luftbild mit den echten Texturen. Bearbeitet wird nur der Bauplan
-//! (`sonderbau/ring/bauplan.json`, Format in omsigen/ring_bauplan.py); "Anwenden" (oder automatisch) baut daraus mit
+//! (Kartendaten `Aschaffenburg\sonderbau\ring\bauplan.json`, Format in omsigen/ring_bauplan.py); "Anwenden" (oder automatisch) baut daraus mit
 //! omsigen alle Objekte neu und setzt den Sonderbau in die Karte (Sitzung, Rueckgaengig, Speichern wie gewohnt).
 //!
 //! Dazu die Bauaufnahme (aufnahme.rs): das echte Bauwerk, nachgezeichnet ueber dem Luftbild, und der Abgleich mit dem
@@ -739,7 +739,7 @@ const AUFNAHME: usize = 10;
 impl ObjektEditor {
     /// Editor fuer den Sonderbau Ring in Karte `karte` (Objekte in Sceneryobjects\Aschaffenburg\<karte>\Sonderbau_Ring)
     pub fn neu(root: &Path, karte: &str) -> Result<ObjektEditor, String> {
-        let plan_pfad = crate::kreuzung::omsigen_ordner().join("sonderbau").join("ring").join("bauplan.json");
+        let plan_pfad = crate::kreuzung::kartendaten_ordner().join("sonderbau").join("ring").join("bauplan.json");
         let json = root.join("Sceneryobjects").join(crate::speichern::EIGEN).join(karte).join("Sonderbau_Ring").join("sonderbau_ring.json");
         let plan = match std::fs::read(&plan_pfad) {
             Ok(b) => Bauplan::aus_json(&serde_json::from_slice(&b).map_err(|e| format!("Bauplan unlesbar: {e}"))?),
@@ -889,7 +889,7 @@ impl ObjektEditor {
             let python = std::env::var("OMSIGEN_PYTHON").unwrap_or_else(|_| "python".into());
             let mut cmd = std::process::Command::new(&python);
             cmd.args(["-m", "omsigen.sonderbau_ring", "--omsi"]).arg(&root).args(["--karte", &karte, "--osm"])
-                .arg(repo.join("sonderbau").join("ring").join("osm_map.xml")).arg("--bauplan").arg(&plan).current_dir(&repo);
+                .arg(crate::kreuzung::kartendaten_ordner().join("sonderbau").join("ring").join("osm_map.xml")).arg("--bauplan").arg(&plan).current_dir(&repo);
             #[cfg(windows)]
             {
                 use std::os::windows::process::CommandExt;
@@ -2396,7 +2396,7 @@ impl ObjektEditor {
                 let mut args: Vec<String> = vec!["-m".into(), "omsigen.ring_abschnitte".into(), "--omsi".into(), omsi.clone(), "--karte".into(), karte.clone()];
                 if let Some(a) = &abschnitt {
                     lauf(vec!["-m".into(), "omsigen.sonderbau_ring".into(), "--omsi".into(), omsi.clone(), "--karte".into(), karte.clone(), "--osm".into(),
-                              repo.join("sonderbau").join("ring").join("osm_map.xml").display().to_string(), "--bauplan".into(), plan.display().to_string()])?;
+                              crate::kreuzung::kartendaten_ordner().join("sonderbau").join("ring").join("osm_map.xml").display().to_string(), "--bauplan".into(), plan.display().to_string()])?;
                     args.extend(["--abschnitt".into(), a.clone()]);
                 }
                 let t = lauf(args)?;

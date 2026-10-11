@@ -5,7 +5,7 @@
 
 Ablauf:
   1. Pruefen: Zweig main, keine ungesicherten Aenderungen an versionierten Dateien (ausser den Arbeitsdateien der Karte),
-     Python-Tests und Rust-Tests gruen.
+     Python-Tests und Rust-Tests gruen. Die Kartendaten (Documents/Aschaffenburg) gehoeren nicht zum Release.
   2. Version eintragen (editor/Cargo.toml, pyproject.toml), CHANGELOG.md ergaenzen, Commit "Release vX.Y.Z", Tag vX.Y.Z.
   3. Zweig prod auf das Tag; PROD-Ordner (git worktree, Standard ..\\OMSIgen-Prod) auf diesen Stand.
   4. Editor im PROD-Ordner bauen mit OMSIGEN_UMGEBUNG=PROD und OMSIGEN_VERSION=X.Y.Z (Fenstertitel "OMSIgen").
@@ -21,8 +21,8 @@ import sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 PROD = os.path.join(os.path.dirname(REPO), 'OMSIgen-Prod')
-# Arbeitsdateien der Karte (gehoeren nicht zum Editor, werden nie committet)
-ARBEITSDATEIEN = ['Hauptbahnhof_-_Klinikum.omsiprojekt', 'sonderbau/ring/bauplan.json']
+# Kartendaten liegen im eigenen Ordner Documents\Aschaffenburg (gemeinsam fuer TEST und PROD), nicht im Code
+ARBEITSDATEIEN = []
 
 
 def lauf(args, cwd=REPO, env=None, still=False):

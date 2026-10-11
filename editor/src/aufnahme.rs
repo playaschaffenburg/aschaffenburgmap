@@ -3,7 +3,7 @@
 //!
 //! Die Aufnahme ist die Vorlage, nicht der Bauplan: der Generator erfindet nichts, was hier fehlt, und der Abgleich
 //! zeigt, wo das Gebaute (Bauplan und Waende des letzten Baus) von der Aufnahme abweicht oder etwas fehlt. Gespeichert
-//! neben dem Bauplan (`sonderbau/ring/aufnahme.json`).
+//! neben dem Bauplan (Kartendaten `Aschaffenburg\sonderbau\ring\aufnahme.json`).
 
 use glam::DVec2;
 use std::path::Path;

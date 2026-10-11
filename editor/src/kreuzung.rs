@@ -917,6 +917,16 @@ pub fn omsigen_ordner() -> PathBuf {
     std::env::var_os("OMSIGEN_DIR").map(PathBuf::from).unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join(".."))
 }
 
+/// Kartendaten der Karte Aschaffenburg (Bauplan, Bauaufnahme, Entwurf ...): eigener Ordner neben dem Code, gemeinsam fuer
+/// TEST und PROD (wie omsigen/config.py KARTENDATEN); OMSIGEN_KARTENDATEN ueberschreibt
+pub fn kartendaten_ordner() -> PathBuf {
+    std::env::var_os("OMSIGEN_KARTENDATEN").map(PathBuf::from).unwrap_or_else(|| {
+        let code = omsigen_ordner();
+        let code = code.canonicalize().unwrap_or(code);
+        code.parent().map(|p| p.join("Aschaffenburg")).unwrap_or_else(|| PathBuf::from("Aschaffenburg"))
+    })
+}
+
 /// Kreuzungsobjekt von omsigen bauen lassen (Python, OMSIGEN_PYTHON oder python)
 pub fn erzeugen(root: &Path, ordner: &Path, rel_ordner: &str, name: &str, arme: &[Arm], ampel: bool) -> Result<Objekt> {
     erzeugen_mit(root, ordner, rel_ordner, name, arme, ampel, None, None)
@@ -2192,5 +2202,18 @@ mod nutzer_tests {
             image::save_buffer(b, &px, 1280, 800, image::ColorType::Rgba8).unwrap();
         }
         drop(a);
+    }
+}
+
+#[cfg(test)]
+mod kartendaten_tests {
+    #[test]
+    fn kartendaten_neben_dem_code() {
+        if std::env::var_os("OMSIGEN_KARTENDATEN").is_none() {
+            let k = super::kartendaten_ordner();
+            assert_eq!(k.file_name().and_then(|n| n.to_str()), Some("Aschaffenburg"));
+            let code = super::omsigen_ordner().canonicalize().unwrap();
+            assert_eq!(k.parent(), code.parent());
+        }
     }
 }

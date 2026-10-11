@@ -1437,8 +1437,9 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument('--omsi', required=True)
     ap.add_argument('--karte', required=True)
-    ap.add_argument('--osm', required=True)
-    ap.add_argument('--entwurf', default=os.path.join('sonderbau', 'ring', 'entwurf', 'entwurf.json'))
+    ap.add_argument('--osm', default=None, help='OSM-Ausschnitt, Vorgabe <Kartendaten>/sonderbau/ring/osm_map.xml')
+    from .config import KARTENDATEN
+    ap.add_argument('--entwurf', default=os.path.join(KARTENDATEN, 'sonderbau', 'ring', 'entwurf', 'entwurf.json'))
     ap.add_argument('--bauplan', default=None, help='Bauplan der Kreuzung (Objekt-Editor), Vorgabe sonderbau/ring/bauplan.json')
     ap.add_argument('--neuer-bauplan', action='store_true', help='Bauplan aus dem Luftbild-Stand neu anlegen (ueberschreibt)')
     ap.add_argument('--cache', default=os.path.join(os.environ.get('LOCALAPPDATA', '.'), 'omsi-editor', 'geodaten'))
@@ -1449,6 +1450,7 @@ def main():
             if '=' in z and not z.startswith('#'):
                 k, v = z.split('=', 1)
                 geo[k.strip()] = v.strip()
+    a.osm = a.osm or os.path.join(KARTENDATEN, 'sonderbau', 'ring', 'osm_map.xml')
     out = bauen(a.omsi, a.karte, a.osm, a.entwurf, float(geo['nn0']), float(geo['ost0']), float(geo['nord0']), a.cache,
                 a.bauplan, a.neuer_bauplan)
     for o in out['objekte']:
