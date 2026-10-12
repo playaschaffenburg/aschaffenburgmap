@@ -70,7 +70,7 @@ fn aufmass_ordner(root: &Path, karte: &str) -> PathBuf {
 fn starten(args: Vec<String>) -> Job {
     let (tx, rx) = channel();
     std::thread::spawn(move || {
-        let python = std::env::var("OMSIGEN_PYTHON").unwrap_or_else(|_| "python".into());
+        let python = crate::kreuzung::python();
         let mut cmd = std::process::Command::new(&python);
         cmd.args(["-m", "omsigen.aufmass"]).args(&args).current_dir(crate::kreuzung::omsigen_ordner());
         #[cfg(windows)]

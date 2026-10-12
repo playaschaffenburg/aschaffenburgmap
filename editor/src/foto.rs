@@ -73,7 +73,7 @@ impl FotoPose {
 }
 
 fn omsigen(args: &[String]) -> Result<serde_json::Value> {
-    let python = std::env::var("OMSIGEN_PYTHON").unwrap_or_else(|_| "python".into());
+    let python = crate::kreuzung::python();
     let mut cmd = std::process::Command::new(&python);
     cmd.args(["-m", "omsigen.mapillary"]).args(args).current_dir(crate::kreuzung::omsigen_ordner());
     #[cfg(windows)]

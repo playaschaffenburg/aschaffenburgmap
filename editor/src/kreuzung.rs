@@ -917,6 +917,46 @@ pub fn omsigen_ordner() -> PathBuf {
     std::env::var_os("OMSIGEN_DIR").map(PathBuf::from).unwrap_or_else(|| Path::new(env!("CARGO_MANIFEST_DIR")).join(".."))
 }
 
+/// Python fuer omsigen: OMSIGEN_PYTHON, sonst das erste Python, in dem numpy/shapely/requests laden ("python", dann die
+/// Installationen aus `py -0p`). Nur `python` reicht nicht: ein spaeter installiertes leeres Python im System-PATH verdeckt
+/// sonst das eingerichtete (Luftbild, Kreuzungen, LoD2 ... fallen dann still aus). Einmal gesucht, dann gemerkt.
+pub fn python() -> String {
+    static PYTHON: std::sync::OnceLock<String> = std::sync::OnceLock::new();
+    PYTHON.get_or_init(|| {
+        if let Ok(p) = std::env::var("OMSIGEN_PYTHON") {
+            return p;
+        }
+        let befehl = |p: &str| {
+            let mut cmd = std::process::Command::new(p);
+            #[cfg(windows)]
+            {
+                use std::os::windows::process::CommandExt;
+                cmd.creation_flags(0x0800_0000);
+            }
+            cmd
+        };
+        let mut kandidaten = vec!["python".to_string()];
+        if let Ok(aus) = befehl("py").arg("-0p").output() {
+            // Zeilen wie " -V:3.12          C:\...\python.exe"
+            kandidaten.extend(String::from_utf8_lossy(&aus.stdout).lines()
+                .filter_map(|z| z.split_whitespace().last())
+                .filter(|p| p.to_ascii_lowercase().ends_with("python.exe"))
+                .map(String::from));
+        }
+        for p in &kandidaten {
+            let ok = befehl(p).args(["-c", "import numpy, shapely, requests"])
+                .stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null())
+                .status().map(|s| s.success()).unwrap_or(false);
+            if ok {
+                log::info!("Python fuer omsigen: {p}");
+                return p.clone();
+            }
+        }
+        log::warn!("kein Python mit numpy/shapely/requests gefunden (geprueft: {}); OMSIGEN_PYTHON setzen", kandidaten.join(", "));
+        "python".into()
+    }).clone()
+}
+
 /// Kartendaten der Karte Aschaffenburg (Bauplan, Bauaufnahme, Entwurf ...): eigener Ordner neben dem Code, gemeinsam fuer
 /// TEST und PROD (wie omsigen/config.py KARTENDATEN); OMSIGEN_KARTENDATEN ueberschreibt
 pub fn kartendaten_ordner() -> PathBuf {
@@ -960,7 +1000,7 @@ pub fn erzeugen_voll(root: &Path, ordner: &Path, rel_ordner: &str, name: &str, a
             a.insert(k.clone(), v.clone());
         }
     }
-    let python = std::env::var("OMSIGEN_PYTHON").unwrap_or_else(|_| "python".into());
+    let python = crate::kreuzung::python();
     let mut kind = std::process::Command::new(&python)
         .args(["-m", "omsigen.editorkreuzung"])
         .current_dir(omsigen_ordner())

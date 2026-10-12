@@ -146,7 +146,7 @@ pub fn cache() -> String {
 }
 
 fn python(auftrag: &serde_json::Value) -> Result<serde_json::Value> {
-    let python = std::env::var("OMSIGEN_PYTHON").unwrap_or_else(|_| "python".into());
+    let python = crate::kreuzung::python();
     let mut cmd = std::process::Command::new(&python);
     cmd.args(["-m", "omsigen.geodaten"])
         .current_dir(crate::kreuzung::omsigen_ordner())

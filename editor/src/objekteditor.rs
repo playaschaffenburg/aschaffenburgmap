@@ -886,7 +886,7 @@ impl ObjektEditor {
         let (root, karte, plan) = (self.root.clone(), self.karte.clone(), self.plan_pfad.clone());
         std::thread::spawn(move || {
             let repo = crate::kreuzung::omsigen_ordner();
-            let python = std::env::var("OMSIGEN_PYTHON").unwrap_or_else(|_| "python".into());
+            let python = crate::kreuzung::python();
             let mut cmd = std::process::Command::new(&python);
             cmd.args(["-m", "omsigen.sonderbau_ring", "--omsi"]).arg(&root).args(["--karte", &karte, "--osm"])
                 .arg(crate::kreuzung::kartendaten_ordner().join("sonderbau").join("ring").join("osm_map.xml")).arg("--bauplan").arg(&plan).current_dir(&repo);
@@ -2376,7 +2376,7 @@ impl ObjektEditor {
         let (root, karte, plan) = (self.root.clone(), self.karte.clone(), self.plan_pfad.clone());
         std::thread::spawn(move || {
             let repo = crate::kreuzung::omsigen_ordner();
-            let python = std::env::var("OMSIGEN_PYTHON").unwrap_or_else(|_| "python".into());
+            let python = crate::kreuzung::python();
             let lauf = |args: Vec<String>| -> Result<String, String> {
                 let mut cmd = std::process::Command::new(&python);
                 cmd.args(&args).current_dir(&repo);
