@@ -32,7 +32,6 @@ Nutzer: spielt OMSI 2, baut Aschaffenburg nach, testet im Editor, im nEditor und
   `--nah build/nah_funde [--nur <Teil>]` rendert je Fund zwei Nahaufnahmen (Sonderbau nur in der Sitzung eingesetzt).
 - Neue Bauwerke: erst die **Bauaufnahme** (Objekt-Editor, `aufnahme.json`: echtes Bauwerk über Luftbild/Mapillary/
   Panoramax nachgezeichnet), dann bauen – nichts erfinden, was dort fehlt. Ziel auch im Abgleich: keine Abweichung.
-  Keine Google-Street-View-/3D-Tiles-Daten ableiten (Nutzungsbedingungen).
 - Bauwerke aus Messdaten: Werkzeug **Vermessen** im Rust-Editor (`omsigen/aufmass.py`: Laserdaten + DOP20 Bayern ->
   Kanten/Streifen/Markierungen -> Splines wie in den Fremdkarten, Lage und Höhe gemessen). Annahmen (Wandart,
   Richtung, Fahrstreifen) entscheidet der Nutzer im Editor, nicht ein Skript. Lernstück: `omsigen/portal_splines.py`.
