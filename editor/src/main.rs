@@ -423,6 +423,8 @@ enum UiAktion {
     Lod2Kacheln(Vec<(i32, i32)>),
     /// Boden (Malmasken) dieser Kacheln neu bauen (World Editor, omsigen.boden)
     BodenKacheln(Vec<(i32, i32)>),
+    /// Strassenausstattung und Haltestellen dieser Kacheln neu bauen (World Editor, omsigen.ausstattung)
+    ObjekteKacheln(Vec<(i32, i32)>),
     /// Boden gebaut: diese Kacheln neu laden, Schichten neu pruefen
     BodenGebaut(Vec<(i32, i32)>),
     /// Aufmass gebaut: Sonderbau-JSON einsetzen, Objekte neu einlesen (auch ein Abschnitt der Kreuzung)
@@ -1443,6 +1445,16 @@ impl App {
             if self.schichten.boden_laeuft() {
                 ctx.ctx().request_repaint_after(std::time::Duration::from_millis(300));
             }
+            // Strassenausstattung (G3/G4): fertige Pakete wie LoD2 in die Sitzung setzen
+            if let Some((liste, m)) = self.schichten.objekte_abholen() {
+                self.meldung = m;
+                for (json, objekte) in liste {
+                    aktionen.push(UiAktion::AufmassGebaut(json, objekte));
+                }
+            }
+            if self.schichten.objekte_laeuft() {
+                ctx.ctx().request_repaint_after(std::time::Duration::from_millis(300));
+            }
             if let Some(l) = self.lod2.as_mut() {
                 let kk = self.viewer.as_ref().map(|v| v.map_tiles()).unwrap_or_default();
                 match l.ui(ctx.ctx(), self.kam.ziel.truncate(), &kk) {
@@ -2009,6 +2021,10 @@ impl App {
                                         && ui.add_enabled(!self.schichten.boden_laeuft(), egui::Button::new("neu bauen").small()).on_hover_text("Malmasken dieser Kachel neu bauen (Belaege aus Luftbild, OSM-Flaechen und den gespeicherten Strassen)").clicked() {
                                         aktionen.push(UiAktion::BodenKacheln(vec![k]));
                                     }
+                                    if (z == "veraltet" || z == "gebaut") && s == "objekte"
+                                        && ui.add_enabled(!self.schichten.objekte_laeuft(), egui::Button::new("neu bauen").small()).on_hover_text("Laternen, Verkehrszeichen, Poller, Baenke und Haltestellen dieser Kachel neu planen (OSM und Regeln, gegen die gespeicherte Karte) und einsetzen").clicked() {
+                                        aktionen.push(UiAktion::ObjekteKacheln(vec![k]));
+                                    }
                                 });
                                 if !grund.is_empty() {
                                     ui.label(egui::RichText::new(grund).small().weak());
@@ -2018,6 +2034,11 @@ impl App {
                                 && ui.add_enabled(!self.schichten.boden_laeuft(), egui::Button::new("Boden dieser Kachel bauen"))
                                     .on_hover_text("Malmasken (Gras, Erde, Schotter, Pflaster, Asphalt, Wasser) aus Luftbild DOP20, OSM-Flaechen und den gespeicherten Strassen bauen (omsigen.boden)").clicked() {
                                 aktionen.push(UiAktion::BodenKacheln(vec![k]));
+                            }
+                            if !zeilen.iter().any(|(s, _, _)| s == "objekte") && self.karte.is_some() && self.luftbild.bezug.is_some()
+                                && ui.add_enabled(!self.schichten.objekte_laeuft(), egui::Button::new("Ausstattung dieser Kachel bauen"))
+                                    .on_hover_text("Laternen, Verkehrszeichen (passend zur Vorfahrt), Poller, Zaeune, Baenke, Muelleimer und Haltestellen (Mast mit Namensschild, Wartehalle) aus OSM und Regeln (omsigen.ausstattung)").clicked() {
+                                aktionen.push(UiAktion::ObjekteKacheln(vec![k]));
                             }
                             if !self.schichten.meldung.is_empty() {
                                 ui.label(egui::RichText::new(&self.schichten.meldung).small().weak());
@@ -3541,6 +3562,11 @@ impl App {
                     self.schichten.boden_bauen(&self.root, &k, ks);
                 }
             }
+            UiAktion::ObjekteKacheln(ks) => {
+                if let Some(k) = self.karte.clone() {
+                    self.schichten.objekte_bauen(&self.root, &k, ks);
+                }
+            }
             UiAktion::BodenGebaut(ks) => {
                 if let Some(v) = self.viewer.as_mut() {
                     if let Err(e) = v.reload_tiles(&ks) {
@@ -3589,6 +3615,7 @@ impl App {
                 let marker = abschnitte::marker(&json);
                 self.meldung = match sonderbau::einsetzen_nur(a, &mut self.gelaende, v, &self.root, &ordner, &json, marker.as_deref()) {
                     Ok(m) if marker.as_deref().is_some_and(|k| k.starts_with("RA_")) => format!("Abschnitt {}: {m}", marker.as_deref().unwrap_or("").trim_start_matches("RA_").trim_end_matches('_')),
+                    Ok(m) if marker.as_deref().is_some_and(|k| k.contains("\\Objekte\\")) => format!("Ausstattung: {m}"),
                     Ok(m) if marker.is_some() => format!("LoD2-Gebaeude: {m}"),
                     Ok(m) => format!("Aufmass: {m}"),
                     Err(e) => format!("nicht eingesetzt: {e:#}"),
