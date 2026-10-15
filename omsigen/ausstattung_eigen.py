@@ -199,9 +199,10 @@ def mast_vorschau(name):
     return img.crop((256, 0, 256 + px, 128))
 
 
-def sco_text(titel, modell_datei, quelle):
+def sco_text(titel, modell_datei, quelle, absolut=False):
+    """absolut: Objekthoehe absolut wie die Splines ([absheight]) statt ueber dem Gelaende"""
     L = [f'Erzeugt mit OMSIgen (omsigen.ausstattung_eigen). {quelle}', '', '[friendlyname]', titel, '',
-         '[groups]', '1', 'Aschaffenburg', '', '[fixed]', '', '[mesh]', modell_datei, '']
+         '[groups]', '1', 'Aschaffenburg', '', '[fixed]', ''] + (['[absheight]', ''] if absolut else []) +         ['[mesh]', modell_datei, '']
     return '\r\n'.join(L) + '\r\n'
 
 

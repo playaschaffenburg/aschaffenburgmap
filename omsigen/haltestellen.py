@@ -210,7 +210,8 @@ def planen(platz, auswahl, regeln_alle, osm, kartenordner):
                     rr = math.radians(ph)
                     rx, rz = math.cos(rr) * s, -math.sin(rr) * s      # nach aussen
                     pk.append([round(px - ox, 3), round(py - oy, 3), round(pz - oz, 3), [round(rx, 4), round(rz, 4)]])
-                platz.setzen(objekt('hochbord', ox, oz, platz.hoehe_gehweg(ox, oz, oy), 0.0, 'osm', name=sg['name'],
+                # [absheight]: Hoehe absolut = Gehwegoberkante (Spline + 0,25 m), unabhaengig vom Gelaende darunter
+                platz.setzen(objekt('hochbord', ox, oz, round(oy + 0.25, 3), 0.0, 'osm', name=sg['name'],
                                     eigen_schluessel=f'{sg["name"]}|{eid}|{s}|{round(mitte)}', kante=eid,
                                     station=round(mitte, 1), seite=s, osm=sg['osm'], gruppe=grp, radius=0.0,
                                     bord=dict(punkte=pk, breite=breite, hoehe=round(bh - 0.15, 3),
@@ -236,11 +237,12 @@ def bord_schreiben(ordner, o):
     import hashlib
     nr = hashlib.sha1(o['eigen_schluessel'].encode('utf-8')).hexdigest()[:6]
     kurz = f'B_{eigen.kurzname(o["name"])}_{nr}'
-    m = eigen.bord_modell([tuple(p[:3]) + (tuple(p[3]),) for p in b['punkte']], 0.0, b['breite'], b['hoehe'])
+    m = eigen.bord_modell([tuple(p[:3]) + (tuple(p[3]),) for p in b['punkte']], 0.0, b['breite'], b['hoehe'], b['taktil'])
     eigen.dds_schreiben(eigen.bord_textur(b['taktil']), os.path.join(ordner, 'texture', kurz + '.dds'))
     os.makedirs(os.path.join(ordner, 'model'), exist_ok=True)
     with open(os.path.join(ordner, 'model', kurz + '.x'), 'w', encoding='cp1252', newline='') as f:
         f.write(m.x_text(kurz + '.dds'))
     with open(os.path.join(ordner, kurz + '.sco'), 'w', encoding='cp1252', errors='replace', newline='') as f:
-        f.write(eigen.sco_text(f'Bord Haltestelle {o["name"]}', kurz + '.x', 'Bordhoehe: OpenStreetMap kerb:height.'))
+        f.write(eigen.sco_text(f'Bord Haltestelle {o["name"]}', kurz + '.x', 'Bordhoehe: OpenStreetMap kerb:height.',
+                               absolut=True))
     return kurz + '.sco'

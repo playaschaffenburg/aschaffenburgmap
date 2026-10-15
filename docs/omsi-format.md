@@ -86,6 +86,19 @@ Sceneryobjects\Generic\bus_stop.sco
 Die Höhe ist relativ zum Gelände – außer bei Objekten mit `[absheight]` und bei Objekten mit
 `[splinehelper]` (Kreuzungen, Weichen): deren Höhe ist absolut wie die der Splines *[openOMSI]*.
 
+**Objektpfade mit `..`** (omsigen-Schicht `objekte`, G3): Pfade werden wie Dateipfade aufgelöst, `..` geht einen
+Ordner hoch (Windows normalisiert vor dem Öffnen; Fahrzeuge nutzen das in `[mesh]` seit jeher, z. B.
+`..\..\MAN_NL_NG\Model\Generic\EN_shadow.o3d`; openOMSI `omsi-cfg` `resolve_path` geht dafür die vorhandenen Ordner
+entlang). omsigen setzt installierte Objekte so in eine Schicht:
+`Sceneryobjects\Aschaffenburg\<Karte>\Objekte\<kx>_<ky>\..\..\..\..\Streetobjects_MC\strlt_gwg_70s_1.sco` – der Ordner
+`Objekte\<kx>_<ky>` muss existieren, die Kennung `\Objekte\<kx>_<ky>\` im Pfad macht das Objekt zur Schicht (nur sie wird
+beim Neubau ersetzt). Texturen sucht OMSI neben dem `.sco` – über den aufgelösten Pfad also im Original. Nicht im
+Original-OMSI gegengeprüft (nur openOMSI und Editor); der Objekt-Zwischenspeicher hängt am Pfadtext, also je Kachel einmal.
+
+**`.x` mit `DeclData`** (z. B. PAD-Labs-Verkehrszeichen): Texturkoordinaten stehen dort in `DeclData` statt
+`MeshTextureCoords`. Direct3D (OMSI) liest das, openOMSI (Stand `d322526`) nicht – die Schilder erscheinen dort und
+im Editor einfarbig grau. omsigen zeichnet Verkehrszeichen deshalb selbst (`omsigen/ausstattung_eigen.py`).
+
 Straßennamen stehen nirgends in der Karte außer auf Straßenschildern (`StreetSign_*`, erster Text = Name,
 Drehung = Straßenrichtung + 90°) – das Navi liest sie *[openOMSI]*.
 

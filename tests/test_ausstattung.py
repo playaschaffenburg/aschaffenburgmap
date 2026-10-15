@@ -301,3 +301,16 @@ def test_schicht_objekte_veraltet_nach_netzaenderung(tmp_path):
     S.schreiben(d, (kx, ky), t)
     assert S.status(d)[k]['objekte']['zustand'] == 'veraltet'
     assert 'netz' in S.status(d)[k]['objekte']['grund']
+
+
+def test_gelaende_wie_omsi_dreiecke(tmp_path):
+    import struct
+    d = tmp_path / 'K'
+    d.mkdir()
+    h = [0.0] * (61 * 61)
+    h[0 * 61 + 1] = 1.0                      # Ecke (1, 0) = 5 m Ost
+    h[1 * 61 + 1] = 2.0                      # Ecke (1, 1)
+    (d / 'tile_0_0.map.terrain').write_bytes(struct.pack('<i', 60) + struct.pack(f'<{61 * 61}f', *h))
+    g = A.Gelaende(str(d))
+    assert abs(g.hoehe(4.0, 1.0) - (0.8 + (2.0 - 1.0) * 0.2)) < 1e-6     # unteres Dreieck (u >= v)
+    assert abs(g.hoehe(1.0, 4.0) - (2.0 * 0.2)) < 1e-6                   # oberes Dreieck

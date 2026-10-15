@@ -128,7 +128,7 @@ def ziel_von(rel):
 # ---------------------------------------------------------------- Gelaende der Karte
 
 class Gelaende:
-    """Hoehe des Kartengelaendes (tile_x_z.map.terrain, 61 x 61 im 5-m-Raster, Zeilen von Sueden), bilinear"""
+    """Hoehe des Kartengelaendes (tile_x_z.map.terrain, 61 x 61 im 5-m-Raster, Zeilen von Sueden), wie OMSI dreieckig"""
 
     def __init__(self, kartenordner):
         self.ordner = kartenordner
@@ -157,8 +157,11 @@ class Gelaende:
         ix, iz = min(n - 1, max(0, int(fx))), min(n - 1, max(0, int(fz)))
         tx, tz = fx - ix, fz - iz
         g = lambda a, b: h[b * (n + 1) + a]
-        return ((g(ix, iz) * (1 - tx) + g(ix + 1, iz) * tx) * (1 - tz) +
-                (g(ix, iz + 1) * (1 - tx) + g(ix + 1, iz + 1) * tx) * tz)
+        # wie OMSI: je Zelle zwei Dreiecke, geteilt von (i, j) nach (i+1, j+1) (openOMSI terrain.rs sample)
+        h00, h10, h01, h11 = g(ix, iz), g(ix + 1, iz), g(ix, iz + 1), g(ix + 1, iz + 1)
+        if tx >= tz:
+            return h00 + (h10 - h00) * tx + (h11 - h10) * tz
+        return h00 + (h11 - h01) * tx + (h01 - h00) * tz
 
 
 # ---------------------------------------------------------------- Netz-Hilfen
