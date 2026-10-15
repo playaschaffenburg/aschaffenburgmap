@@ -95,6 +95,58 @@ def funde(kartenordner, omsi=DEFAULT_OMSI, ab=0.10):
                       f"Gelaende {b['ueber']:.2f} m darueber") for b in best.values()]
 
 
+def naehte(kartenordner, omsi=DEFAULT_OMSI, ab=0.02):
+    """Naht Kreuzungsplatte <-> Strasse: Hoehe der Plattenebene (aus der Normalen des Modells) gegen das Spline-Ende
+    quer ueber die Fahrbahn, mit Querneigung des Splines (OMSI: dz = -x * cant / 100). Eine Stufe zeigt im Spiel einen
+    Spalt (helle Linie). -> Funde je Armende mit Stufe >= ab m"""
+    import numpy as np
+    from .vorbildstudie import _modell_neigung
+    sdb = SplineDB(omsi)
+    enden = []
+    for s in N.splines_lesen(kartenordner).values():
+        if 'invis' in s['sli'].lower():
+            continue
+        x1, z1, h1, y1 = N.ende(s)
+        enden.append((s['x'], s['z'], s['h'], s['y'], s, 'a'))
+        enden.append((x1, z1, (h1 + 180) % 360, y1, s, 'e'))
+    if not enden:
+        return []
+    E = np.array([(e[0], e[1]) for e in enden])
+    funde = []
+    for o in N.kreuzungen_lesen(kartenordner):
+        if o['art'] != 'kreuzung':
+            continue
+        sco = os.path.join(omsi, *o['rel'].split(BS))
+        try:
+            info = AM.sco_lesen(sco)
+            pfad = AM.mesh_pfad(sco, info['meshes'][0])
+            P = np.array(AM.x_lesen(open(pfad, encoding='cp1252', errors='replace').read())[0])
+        except (OSError, IndexError, TypeError, ValueError):
+            continue
+        gx, gz = _modell_neigung(omsi, o['rel'])
+        for i in np.where(np.hypot(E[:, 0] - o['x'], E[:, 1] - o['z']) < 40)[0]:
+            x, z, h, y, s, w = enden[i]
+            try:
+                q = sdb[s['sli']]
+            except KeyError:
+                continue
+            lx, lz = x - o['x'], z - o['z']
+            if not q.get('lanes') or np.hypot(P[:, 0] - lx, P[:, 2] - lz).min() > 0.3:
+                continue                                   # nur Enden auf der Plattenkante
+            r = (math.cos(math.radians(h)), -math.sin(math.radians(h)))
+            cl, cr = (-q['cr'], -q['cl']) if s['spiegel'] else (q['cl'], q['cr'])
+            if w == 'e':
+                cl, cr = -cr, -cl
+            quer = (s.get('quer') or (0.0, 0.0))[0 if w == 'a' else 1]
+            stufe = max(abs(o['y'] + gx * (lx + d * r[0]) + gz * (lz + d * r[1])
+                            - (y - (d if w == 'a' else -d) * quer / 100)) for d in (cl + 0.2, cr - 0.2))
+            if stufe >= ab:
+                funde.append(dict(art='kreuzung_naht', x=round(x, 1), z=round(z, 1),
+                                  text=f"{os.path.basename(o['rel'].replace(BS, '/'))}: Stufe {stufe * 100:.0f} cm "
+                                       f"zum Spline {s['id']} (Spalt im Spiel)"))
+    return funde
+
+
 def zusammenfassung(f):
     st = collections.Counter((x['art'], x['teil']) for x in f)
     stellen = collections.Counter((x['art'], x['id']) for x in f)

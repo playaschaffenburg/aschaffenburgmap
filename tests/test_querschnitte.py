@@ -247,3 +247,18 @@ def test_kantenvorschlaege_und_lage_der_karte():
     assert k['bord'] == [-4.0, 2.0] and k['aussen'] == [-6.0, 4.0]
     k = QP.karte_an_stelle(N(), b, dict(ost=50.0, nord=-1.0, richtung=270.0))
     assert k['bord'] == [-2.0, 4.0]
+
+
+def test_im_knick_kein_querschnittswechsel():
+    """Breitenwechsel (6,0 -> 7,5 m) genau in einer 45-Grad-Kurve: dort passt kein gerades Uebergangsobjekt, die
+    Vorbilder wechseln den Querschnitt nur auf Geraden -> beide Kanten bekommen einen Querschnitt, keine Platte"""
+    sdb = SplineDB()
+    qs = Q.Querschnitte(sdb, 'osm', messungen={}, exe='x')
+    ways = [dict(tags={'highway': 'residential', 'width': '6.0', 'osm_id': '1'}, P=[(0, 0), (100, 0)]),
+            dict(tags={'highway': 'residential', 'width': '7.5', 'osm_id': '2'}, P=[(100, 0), (170.7, 70.7)])]
+    net = build(ways, sdb, waehle=qs.waehle, angleichen=qs.angleichen, uebergang=qs.uebergang)
+    assert not [k for k, arms in net['arms'].items() if len(arms) == 2]
+    # auf gerader Strecke bleibt ein echter Wechsel (dort Uebergangsobjekt)
+    ways[1]['P'] = [(100, 0), (200, 0)]
+    net = build(ways, sdb, waehle=qs.waehle, angleichen=qs.angleichen, uebergang=qs.uebergang)
+    assert len([k for k, arms in net['arms'].items() if len(arms) == 2]) == 1

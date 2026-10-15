@@ -159,3 +159,33 @@ def test_trassierung_kurve_mit_echtem_radius():
     osm = LineString(P)
     abw = max(osm.distance(Point(q)) for e in els for q, _ in sample(e, 1.0))
     assert abw < 1.6, abw
+
+
+def test_arme_mit_querneigung_der_platte():
+    # 8 % nach Osten und 3 % nach Norden: die Platte ist auch quer zu den Armen geneigt. Jeder Arm uebernimmt an der
+    # Plattenkante diese Querneigung (sonst klafft ein Keil, im Spiel eine helle Linie) und laeuft dann auf 0 aus
+    from omsigen.hoehen import QUER_AUSLAUF
+    net, hoe, _ = _kreuz(lambda x, z: 100 + 0.08 * x + 0.03 * z)
+    (cx, cz, h0, gx, gz), = hoe.ebenen.values()
+    assert abs(gz) > 0.003                                         # Querneigung vorhanden
+    for ist, soll, ch, i in _an_kreuzung(net, hoe):
+        e = ch['els'][i]
+        if i == 0:
+            p, hd, y = (e[0], e[1]), e[2], ch['y'][0]
+            q = ch['quer'][0][0]
+        else:
+            from omsigen.geom import end_of
+            p, hd = end_of(e)
+            y, q = ch['y'][-1] + ch['dh'][-1], ch['quer'][-1][1]
+        r = (math.cos(math.radians(hd)), -math.sin(math.radians(hd)))
+        for x in (-3.0, 3.0):                                      # Spline quer (OMSI: dz = -x * cant / 100)
+            spline = y - x * q / 100
+            platte = h0 + gx * (p[0] + x * r[0] - cx) + gz * (p[1] + x * r[1] - cz)
+            assert abs(spline - platte) < 0.005, (spline, platte)
+        # in QUER_AUSLAUF m Abstand ist die Querneigung weg
+        s, k = 0.0, 0 if i == 0 else len(ch['els']) - 1
+        while s < QUER_AUSLAUF and 0 <= k < len(ch['els']):
+            s += ch['els'][k][3]
+            k += 1 if i == 0 else -1
+        if 0 <= k < len(ch['els']):
+            assert abs(ch['quer'][k][0]) < 1e-9 and abs(ch['quer'][k][1]) < 1e-9

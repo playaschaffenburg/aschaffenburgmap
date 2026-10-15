@@ -36,6 +36,7 @@ ZIEL_RADIUS = 3.0       # m: Vorgabe gilt fuer Netzpunkte in diesem Umkreis
 ANSATZ_GEWICHT = 100.0  # erstes Element eines Arms: Steigung = Plattenneigung in Armrichtung (je Einheit Steigung)
 NEIGUNG_GEWICHT = 15.0  # Neigung der Kreuzungsplatte kostet (eben bevorzugt; durchgehendes Gefaelle kippt sie)
 NEIGUNG_MAX = 0.10      # steiler wird keine Platte (Ahlheim: bis 8,7 %)
+QUER_AUSLAUF = 15.0        # m: so lang laeuft die Querneigung der Platte im Arm auf 0 aus
 AUSRUNDUNG_STRECKE = 40.0  # m: so weit von der Platte wird die Steigung staerker geglaettet ...
 AUSRUNDUNG_FAKTOR = 5.0    # ... an der Platte um diesen Faktor
 QUER_GEWICHT = 100.0     # Querneigung der Hauptrichtung (Arme der hoechsten Strassenklasse) kostet viel: die Hauptstrasse
@@ -250,10 +251,12 @@ class Hoehen:
             zeile([(jgx[k], NEIGUNG_GEWICHT)], 0.0)            # eben bevorzugt
             zeile([(jgz[k], NEIGUNG_GEWICHT)], 0.0)
             rang = [RANK.get((a.get('tags') or {}).get('highway'), 0) for a in arms]
+            ue = k in net.get('uebergang_knoten', {})               # Uebergangsobjekt: nur laengs neigbar
             for a, r in zip(arms, rang):                         # Querneigung der Hauptarme klein halten
-                if r == max(rang) and 'h' in a:
+                if (r == max(rang) or ue) and 'h' in a:
                     hr = math.radians(a['h'])
-                    zeile([(jgx[k], -QUER_GEWICHT * math.cos(hr)), (jgz[k], QUER_GEWICHT * math.sin(hr))], 0.0)
+                    f = 20 * QUER_GEWICHT if ue else QUER_GEWICHT
+                    zeile([(jgx[k], -f * math.cos(hr)), (jgz[k], f * math.sin(hr))], 0.0)
             if bauwerk_arme.get(k, 0) * 2 > len(arms):    # Kreuzung liegt selbst auf der Bruecke/im Tunnel
                 continue
             h = self.gelaende(*jmitte[k])
@@ -329,6 +332,22 @@ class Hoehen:
             G = scheitel_steigungen(s, h, ansatz)
             ch['g01'] = [(G[i], G[i + 1]) for i in range(len(els))]
             ch['dh'] = [h[i + 1] - h[i] for i in range(len(els))]
+            # Querneigung: am Arm genau die der Platte quer zur Fahrtrichtung (OMSI: Prozent, dz = -x * cant / 100,
+            # x rechts), ueber QUER_AUSLAUF m auf 0 - sonst klafft an der Plattenkante ein Keil (helle Linie)
+            q = [0.0] * len(pts)
+            for i_e in (0, len(pts) - 1):
+                k = knoten_an[i_e]
+                if k is None or k in net.get('uebergang_knoten', {}):
+                    continue
+                hd = els[0][2] if i_e == 0 else end_of(els[-1])[1]
+                _, _, _, gx, gz = self.ebenen[k]
+                rr = math.radians(hd)
+                c = -100.0 * (gx * math.cos(rr) - gz * math.sin(rr))
+                lauf = min(QUER_AUSLAUF, s[-1]) or 1.0           # kurze Stuecke: am anderen Ende schon 0
+                for i in range(len(pts)):
+                    ab = s[i] if i_e == 0 else s[-1] - s[i]
+                    q[i] += c * max(0.0, 1.0 - ab / lauf)
+            ch['quer'] = [(q[i], q[i + 1]) for i in range(len(els))]
             enden[pts[0]] = h[0]; enden[pts[-1]] = h[-1]
             for i, e in enumerate(els):          # Proben fuers Gelaende (nicht unter Bruecken, nicht ueber Tunneln)
                 if lv[i]:

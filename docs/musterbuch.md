@@ -111,6 +111,21 @@ Zellendiagonale (7,07 m) höchstens auf der Höhe des nächsten Straßenpunkts l
 29 Elemente, alle am Ring-Trog (Richtungsfahrbahnen auf verschiedener Höhe, gehört zum Sonderbau Ring).
 Prüfung: `python -m omsigen.gelaende_pruefung <Karte>`, im Prüfbericht als „Gelände über der Straße“.
 
+## 3c. Naht Kreuzungsplatte – Straße
+
+Eine geneigte Platte fällt auch quer zu ihren Armen ab, das Spline-Ende war quer eben. An den Fahrbahnrändern entstand
+eine Stufe bzw. ein Keil (v14: 140 Armenden ≥ 2 cm, bis 23 cm), im Spiel als helle Linie über die Fahrbahn und als
+Versatz im Bordstein (`musterbuch/naht_vorher.jpg`). Seit dem 15.10.2026 übernimmt jeder Arm an der Plattenkante genau
+die Querneigung der Platte (OMSI: Prozent, `dz = −x · cant / 100`, x rechts, innerhalb der halben Breite aus den
+Höhenprofilen) und läuft über 15 m (bei kurzen Stücken über deren Länge) auf 0 aus (`hoehen.py`, `quer`). An
+Querschnittsübergängen bleibt die Platte quer eben. Ergebnis v17: 5 Armenden ≥ 2 cm (`musterbuch/naht_nachher.jpg`).
+Prüfung: Fund „Stufe an der Kreuzungskante“ (`gelaende_pruefung.naehte`).
+
+Querschnittswechsel in Kurven: Übergangsobjekte gibt es nur gerade. Gleich aufgebaute Nachbarn (nur andere Breiten)
+werden in einer Kurve > 6° deshalb angeglichen (`querschnitte.angleichen`). Die meisten Wechsel in Kurven sind aber
+echte Aufbauwechsel (Bus-, Radstreifen, Parken, Mittelinsel beginnt oder endet), die OSM zufällig in die Kurve legt.
+Dort bleibt vorerst eine kleine Platte; besser wäre es, den Wechselpunkt auf das nächste gerade Stück zu verschieben.
+
 ## 4. Kreuzungsaufbau
 
 - **K-1:** 3- und 4-armig, 5 und mehr Arme fast nie (3 von 820). v9 hat 27 Knoten mit 5–12 Armen (Busbahnhof,

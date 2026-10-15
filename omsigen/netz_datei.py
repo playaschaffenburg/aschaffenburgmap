@@ -80,12 +80,14 @@ def splines_lesen(kartenordner):
             try:
                 f = [float(v) for v in b[3:14]]
                 dh = float(b[14]) if kopf == '[spline_h]' else None
+                o = 15 if kopf == '[spline_h]' else 14               # Querneigung Anfang/Ende (Prozent)
+                quer = (float(b[o]), float(b[o + 1]))
             except ValueError:
                 continue
             sid = int(f[0])
             out[sid] = dict(id=sid, sli=b[2].strip(), spiegel=any(z.strip() == '[mirror]' for z in b),
                             prev=int(f[1]), next=int(f[2]), x=f[3] + k[0] * KACHEL, y=f[4], z=f[5] + k[1] * KACHEL,
-                            h=f[6], L=f[7], R=f[8], g0=f[9], g1=f[10], dh=dh, kachel=list(k))
+                            h=f[6], L=f[7], R=f[8], g0=f[9], g1=f[10], dh=dh, quer=quer, kachel=list(k))
     return out
 
 

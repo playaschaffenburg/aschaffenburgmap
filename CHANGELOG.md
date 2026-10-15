@@ -22,6 +22,7 @@ Qualitaetsoffensive fuer die Pilotkarte Linie 16 (Plan: docs/qualitaet-anforderu
   (Knick an Platten 338 -> 1 von 638 Armen).
 - **Gelaende unter der Strasse:** Rasterpunkte neben der Strasse liegen hoechstens auf Strassenhoehe (OMSI-Dreiecke hoben die Bodentextur ueber Gehweg und Fahrbahn; 438 -> 28 Elemente); neue Pruefung `omsigen.gelaende_pruefung`.
 - **Trassierung:** OSM-Linien entzittert, Kurven mit dem echten Radius statt 15-m-Ecken (Median 15 -> 68 m).
+- **Naht Kreuzung - Strasse:** Arme uebernehmen die Querneigung geneigter Platten (keine helle Linie, kein Versatz im Bordstein mehr; Stufen >= 2 cm 140 -> 5); Querschnittswechsel in Kurven werden angeglichen, wo der Aufbau gleich ist; Pruefung "Stufe an der Kreuzungskante".
 - Fehlerbehebungen: netz.json las `[spline_h]` falsch; Pruefbericht stuerzte bei Add-on-Modellen ab.
 
 ## v0.1.0 (2026-10-12)

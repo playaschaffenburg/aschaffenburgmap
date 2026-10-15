@@ -502,6 +502,25 @@ AEHNLICH = 0.5            # m: so weit duerfen Breiten benachbarter Querschnitte
 UE_LAENGE = (15.0, 30.0)  # m: Laenge eines Uebergangs (uebergang.rs laenge_vorschlag, hier begrenzt)
 
 
+KNICK_GRAD = 6.0        # Grad: groesserer Knick am Knoten -> dort kein (gerades) Uebergangsobjekt moeglich
+KNICK_GRENZE = 99.0     # m: im Knick gleichen auch deutlich verschiedene Breiten an (gleicher Aufbau vorausgesetzt)
+
+
+def _winkel_am_knoten(e1, x1, e2, x2, weit=10.0):
+    """Winkel (Grad) zwischen den beiden Kanten am gemeinsamen Knoten: 180 = gerade durch"""
+    def weg(e, x):
+        P = e['P'] if x == 0 else e['P'][::-1]
+        s, q = 0.0, P[1]
+        for a, b in zip(P, P[1:]):
+            s += math.dist(a, b)
+            q = b
+            if s >= weit:
+                break
+        return math.atan2(q[0] - P[0][0], q[1] - P[0][1])
+    d = abs(math.degrees(weg(e1, x1) - weg(e2, x2))) % 360
+    return 360 - d if d > 180 else d
+
+
 def aehnlich(a, b, grenze=AEHNLICH):
     """gleicher Aufbau (Arten, Richtungen), jede Breite und der Achsversatz hoechstens `grenze` verschieden"""
     if len(a['teile']) != len(b['teile']) or abs(a.get('versatz', 0.0) - b.get('versatz', 0.0)) > grenze:
@@ -668,8 +687,11 @@ class Querschnitte:
             if e1 is e2 or e1.get('ring') or e2.get('ring') or e1['spl'] not in self.typen or e2['spl'] not in self.typen:
                 continue
             gleich = x1 != x2                          # e1 -> e2 in derselben Richtung
-            nachbarn.setdefault(id(e1), []).append((e2, gleich))
-            nachbarn.setdefault(id(e2), []).append((e1, gleich))
+            # Knick am Knoten: Uebergangsobjekte gibt es nur gerade - in der Kurve gleicht jeder gleich aufgebaute
+            # Nachbar an (die Vorbilder wechseln den Querschnitt nur auf Geraden, docs/musterbuch.md 4)
+            knick = 180.0 - _winkel_am_knoten(e1, x1, e2, x2) > KNICK_GRAD
+            nachbarn.setdefault(id(e1), []).append((e2, gleich, knick))
+            nachbarn.setdefault(id(e2), []).append((e1, gleich, knick))
         q_von = {id(e): self.typen[e['spl']]['q'] for e in edges if e['spl'] in self.typen}
         fertig, n = set(), 0
         for start in sorted((e for e in edges if id(e) in nachbarn), key=lambda e: -plen(e['P'])):
@@ -680,11 +702,11 @@ class Querschnitte:
             stapel = [(start, ziel)]                   # (Kante, Ziel-Querschnitt in Richtung ihrer Linie P)
             while stapel:
                 e, qz = stapel.pop()
-                for o, gleich in nachbarn.get(id(e), []):
+                for o, gleich, knick in nachbarn.get(id(e), []):
                     if id(o) in fertig:
                         continue
                     qo = qz if gleich else spiegeln(qz)          # Ziel in Richtung von o's Linie
-                    if not aehnlich(qo, q_von[id(o)]):
+                    if not aehnlich(qo, q_von[id(o)], grenze=KNICK_GRENZE if knick else AEHNLICH):
                         continue
                     if self.kantenprofile is not None and not self.kantenprofile.frei(o, qo, q_von[id(o)]):
                         continue                               # G1: angeglichen laege die Fahrbahn im Gebaeude

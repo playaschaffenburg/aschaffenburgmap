@@ -34,6 +34,7 @@ pub fn name(art: &str) -> &str {
         "querschnitt_abweichung" => "Querschnitt weicht vom Luftbild ab",
         "abbiegestreifen_fehlt" => "Abbiegestreifen fehlt",
         "gelaende_ueber_strasse" => "Gelaende ueber der Strasse",
+        "kreuzung_naht" => "Stufe an der Kreuzungskante",
         "objekt_auf_fahrbahn" => "Objekt auf der Fahrbahn",
         "haltestelle_ohne_wartehalle" => "Haltestelle ohne Wartehalle (OSM: shelter=yes)",
         "schild_widerspricht_vorfahrt" => "Schild widerspricht der Vorfahrt",

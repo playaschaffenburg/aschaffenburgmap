@@ -206,6 +206,8 @@ def bauen(net, sdb, hoe, map_name):
             k = dict(els=[list(e[:5]) + [KI + datei] for e in run], y=ys[i0:i1], g=gs[i0:i1], begleit=art)
             if ch.get('g01'):                 # gleiche Ausrundung wie die Fahrbahn ([spline_h])
                 k['g01'], k['dh'] = ch['g01'][i0:i1], ch['dh'][i0:i1]
+                if ch.get('quer'):
+                    k['quer'] = ch['quer'][i0:i1]
             s0 = [0.0]
             for e in run:
                 s0.append(s0[-1] + e[3])

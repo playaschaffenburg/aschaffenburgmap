@@ -166,10 +166,11 @@ def write_map(out_maps_dir, name, chains, stops, omsi_dir=None, friendly=None, d
             g = c['g'][i] if 'g' in c else 0.0
             if c.get('g01'):                            # [spline_h]: Steigung Anfang/Ende + Hoehenaenderung (Ausrundung)
                 g0, g1 = c['g01'][i]
+                q0, q1 = c['quer'][i] if c.get('quer') else (0.0, 0.0)     # Querneigung (Prozent) an Kreuzungen
                 tiles[t].append(['[spline_h]', '0', spl, str(ids[i]), str(ids[i - 1] if i else 0),
                                  str(ids[i + 1] if i < len(ids) - 1 else 0), fmt(x - TILE * t[0]), fmt(y),
                                  fmt(z - TILE * t[1]), fmt(h % 360), fmt(L), fmt(R), fmt(g0), fmt(g1),
-                                 fmt(c['dh'][i]), '0', '0', '0', '0', fmt(cum), '', ''])
+                                 fmt(c['dh'][i]), fmt(q0), fmt(q1), '0', '0', fmt(cum), '', ''])
             else:
                 tiles[t].append(['[spline]', '0', spl, str(ids[i]), str(ids[i - 1] if i else 0),
                                  str(ids[i + 1] if i < len(ids) - 1 else 0), fmt(x - TILE * t[0]), fmt(y),
