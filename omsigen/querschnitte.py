@@ -615,6 +615,7 @@ class Querschnitte:
         self.wahl = {}           # (Weg-Schluessel, rel) -> dict(herkunft, werte)
         self.wahl_weg = {}       # Weg-Schluessel -> zuletzt gewaehlt (fuer angeglichene Kanten)
         self.benutzt = set()     # Typen, die die Strassenzuege wirklich nutzen (ketten_kennzeichnen)
+        self.kantenprofile = None  # G1: Gebaeudeflucht je Kante (platzierung.Kantenprofile), Fahrbahn einpassen
 
     @staticmethod
     def weg_schluessel(t):
@@ -648,6 +649,12 @@ class Querschnitte:
         den der laengsten Kante der Gruppe -, damit nicht an jeder kleinen Tag-Aenderung ein Uebergang entsteht"""
         if self.modus != 'osm':
             return 0
+        if self.kantenprofile is not None:            # G1: erst je Kante die Fahrbahn an den Gebaeuden einpassen
+            try:
+                self.kantenprofile.einpassen(self, edges)
+            except Exception as ex:                   # ohne Profile geht es mit den Querschnitten je Weg weiter
+                self.log(f'    Querschnitte: Einpassen je Kante nicht moeglich ({type(ex).__name__}: {ex})')
+                self.kantenprofile = None
         from .network import key, plen
         at = {}
         for e in edges:
@@ -679,6 +686,8 @@ class Querschnitte:
                     qo = qz if gleich else spiegeln(qz)          # Ziel in Richtung von o's Linie
                     if not aehnlich(qo, q_von[id(o)]):
                         continue
+                    if self.kantenprofile is not None and not self.kantenprofile.frei(o, qo, q_von[id(o)]):
+                        continue                               # G1: angeglichen laege die Fahrbahn im Gebaeude
                     einbahn = is_oneway(o['t'])
                     umdrehen = not einbahn and not kanonisch(qo)
                     if einbahn and qo['teile'] and any(t['richtung'] == 'zurueck' for t in qo['teile'] if t['art'] in SPUR):
@@ -850,4 +859,8 @@ def vorbereiten(projekt, proj, sdb, modus='osm', messen=False, log=print):
             querschnitt_messung.ergaenzen(projekt, proj, log=log)
         except Exception as e:                    # ohne Messung geht es mit Tags und Regeln weiter
             log(f'    Querschnitte: Messung nicht moeglich ({type(e).__name__}: {e})')
-    return Querschnitte(sdb, modus, log=log)
+    qs = Querschnitte(sdb, modus, log=log)
+    if qs.modus == 'osm':                         # G1: Fahrbahn je Kante gegen die Gebaeudeflucht (LoD2)
+        from . import platzierung
+        qs.kantenprofile = platzierung.Kantenprofile.fuer(projekt, proj, log)
+    return qs

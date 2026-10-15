@@ -88,3 +88,19 @@ def test_bauwerke():
     deckel = [o for o in bw['objekte'] if o['name'].startswith('deckel')]
     ys = [v[1] for o in deckel for v in o['mesh'][0]]
     assert max(ys) > sohle + bauwerke.TUNNEL_H          # ueber der Roehre; die Raender liegen auf dem Gelaende
+
+
+def test_grosses_netz_sackgassen_folgen_dem_hang():
+    """G1: viele Sackgassen am Hang (wie Haibach am Korridorrand) - die Ausgleichsrechnung wird exakt geloest; lsqr
+    brach bei der ganzen Linie 16 ungeloest ab und liess Sackgassen bis 17 m unter das Gelaende sinken"""
+    class Hang:
+        def hoehe(self, x, z):
+            return 200.0 + 0.08 * z + 0.01 * x
+    ways = [dict(tags=dict(highway='residential', name='Haupt'), P=[(x, 0.0), (x + 40.0, 0.0)]) for x in range(0, 2000, 40)]
+    ways += [dict(tags=dict(highway='residential', name=f'S{x}'), P=[(float(x), 0.0), (float(x) + 3.0, 80.0), (float(x), 160.0)])
+             for x in range(40, 2000, 40)]
+    net = build(ways, SplineDB())
+    g = Hang()
+    hoe = Hoehen(g, log=lambda *a: None).berechnen(net, SplineDB())
+    abw = [abs(y + hoe.base - g.hoehe(e[0], e[1])) for ch in net['road_chains'] for e, y in zip(ch['els'], ch['y'])]
+    assert max(abw) < 0.6

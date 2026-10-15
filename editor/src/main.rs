@@ -2050,7 +2050,18 @@ impl App {
                                     ui.colored_label(egui::Color32::from_rgb(110, 200, 110), "keine Funde in dieser Kachel");
                                 }
                                 for (art, n) in &funde {
-                                    ui.colored_label(egui::Color32::from_rgb(235, 160, 50), format!("{n} x {}", pruefung::name(art)));
+                                    // je Fund der Hinweis (z. B. Gebaeude ueber Fahrbahn: Klasse und was zu tun ist)
+                                    let kopf = egui::RichText::new(format!("{n} x {}", pruefung::name(art))).color(egui::Color32::from_rgb(235, 160, 50));
+                                    let texte = self.pruefbericht.texte(k, art);
+                                    if texte.is_empty() {
+                                        ui.label(kopf);
+                                    } else {
+                                        egui::CollapsingHeader::new(kopf).id_salt(("pruefung_funde", art.as_str())).show(ui, |ui| {
+                                            for t in &texte {
+                                                ui.label(egui::RichText::new(t).small());
+                                            }
+                                        });
+                                    }
                                 }
                                 if let Some(b) = self.pruefbericht.budget(k) {
                                     ui.label(egui::RichText::new(b).small().weak());

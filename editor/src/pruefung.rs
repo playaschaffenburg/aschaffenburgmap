@@ -1,5 +1,5 @@
 //! Pruefbericht der Karte (omsigen.pruefbericht, Qualitaetsplan F8): je Kachel offene Spurenden, veraltete Schichten,
-//! Gebaeude ueber Fahrbahn, Boden (fehlende Malmasken, Fahrbahn auf Gras), Budgets. Der World Editor zeigt die Funde der gewaehlten Kachel und erstellt den Bericht im
+//! Gebaeude ueber Fahrbahn/Gehweg, schwebend oder versunken (mit Hinweis je Fund), Boden (fehlende Malmasken, Fahrbahn auf Gras), Budgets. Der World Editor zeigt die Funde der gewaehlten Kachel und erstellt den Bericht im
 //! Hintergrund (ohne Bilder; Spielbilder und Luftbildvergleich: python -m omsigen.pruefbericht <Karte> --bilder --luftbild).
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver};
@@ -21,6 +21,9 @@ pub fn name(art: &str) -> &str {
         "netz_veraltet" => "netz.json veraltet",
         "belegung_veraltet" => "Belegung veraltet",
         "gebaeude_auf_fahrbahn" => "Gebaeude ueber Fahrbahn",
+        "gebaeude_auf_gehweg" => "Gebaeude ueber Gehweg",
+        "gebaeude_schwebt" => "Gebaeude schwebt",
+        "gebaeude_versunken" => "Gebaeude versunken",
         "boden_fehlt" => "Boden fehlt",
         "boden_fahrbahn_gras" => "Fahrbahn auf Gras (Boden)",
         "budget_objekte" => "Budget Objekte",
@@ -114,6 +117,16 @@ impl Pruefung {
         let mut v: Vec<(String, u64)> = m.iter().map(|(a, n)| (a.clone(), n.as_u64().unwrap_or(0))).collect();
         v.sort_by(|a, b| b.1.cmp(&a.1));
         v
+    }
+
+    /// Hinweise der Funde einer Art in einer Kachel (z. B. Gebaeude ueber Fahrbahn: Klasse und was zu tun ist)
+    pub fn texte(&self, k: (i32, i32), art: &str) -> Vec<String> {
+        let Some(b) = &self.bericht else { return Vec::new() };
+        let kachel = format!("{}_{}", k.0, k.1);
+        b["funde"].as_array().into_iter().flatten()
+            .filter(|f| f["art"].as_str() == Some(art) && f["kachel"].as_str() == Some(kachel.as_str()))
+            .filter_map(|f| f["text"].as_str().map(|t| t.to_string()))
+            .collect()
     }
 
     /// Budget der Kachel als Text

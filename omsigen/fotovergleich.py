@@ -16,7 +16,9 @@ import numpy as np
 
 from . import mapillary as M
 
-EDITOR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'editor', 'target', 'release', 'omsi-editor.exe')
+# Editor fuer die Bilder (--posen): OMSIGEN_EDITOR (wie querschnitte.editor_exe), sonst der gebaute dieses Repos
+EDITOR = os.environ.get('OMSIGEN_EDITOR') or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+                                                          'editor', 'target', 'release', 'omsi-editor.exe')
 BREITE = 1024
 
 

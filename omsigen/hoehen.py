@@ -8,7 +8,8 @@ Alle Hoehen in der Karte sind relativ zu einer Basishoehe (Meter ueber NN, Stand
 - Spline: Starthoehe + gleichbleibende Steigung (Prozent) je Element; Elemente sind hoechstens TEILEN m lang.
 - Gelaende: DGM im 5-m-Raster der Kacheln; unter Strassen und Kreuzungen auf Fahrbahnhoehe angeglichen (nicht unter
   Bruecken und ueber Tunneln), daneben eine Boeschung 1 : BOESCHUNG zum Gelaende (mindestens UEBERGANG breit) statt
-  einer Stufe - je groesser der Hoehenunterschied, desto breiter der Uebergang (S4)."""
+  einer Stufe - je groesser der Hoehenunterschied, desto breiter der Uebergang (S4). Im Grundriss eines Gebaeudes
+  (self.gebaeude, platzierung.Grundrisse) hebt die Boeschung das Gelaende nicht ueber DGM/Gebaeudeboden an (G1)."""
 import math
 import numpy as np
 from .geom import end_of, sample
@@ -80,7 +81,8 @@ class Hoehen:
         - Hoehenvorgaben ziele [(x, z, Hoehe ue. NN)] (Editor, pipeline.hoehenziele) gehen mit ZIEL_GEWICHT vor.
         Setzt ch['els'] (geteilt), ch['ebene'], ch['y'], ch['g']; Wendeschleifen linear; Kreuzungsobjekte 'hoehe'."""
         from scipy.sparse import coo_matrix
-        from scipy.sparse.linalg import lsqr
+        from scipy.sparse import identity
+        from scipy.sparse.linalg import spsolve
         chains = net['road_chains']
         for ch in chains:
             ch['els'], ch['ebene'] = zerlegen(ch['els'], ch.get('ebene') or [None] * len(ch['els']))
@@ -179,8 +181,14 @@ class Hoehen:
         if nvar == 0:
             return self
         def loesen():
+            # exakt ueber die Normalgleichungen (duenn, symmetrisch positiv definit; winzige Regularisierung fuer
+            # Teilnetze ohne Gelaendewert). lsqr brach bei der ganzen Linie 16 (2400 Unbekannte) nach 20000 Schritten
+            # ungeloest ab: Sackgassen am Korridorrand lagen bis 17 m unter dem Gelaende, Haeuser daneben schwebten (G1)
+            if not nrow:
+                return np.zeros(nvar)
             A = coo_matrix((vals, (rows, cols)), shape=(nrow, nvar)).tocsr()
-            return lsqr(A, np.array(rhs), atol=1e-10, btol=1e-10, iter_lim=20000)[0] if nrow else np.zeros(nvar)
+            N = (A.T @ A).tocsc() + identity(nvar, format='csc') * 1e-9
+            return spsolve(N, A.T @ np.array(rhs))
         loes = loesen()
         # Ungleichungen: Bruecke >= Boden + LICHTE_HOEHE, Tunnel <= Oberflaeche - UEBERDECKUNG; verletzte
         # Bedingungen als Zusatzzeilen, dann neu rechnen (aktive Menge)
@@ -301,6 +309,8 @@ class Hoehen:
         w = np.clip(best, 0, 1)
         m = np.isfinite(best)
         H = np.where(m, ziel * (1 - w) + H * w, H)
+        if getattr(self, 'gebaeude', None) is not None:          # G1: an Gebaeuden nicht ueber DGM/Boden anheben
+            H = self.gebaeude.klemmen(X, Z, H, H0, ~(best <= 1e-9))
         for (xa, za, xb, zb, h, innen) in getattr(self, 'graeben', ()):  # Tunnelgraben bis auf die Sohle
             if max(xa, xb) < x0 - 30 or max(za, zb) < z0 - 30 or min(xa, xb) > x0 + aussen or min(za, zb) > z0 + aussen:
                 continue

@@ -224,6 +224,25 @@ Luftbild als großflächige Farbmodulation, eigene Belagsfarben für Tartan/Rotp
 ## 4. Gebäude und Objekte (G)
 
 ### G1 Platzierung
+**Erledigt 15.10.2026:** `omsigen/platzierung.py`. Lage: Objektursprung = Schwerpunkt des Grundrisses (1 mm), Hoehe =
+LoD2-Boden, Drehung nach der Hauptachse (kleinstes Rechteck); das Modell wird umgerechnet, in Kartenkoordinaten bleibt
+jeder Punkt (Linie 16 gegen v8: 2805 Gebaeude, groesste Abweichung 0,8 mm = Rundung der alten Fassung); Schicht-Pakete
+tragen x/y/z/rot (+ `sockel`), schichten.status bleibt aktuell. Gruendung: Waende bis 0,3 m unter den tiefsten Punkt
+des Kartengelaendes im Grundriss (mind. 1 m, hoechstens 6 m unter den Boden; Fassaden-Schuerze ebenso); das Gelaende
+liegt im Grundriss hoechstens auf dem Boden und wird 2 m darum nicht ueber DGM/Boden angehoben (`hoehen.raster`, die
+Schicht boden liest dafuer die LoD2-Grundrisse als Quelle). Ursache vieler schwebender Haeuser in Haibach: die
+Ausgleichsrechnung der Strassenhoehen (`lsqr`) brach bei Linie 16 nach 20 000 Schritten ungeloest ab, Sackgassen lagen
+bis 17 m unter dem DGM - jetzt exakt geloest (Abweichung > 5 m: 17 -> 1 Punkt, Rest am Ring/Tunnel). Strassenraum (mit
+S1): je Netzkante die Gebaeudeflucht alle 2 m (`querschnitte/kantenprofile.json`), Fahrbahn mit Achsversatz eingepasst
+(kleinste Quadratsumme der Ueberstaende), echte Engstellen schmaler, Gehweg bis 1,5 m schmaler; Stationen mit der Achse
+im Haus und "wellige" OSM-Linien bleiben Funde, nichts wird verschoben. Pruefbericht/Editor: Gebaeude ueber Fahrbahn mit
+Klasse (kreuzung, ueberbauung, engstelle, achse_versetzt) und Hinweis, neu `gebaeude_auf_gehweg` (ab 5 m2),
+`gebaeude_schwebt`, `gebaeude_versunken` (Strassenboeschung ab 0,5 m, 5-m-Raster ab 1 m); `python -m omsigen.platzierung
+<Karte>` misst. `Aschaffenburg_Linie16_G1` gegen v8: Gebaeude ueber Fahrbahn 57 -> 27 (v8: achse_versetzt 43,
+kreuzung 10, Ueberdachung 3, engstelle 1; jetzt achse_versetzt 21, kreuzung 6), ueber Gehweg 71 -> 51, schwebend 53 ->
+1 (ueber 1 m: 15 -> 1), versunken 159 -> 31 (Gelaende > 0,5 m ueber Boden und DGM: 372 -> 113), Spurenden 3 -> 3,
+Querschnitt-Pruefstellen 19 -> 19. Offen: die verbleibenden Achsversaetze (OSM-Linie lokal neben der Strasse) im Editor
+verschieben, Kreuzungsplatten (S2), Strassenhoehe an Haeusern direkt an der Strasse (Glaettung 30 m).
 - Gebäude auf dem **Kartengelände** gründen: Sockel/Schürze bis zum tiefsten Geländepunkt des Grundrisses (statt
   pauschal 1 m), Boden nicht über Gebäude angehoben.
 - Konfliktprüfung mit Belegungskarte: kein Gebäude über Fahrbahn/Gehweg/Kreuzungsplatte; Abweichung LoD2↔OSM-Straße
