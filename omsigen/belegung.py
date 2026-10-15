@@ -168,6 +168,17 @@ def berechnen(kartenordner, omsi=None):
             t = tex[m].lower() if m < len(tex) else ''
             lw.polygon([(x[i], z[i]) for i in f], GEHWEG if 'side' in t else KREUZUNG)
         n_kreuz += 1
+    # 2b. Uebergaenge zwischen Querschnitten (UE_*, S1): Hochbord (ab 0,17 m) = Gehweg, sonst Fahrbahn
+    for rel, ox, oz, rot, _ in _objekte(kartenordner, lambda r: os.path.basename(r.replace(chr(92), '/')).upper().startswith('UE_')):
+        pfad = _modellpfad(omsi, rel)
+        if not pfad or not os.path.isfile(pfad):
+            continue
+        P, F, mat, tex = x_lesen(pfad)
+        x, z = _drehen(P[:, 0], P[:, 2], rot)
+        x, z = x + ox, z + oz
+        for f in F:
+            hoch = float(P[f, 1].mean()) > 0.17
+            lw.polygon([(x[i], z[i]) for i in f], GEHWEG if hoch else FAHRBAHN)
     # 3. Gebaeude (Schicht gebaeude): Modell von oben = Grundriss
     gebaeude = _objekte(kartenordner, lambda r: schichten.schicht_von(r) is not None and schichten.schicht_von(r)[0] == 'gebaeude')
     grundrisse = []

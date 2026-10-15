@@ -126,7 +126,7 @@ def berechne(projekt, name='Vorschau', omsi=None, korrekturen=None, kreuzungen='
     sdb = SplineDB(omsi)
     signs = [dict(kind=g['kind'], p=tuple(g['p']), direction=g.get('direction')) for g in projekt.get('schilder', [])]
     qs = querschnitte_mod.vorbereiten(projekt, proj, sdb, querschnitte, messen, log)
-    net = build(ways, sdb, signs, waehle=qs.waehle)
+    net = build(ways, sdb, signs, waehle=qs.waehle, angleichen=qs.angleichen, uebergang=qs.uebergang)
     qs.ketten_kennzeichnen(net['road_chains'], net)
     st = net['stats']
     log(f'    {len(net["road_chains"])} Strassenzuege, {st["kreuzungen"]} Kreuzungen, '
@@ -136,8 +136,10 @@ def berechne(projekt, name='Vorschau', omsi=None, korrekturen=None, kreuzungen='
     stops = place_stops([(s['name'], tuple(s['p'])) for s in projekt.get('haltestellen', [])], net['road_chains'], sdb)
     chains, junctions, V = net['road_chains'] + net['wenden'], [], []
     if kreuzungen == 'objekt':
+        uebergaenge = qs.uebergaenge_planen(net, name)       # S1: Querschnittswechsel als Objekt (Editor)
         junctions = kreuzung.build_objects(net, sdb, name, vorfahrt.load_corrections(korrekturen) if
                                            isinstance(korrekturen, str) else (korrekturen or []), proj.to_ll)
+        junctions += uebergaenge
         V = [j['vorfahrt'] for j in junctions if j['vorfahrt']]
         q = collections.Counter(v['quelle'] for v in V)
         log(f'    Vorfahrt: {len(signs)} Schilder/Ampeln aus OSM; Quelle je Kreuzung: ' +
@@ -293,6 +295,7 @@ def erzeuge(projekt, name, omsi=None, ausgabe='build', korrekturen=None, uebersc
     kdir = None
     if objekte:                  # vor den Gebaeuden: install_objects ersetzt den ganzen Objektordner der Karte
         kdir, _ = kreuzung.install_objects(root, name, objekte, omsi_dir=omsi, overwrite=ueberschreiben)
+        B['querschnitte'].uebergaenge_bauen(root, kdir, objekte, log)
     utm = getattr(proj, 'art', '') == 'utm'
     geb = []
     if gebaeude and hat_gelaende and not utm:      # alte ebene Projekte: Gebaeude direkt (ohne Geobezug, ohne Schicht)

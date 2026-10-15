@@ -20,7 +20,9 @@ def test_hbf_city_galerie(tmp_path):
     assert len(scos) > 20 and all((k / 'model' / (s.stem + '.x')).exists() for s in scos)
     assert (k / 'model' / 'K_001.x').read_text(encoding='ascii').startswith('xof 0302txt')
     r = analyse(str(d))
-    assert r['summary']['objekte_mit_pfaden'] == len(scos)
+    ue = sorted(k.glob('UE_*.sco'))                          # Uebergaenge zwischen Querschnitten (S1)
+    assert all((k / 'model' / (s.stem + '.x')).exists() for s in ue)
+    assert r['summary']['objekte_mit_pfaden'] == len(scos) + len(ue)
     assert r['summary']['Strasse_enden']['beinahe'] == 0
     raw = (d / 'tile_0_0.map').read_bytes()
     assert raw[:2] == b'\xff\xfe'   # OMSI-Karten sind UTF-16

@@ -24,6 +24,8 @@ import re
 import subprocess
 import tempfile
 
+import numpy as np
+
 from .config import KI, KARTENDATEN, choose_spline, is_oneway
 
 ORDNER = 'Q'
@@ -479,6 +481,67 @@ def ableiten(t, dual=False, walk=(True, True), messung=None):
     return dict(q=q, force=force, herkunft=herkunft, werte=werte)
 
 
+# ---------------------------------------------------------------- Angleichen und Uebergaenge
+
+AEHNLICH = 0.5            # m: so weit duerfen Breiten benachbarter Querschnitte abweichen, um einer zu werden
+UE_LAENGE = (15.0, 30.0)  # m: Laenge eines Uebergangs (uebergang.rs laenge_vorschlag, hier begrenzt)
+
+
+def aehnlich(a, b, grenze=AEHNLICH):
+    """gleicher Aufbau (Arten, Richtungen), jede Breite und der Achsversatz hoechstens `grenze` verschieden"""
+    if len(a['teile']) != len(b['teile']) or abs(a.get('versatz', 0.0) - b.get('versatz', 0.0)) > grenze:
+        return False
+    return all(x['art'] == y['art'] and x['richtung'] == y['richtung'] and abs(x['breite'] - y['breite']) <= grenze
+               for x, y in zip(a['teile'], b['teile']))
+
+
+def kanonisch(q):
+    """True, wenn q die feste Lage seines Spiegelbilds ist (siehe ableiten)"""
+    return schluessel(q) <= schluessel(spiegeln(q))
+
+
+def symmetrisch(q):
+    return schluessel(q) == schluessel(spiegeln(q))
+
+
+def _pfade(q):
+    """(Art 0 Fahrzeug / 1 Fussgaenger, Querlage, Richtung 0/1/2) wie uebergang.rs Seite::aus_querschnitt"""
+    i = info(q)
+    return [(0, x, d) for x, d in i['lanes']] + [(1, x, 2) for x in i['walks']]
+
+
+def pfade_paaren(a, b):
+    """uebergang.rs pfade_paaren: (xa, xb) je gepaartem Pfad"""
+    out = []
+    for art, richtung in ((0, 0), (0, 1), (1, 2)):
+        pa = sorted(x for k, x, r in a if k == art and (art == 1 or r == richtung))
+        pb = sorted(x for k, x, r in b if k == art and (art == 1 or r == richtung))
+        if not pa or not pb:
+            continue
+        if art == 1:
+            for seite in (-1, 1):
+                ga = [x for x in pa if (x > 0 or (x == 0 and seite > 0)) == (seite > 0)]
+                gb = [x for x in pb if (x > 0 or (x == 0 and seite > 0)) == (seite > 0)]
+                out += list(zip(ga, gb))
+            continue
+        if richtung == 1:
+            pa, pb = pa[::-1], pb[::-1]
+        n = min(len(pa), len(pb))
+        out += list(zip(pa[:n], pb[:n]))
+        out += [(x, pb[n - 1]) for x in pa[n:]] + [(pa[n - 1], x) for x in pb[n:]]
+    return out
+
+
+def uebergang_laenge(qa, qb):
+    """Laenge des Uebergangs von qa nach qb (beide in Fahrtrichtung A -> B): je Meter Spurversatz 8 m, mindestens 15 m,
+    auf 5 m gerundet (uebergang.rs laenge_vorschlag), hoechstens UE_LAENGE[1]"""
+    versatz = max((abs(xb - xa) for xa, xb in pfade_paaren(_pfade(qa), _pfade(qb))), default=0.0)
+    ia, ib = info(qa), info(qb)
+    breiten = max(abs(ia['ol'] - ib['ol']), abs(ia['or_'] - ib['or_']))
+    L = math.ceil(max(max(versatz, breiten * 0.7) * 8.0, UE_LAENGE[0]) / 5.0) * 5.0
+    return min(L, UE_LAENGE[1])
+
+
 # ---------------------------------------------------------------- Editor (Baukasten ohne Fenster)
 
 def editor_exe():
@@ -535,6 +598,7 @@ class Querschnitte:
         self.messungen = messungen if messungen is not None else (messungen_laden() if modus == 'osm' else {})
         self.typen = {}          # rel -> dict(datei, q)
         self.wahl = {}           # (Weg-Schluessel, rel) -> dict(herkunft, werte)
+        self.wahl_weg = {}       # Weg-Schluessel -> zuletzt gewaehlt (fuer angeglichene Kanten)
 
     @staticmethod
     def weg_schluessel(t):
@@ -546,6 +610,7 @@ class Querschnitte:
         a = ableiten(t, dual, walk, self.messungen.get(str(t.get('osm_id'))))
         rel = self.registrieren(a['q'])
         self.wahl[(self.weg_schluessel(t), rel)] = dict(herkunft=a['herkunft'], werte=a['werte'])
+        self.wahl_weg[self.weg_schluessel(t)] = self.wahl[(self.weg_schluessel(t), rel)]
         return rel, a['force']
 
     def registrieren(self, q):
@@ -557,7 +622,146 @@ class Querschnitte:
         return rel
 
     def herkunft(self, tags, rel):
-        return self.wahl.get((self.weg_schluessel(tags), rel))
+        k = self.weg_schluessel(tags)
+        return self.wahl.get((k, rel)) or self.wahl_weg.get(k)
+
+    # ------------------------------------------------------------ Netz: angleichen, Uebergaenge
+
+    def angleichen(self, edges):
+        """network.build: benachbarte Kanten (Knoten mit genau 2 Kanten) mit aehnlichem Querschnitt bekommen denselben -
+        den der laengsten Kante der Gruppe -, damit nicht an jeder kleinen Tag-Aenderung ein Uebergang entsteht"""
+        if self.modus != 'osm':
+            return 0
+        from .network import key, plen
+        at = {}
+        for e in edges:
+            at.setdefault(key(e['P'][0]), []).append((e, 0))
+            at.setdefault(key(e['P'][-1]), []).append((e, -1))
+        nachbarn = {}
+        for lst in at.values():
+            if len(lst) != 2:
+                continue
+            (e1, x1), (e2, x2) = lst
+            if e1 is e2 or e1.get('ring') or e2.get('ring') or e1['spl'] not in self.typen or e2['spl'] not in self.typen:
+                continue
+            gleich = x1 != x2                          # e1 -> e2 in derselben Richtung
+            nachbarn.setdefault(id(e1), []).append((e2, gleich))
+            nachbarn.setdefault(id(e2), []).append((e1, gleich))
+        q_von = {id(e): self.typen[e['spl']]['q'] for e in edges if e['spl'] in self.typen}
+        fertig, n = set(), 0
+        for start in sorted((e for e in edges if id(e) in nachbarn), key=lambda e: -plen(e['P'])):
+            if id(start) in fertig:
+                continue
+            fertig.add(id(start))
+            ziel = q_von[id(start)]
+            stapel = [(start, ziel)]                   # (Kante, Ziel-Querschnitt in Richtung ihrer Linie P)
+            while stapel:
+                e, qz = stapel.pop()
+                for o, gleich in nachbarn.get(id(e), []):
+                    if id(o) in fertig:
+                        continue
+                    qo = qz if gleich else spiegeln(qz)          # Ziel in Richtung von o's Linie
+                    if not aehnlich(qo, q_von[id(o)]):
+                        continue
+                    einbahn = is_oneway(o['t'])
+                    umdrehen = not einbahn and not kanonisch(qo)
+                    if einbahn and qo['teile'] and any(t['richtung'] == 'zurueck' for t in qo['teile'] if t['art'] in SPUR):
+                        continue
+                    fertig.add(id(o))
+                    q_neu = spiegeln(qo) if umdrehen else qo
+                    rel = self.registrieren(q_neu)
+                    if rel != o['spl']:
+                        n += 1
+                        alt = self.wahl_weg.get(self.weg_schluessel(o['t']))
+                        if alt:
+                            alt['herkunft']['angeglichen'] = os.path.basename(rel)
+                    o['spl'] = rel
+                    if umdrehen:
+                        o['P'] = o['P'][::-1]
+                        o['osm_rev'] = not o.get('osm_rev')
+                    o['force'] = einbahn or not symmetrisch(q_neu)
+                    q_von[id(o)] = q_neu
+                    stapel.append((o, q_neu))
+        return n
+
+    def uebergang(self, lst):
+        """network.build: Laenge des Uebergangs an einem Knoten mit zwei Kanten [(Kante, Ende), ...] oder None"""
+        if self.modus != 'osm':
+            return None
+        (e1, x1), (e2, x2) = lst
+        if e1['spl'] not in self.typen or e2['spl'] not in self.typen:
+            return None
+        qa = self.typen[e1['spl']]['q']
+        qa = qa if x1 == -1 else spiegeln(qa)       # A = e1, Fahrtrichtung zum Knoten hin
+        qb = self.typen[e2['spl']]['q']
+        qb = qb if x2 == 0 else spiegeln(qb)        # B = e2, vom Knoten weg
+        return uebergang_laenge(qa, qb)
+
+    def uebergaenge_planen(self, net, karte):
+        """Knoten mit zwei Armen, deren Enden gerade gegenueber liegen (Abstand = Uebergangslaenge, gleiche Richtung):
+        dort ein Uebergangsobjekt (uebergang.rs) statt einer Kreuzungsplatte -> Liste Objekte (wie kreuzung.build_objects)
+        und net['uebergang_knoten']"""
+        out = []
+        net['uebergang_knoten'] = {}
+        if self.modus != 'osm':
+            return out
+        from .geom import dvec, heading
+        for k, arms in sorted(net.get('arms', {}).items()):
+            if len(arms) != 2 or any(a['spl'] not in self.typen for a in arms):
+                continue
+            a, b = arms
+            ha = (a['h'] + 180.0) % 360.0                # Fahrtrichtung A -> B
+            d = math.dist(a['pos'], b['pos'])
+            if d < 8.0:
+                continue
+            hab = heading(a['pos'], b['pos'])
+            winkel = lambda u, v: abs((u - v + 180.0) % 360.0 - 180.0)
+            # die Spurenden passen nur, wenn beide Arme auf einer Geraden liegen (Pruefung: 5 cm, 1 Grad)
+            if winkel(hab, ha) > 0.3 or winkel(b['h'], ha) > 0.3:
+                continue                                 # sonst Kreuzungsplatte wie bisher
+            ha = hab
+            dv = dvec(ha)
+            qa = self.typen[a['spl']]['q']
+            qa = qa if not a['away'] else spiegeln(qa)
+            qb = self.typen[b['spl']]['q']
+            qb = qb if b['away'] else spiegeln(qb)
+            name = f'UE_{len(out) + 1:03d}'
+            flaeche = []
+            ia, ib = info(qa), info(qb)
+            for s in np.arange(0.0, d + 0.01, 2.0):
+                for q in np.arange(min(ia['ol'], ib['ol']), max(ia['or_'], ib['or_']) + 0.01, 2.0):
+                    flaeche.append((a['pos'][0] + dv[0] * s + dv[1] * q, a['pos'][1] + dv[1] * s - dv[0] * q))
+            o = dict(name=name, origin=tuple(a['pos']), rot=ha, knoten=k, laenge=round(d, 3), flaeche=flaeche,
+                     rel=f'Sceneryobjects\\Aschaffenburg\\{karte}\\{name}.sco', rules=[], signale=[], vorfahrt=None,
+                     faces=0, paths=0, uebergang=dict(a=qa, b=qb, sli_a=a['spl'], sli_b=b['spl']))
+            out.append(o)
+            net['uebergang_knoten'][k] = name
+        return out
+
+    def uebergaenge_bauen(self, root, kdir, objekte, log=None):
+        """die geplanten Uebergangsobjekte vom Editor bauen lassen (nach kreuzung.install_objects) -> Anzahl"""
+        log = log or self.log
+        ue = [o for o in objekte if o.get('uebergang')]
+        if not ue:
+            return 0
+        auftrag = dict(root=os.path.abspath(root), uebergaenge=[
+            dict(ordner=os.path.abspath(kdir), name=o['name'], titel=f"Uebergang {os.path.basename(o['uebergang']['sli_a'])[:-4]}"
+                 f" -> {os.path.basename(o['uebergang']['sli_b'])[:-4]}",
+                 a=dict(querschnitt=bauanleitung(o['uebergang']['a'], 'a')),
+                 b=dict(querschnitt=bauanleitung(o['uebergang']['b'], 'b')), laenge=o['laenge'], steigung=0.0)
+            for o in ue])
+        a = editor_auftrag(auftrag, self.exe)
+        ok = 0
+        for o, r in zip(ue, a.get('uebergaenge', [])):
+            if r:
+                ok += 1
+                o['faces'], o['paths'] = r.get('dreiecke', 0), r.get('pfade', 0)
+        for f in a.get('fehler', [])[:5]:
+            log(f'      Fehler: {f}')
+        if ok < len(ue):
+            raise RuntimeError(f'Uebergaenge: nur {ok} von {len(ue)} gebaut ({(a.get("fehler") or [""])[0]})')
+        log(f'    Querschnitte: {ok} Uebergaenge zwischen Querschnitten (uebergang.rs) statt Kreuzungsplatten')
+        return ok
 
     def bauen(self, root, omsi=None, log=None):
         """die gebrauchten Querschnitte nach <root>\\Splines\\Aschaffenburg\\Q schreiben (Editor) -> Anzahl"""

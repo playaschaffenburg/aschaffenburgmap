@@ -107,6 +107,42 @@ def spurenden(pos, h, spl, which, sdb):
     return out
 
 
+# turn:lanes-Werte -> Bewegungen (S1: Abbiegestreifen)
+ABBIEGEN = {'left': {'links'}, 'sharp_left': {'links'}, 'slight_left': {'links', 'gerade'}, 'through': {'gerade'},
+            'right': {'rechts'}, 'sharp_right': {'rechts'}, 'slight_right': {'rechts', 'gerade'},
+            'merge_to_left': {'gerade'}, 'merge_to_right': {'gerade'}, 'reverse': set()}
+
+
+def abbieger(t, vorwaerts):
+    """turn:lanes eines Wegs fuer die Fahrtrichtung (vorwaerts = in OSM-Richtung) -> je Spur von links eine Menge
+    Bewegungen ('links', 'gerade', 'rechts'; leer/'none' = alle) oder None"""
+    if is_oneway(t):
+        v = t.get('turn:lanes') or t.get('turn:lanes:forward')
+    else:
+        v = t.get('turn:lanes:forward' if vorwaerts else 'turn:lanes:backward')
+    if not v:
+        return None
+    out = []
+    for spur in str(v).split('|'):
+        m = set()
+        for x in spur.split(';'):
+            x = x.strip()
+            m |= ABBIEGEN.get(x, set()) if x not in ('', 'none') else {'links', 'gerade', 'rechts'}
+        out.append(m or {'links', 'gerade', 'rechts'})
+    return out
+
+
+def abbieger_setzen(L, e, end):
+    """Spurenden L eines Arms (Kante e, Ende end am Knoten): ankommende Spuren bekommen ihre Bewegungen aus turn:lanes
+    (l['turn']), wenn die Zahl der Spuren passt"""
+    vorwaerts = (end == -1) != bool(e.get('osm_rev'))        # zum Knoten hin = in OSM-Richtung?
+    t = abbieger(e['t'], vorwaerts)
+    ins = sorted([l for l in L if l['kind'] == 'in'], key=lambda l: l['right'])     # von links
+    if t and len(t) == len(ins):
+        for l, m in zip(ins, t):
+            l['turn'] = m
+
+
 def kreuzungsspuren(arms, k=None):
     """arms: je Arm die Spurenden (spurenden) -> (conn_chains, fehlgeschlagen, Zaehler der Bewegungen): jede
     ankommende Spur zu den passenden abgehenden Spuren der anderen Arme, dazu Nachlauf fuer uebrige Spuren"""
@@ -129,12 +165,27 @@ def kreuzungsspuren(arms, k=None):
             pairs = []
             if abs(dlt) < 35 or len(arms) == 2:
                 mv = 'gerade'
-                pairs = {(i, min(i, len(lout) - 1)) for i in range(len(lin))} | \
-                        {(min(j, len(lin) - 1), j) for j in range(len(lout))}
             elif dlt > 0:
-                mv = 'rechts'; pairs = {(0, 0)}
+                mv = 'rechts'
             else:
-                mv = 'links'; pairs = {(len(lin) - 1, len(lout) - 1)}
+                mv = 'links'
+            # Abbiegestreifen (turn:lanes): nur die Spuren, die diese Bewegung erlauben
+            erlaubt = [i for i, l in enumerate(lin) if mv in l.get('turn', {mv}) or len(arms) == 2]
+            if not erlaubt:
+                continue
+            if mv == 'gerade':
+                if len(erlaubt) == len(lin):
+                    pairs = {(i, min(i, len(lout) - 1)) for i in range(len(lin))} | \
+                            {(min(j, len(lin) - 1), j) for j in range(len(lout))}
+                else:                                  # von rechts gezaehlt auf die abgehenden Spuren verteilen
+                    pairs = {(i, min(n, len(lout) - 1)) for n, i in enumerate(erlaubt)} | \
+                            {(erlaubt[min(j, len(erlaubt) - 1)], j) for j in range(len(lout))}
+            elif mv == 'rechts':
+                rechts = erlaubt if any('turn' in l for l in lin) else [0]
+                pairs = {(i, min(n, len(lout) - 1)) for n, i in enumerate(rechts)}
+            else:
+                links_ = erlaubt[::-1] if any('turn' in l for l in lin) else [len(lin) - 1]
+                pairs = {(i, max(0, len(lout) - 1 - n)) for n, i in enumerate(links_)}
             for i, j in sorted(pairs):
                 a, b = lin[i], lout[j]
                 kk = (key(a['p']), key(b['p']))
@@ -182,11 +233,12 @@ def kreuzungsspuren(arms, k=None):
     return conn_chains, conn_fail, n_moves
 
 
-def build(ways_in, sdb, signs=(), waehle=None):
+def build(ways_in, sdb, signs=(), waehle=None, angleichen=None, uebergang=None):
     """ways_in: Liste dict(tags, P=[(x,z),...]) in Metern; signs: Vorfahrt-Schilder/Ampeln dict(kind, p, direction). -> dict(road_chains, conn_chains, junctions, stats)
     Kette = dict(els=[[x, z, h, L, R, spline], ...], name, hw).
     waehle(tags, dual, walk) -> (Spline, Richtungszwang): Querschnittswahl (Standard config.choose_spline; S1:
-    querschnitte.Querschnitte.waehle)"""
+    querschnitte.Querschnitte.waehle); angleichen(Kanten): aehnliche Nachbarn vereinheitlichen; uebergang([(Kante,
+    Ende), (Kante, Ende)]) -> Laenge des Uebergangs an einem Querschnittswechsel (sonst 12 m Platte)"""
     waehle = waehle or choose_spline
     # Bruecken und Tunnel gehoeren dazu (Hoehen: hoehen.py); verbunden wird nur ueber gemeinsame Punkte, also nie
     # zwischen einer Bruecke und der Strasse darunter
@@ -282,6 +334,9 @@ def build(ways_in, sdb, signs=(), waehle=None):
                     walk[1 if side > 0 else 0] = False
         if walk != [True, True]:
             e['spl'], _ = waehle(e['t'], e['dual'], tuple(walk))
+
+    if angleichen:
+        angleichen(edges)
 
     # ============================================================ Kreisverkehre auf Kreis legen
     groups = []
@@ -411,7 +466,7 @@ def build(ways_in, sdb, signs=(), waehle=None):
             e['signs'][end] = sg['kind']
 
     # Kuerzungslaengen je Kantenende
-    trim_d = {}
+    trim_d, ue_knoten = {}, {}
     for k in JN:
         lst = node_edges[k]
         dirs = [out_dir(e, end) for e, end in lst]
@@ -425,7 +480,10 @@ def build(ways_in, sdb, signs=(), waehle=None):
                     # Platz fuer die Fahrbahn des anderen Arms und fuer die Bordsteinausrundung
                     d = max(d, sdb[o['spl']]['cw'] / math.sin(math.radians(ang)) + CORNER_ROOM)
             if len(lst) == 2:
-                d = 6.0
+                ue = uebergang(lst) if uebergang else None
+                if ue:
+                    ue_knoten[k] = ue
+                d = (ue or 12.0) / 2.0
             trim_d[(id(e), end)] = min(max(d, 4.0), 30.0)
     for e in edges:
         a, b = trim_d.get((id(e), 0), 0), trim_d.get((id(e), -1), 0)
@@ -454,6 +512,35 @@ def build(ways_in, sdb, signs=(), waehle=None):
         a, b = e['trim']
         P = cut(e['P'], a)
         e['P'] = cut(P[::-1], b)[::-1]
+
+    # Querschnittswechsel mit Uebergangsobjekt (S1): beide Enden auf eine Gerade legen (leichte Knicke bis 6 Grad am
+    # Knoten), damit die Spuren des geraden Objekts genau auf die der Splines treffen
+    for k in ue_knoten:
+        (e1, x1), (e2, x2) = node_edges[k]
+        if e1 is e2 or 'circle' in e1 or 'circle' in e2 or len(e1['P']) < 2 or len(e2['P']) < 2:
+            continue
+        p1, p2 = e1['P'][x1], e2['P'][x2]
+        d = math.dist(p1, p2)
+        if d < 8.0:
+            continue
+        h = heading(p1, p2)
+        n1 = e1['P'][-2] if x1 == -1 else e1['P'][1]            # Nachbarpunkte weg vom Knoten
+        n2 = e2['P'][-2] if x2 == -1 else e2['P'][1]
+        if math.dist(n1, p1) < 0.5 or math.dist(n2, p2) < 0.5:
+            continue
+        if abs(norm180(heading(n1, p1) - h)) > 6 or abs(norm180(heading(p2, n2) - h)) > 6:
+            continue
+        m = ((p1[0] + p2[0]) / 2, (p1[1] + p2[1]) / 2)
+        dv = (math.sin(math.radians(h)), math.cos(math.radians(h)))
+        for e, x, sgn in ((e1, x1, -1), (e2, x2, 1)):
+            q = (m[0] + sgn * dv[0] * d / 2, m[1] + sgn * dv[1] * d / 2)
+            q2 = (q[0] + sgn * dv[0] * 2.0, q[1] + sgn * dv[1] * 2.0)     # 2 m gerade vor dem Ende
+            P = e['P'] if x == -1 else e['P'][::-1]                  # Ende am Knoten zuletzt
+            P = P[:-1]
+            while len(P) >= 2 and math.dist(P[-1], m) < math.dist(q2, m) + 0.5:
+                P = P[:-1]                                           # Punkte, die das gerade Stueck ueberholt
+            P = P + [q2, q]
+            e['P'] = P if x == -1 else P[::-1]
 
     # ============================================================ Ketten bilden
     node_edges = collections.defaultdict(list)
@@ -621,10 +708,12 @@ def build(ways_in, sdb, signs=(), waehle=None):
     arms_at = collections.defaultdict(list)
     arm_meta = collections.defaultdict(list)
     for ch in road_chains:
-        if ch['node_s'] in JN:
-            arms_at[ch['node_s']].append(lane_ends(ch, 's')); arm_meta[ch['node_s']].append(arm_info(ch, 's'))
-        if ch['node_e'] in JN:
-            arms_at[ch['node_e']].append(lane_ends(ch, 'e')); arm_meta[ch['node_e']].append(arm_info(ch, 'e'))
+        for which in ('s', 'e'):
+            node = ch['node_s'] if which == 's' else ch['node_e']
+            if node in JN:
+                L = lane_ends(ch, which)
+                abbieger_setzen(L, *(ch['edge_s'] if which == 's' else ch['edge_e']))
+                arms_at[node].append(L); arm_meta[node].append(arm_info(ch, which))
 
     conn_chains, conn_fail, n_moves = [], 0, collections.Counter()
     for k, arms in arms_at.items():

@@ -142,9 +142,9 @@ def fingerabdruck(kartenordner, k, schicht):
         return None
     _, bl = bloecke(lesen(kartenordner, k))
     if schicht == 'netz':
-        # Splines und Kreuzungsobjekte (K_*.sco) - nicht Haltestellen, Einsetzpunkte, Handarbeit
+        # Splines, Kreuzungs- und Uebergangsobjekte (K_*.sco, UE_*.sco) - nicht Haltestellen, Einsetzpunkte, Handarbeit
         teil = [b for b in bl if b[0].strip() == '[spline]' or b[0].strip().startswith('[spline_h')
-                or (b[0].strip() == '[object]' and re.search(r'(^|\\)K_[^\\]*\.sco$', objekt_pfad(b), re.I))]
+                or (b[0].strip() == '[object]' and re.search(r'(^|\\)(K|UE)_[^\\]*\.sco$', objekt_pfad(b), re.I))]
     else:
         mk = marker(schicht, k)
         teil = [b for b in bl if mk in objekt_pfad(b)]
