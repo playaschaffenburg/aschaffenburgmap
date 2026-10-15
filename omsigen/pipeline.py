@@ -192,6 +192,19 @@ def netz_schreiben(info, chains, omsi=None, log=print):
     log(f'    Netz: {len(n["kanten"])} Kanten, {len(n["knoten"])} Knoten (netz.json)')
 
 
+def belegung_schreiben(info, root, log=print):
+    """Belegungskarte der neuen Karte (F4, omsigen.belegung) aus netz.json, Kreuzungen und Gebaeuden"""
+    from . import belegung
+    try:
+        b = belegung.berechnen(info['dir'], root)
+    except Exception as e:                     # die Karte ist fertig - die Belegung laesst sich nachholen
+        log(f'    Belegung nicht berechnet: {type(e).__name__}: {e}')
+        return
+    a = b['anteile']
+    log(f'    Belegung: Fahrbahn {a["fahrbahn"] * 100:.1f} %, Gehweg {a["gehweg"] * 100:.1f} %, Kreuzung '
+        f'{a["kreuzung"] * 100:.1f} %, Gebaeude {a["gebaeude"] * 100:.1f} %; {len(b["konflikte"])} Gebaeude ueber Fahrbahn')
+
+
 def gebaeude_schicht(root, name, info, linie, breite, log=print):
     """Schicht "gebaeude" einer neuen UTM-Karte: derselbe Weg wie der Editor (omsigen.lod2.bauen je Kachel ueber den
     Geobezug, Schicht-Pakete LoD2/<kx>_<ky>/lod2.json), nur Gebaeude mit Mitte bis `breite` m um die Linie; die Pakete
@@ -275,6 +288,7 @@ def erzeuge(projekt, name, omsi=None, ausgabe='build', korrekturen=None, uebersc
             f'Nord {proj.n0 + info["offset"][1]:.0f} (omsi-editor-geo.cfg)')
         if gebaeude and hat_gelaende:
             gebaeude_schicht(root, name, info, linie, gebaeude, log)
+    belegung_schreiben(info, root, log)
     with open(os.path.join(info['dir'], 'omsigen.json'), 'w', encoding='utf-8') as f:
         json.dump(dict(projekt=projekt.get('name'), origin=[proj.lat0, proj.lon0], offset=info['offset'],
                        projektion=getattr(proj, 'art', 'eben'),

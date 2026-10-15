@@ -124,23 +124,33 @@ pub fn name(schicht: &str) -> &'static str {
     }
 }
 
-/// netz.json der Karte neu schreiben (python -m omsigen.netz_datei, F3) - nach dem Speichern, im Hintergrund; das
-/// Ergebnis steht im Protokoll. So passt das Netz, auf das sich spaetere Schichten beziehen, immer zur Karte.
+/// netz.json (F3) und Belegungskarte (F4) der Karte neu ableiten - nach dem Speichern, im Hintergrund, nacheinander
+/// (die Belegung liest netz.json); das Ergebnis steht im Protokoll. So passen Netz und Belegung, auf die sich spaetere
+/// Schichten beziehen, immer zur gespeicherten Karte.
 pub fn netz_aktualisieren(root: &Path, karte_ordner: &Path) {
-    let args: Vec<String> = vec!["-m".into(), "omsigen.netz_datei".into(), karte_ordner.display().to_string(), "--omsi".into(), root.display().to_string()];
+    let ordner = karte_ordner.display().to_string();
+    let omsi = root.display().to_string();
     std::thread::spawn(move || {
         let python = crate::kreuzung::python();
-        let mut cmd = std::process::Command::new(&python);
-        cmd.args(&args).current_dir(crate::kreuzung::omsigen_ordner());
-        #[cfg(windows)]
-        {
-            use std::os::windows::process::CommandExt;
-            cmd.creation_flags(0x0800_0000);
-        }
-        match cmd.output() {
-            Ok(o) if o.status.success() => log::info!("netz.json: {}", String::from_utf8_lossy(&o.stdout).trim()),
-            Ok(o) => log::warn!("netz.json nicht geschrieben: {}", String::from_utf8_lossy(&o.stderr).lines().last().unwrap_or("?")),
-            Err(e) => log::warn!("netz.json: {python} starten: {e}"),
+        for (modul, name) in [("omsigen.netz_datei", "netz.json"), ("omsigen.belegung", "Belegung")] {
+            let mut cmd = std::process::Command::new(&python);
+            cmd.args(["-m", modul, &ordner, "--omsi", &omsi]).current_dir(crate::kreuzung::omsigen_ordner());
+            #[cfg(windows)]
+            {
+                use std::os::windows::process::CommandExt;
+                cmd.creation_flags(0x0800_0000);
+            }
+            match cmd.output() {
+                Ok(o) if o.status.success() => log::info!("{name}: {}", String::from_utf8_lossy(&o.stdout).trim()),
+                Ok(o) => {
+                    log::warn!("{name} nicht geschrieben: {}", String::from_utf8_lossy(&o.stderr).lines().last().unwrap_or("?"));
+                    break;
+                }
+                Err(e) => {
+                    log::warn!("{name}: {python} starten: {e}");
+                    break;
+                }
+            }
         }
     });
 }

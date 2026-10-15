@@ -398,6 +398,9 @@ Im **World Editor → Kacheln bearbeiten** lädt „LoD2-Gebäude dieser Kachel 
 Darunter zeigt **Schichten → Zustand prüfen** (omsigen.schichten), welche Schicht-Pakete der Kachel gegen einen alten
 Stand von Straßen oder Gelände gebaut wurden („veraltet“) – verglichen wird die gespeicherte Karte; veraltete Gebäude
 lassen sich dort direkt neu bauen.
+In der Leiste neben dem Luftbild-Regler zeigt **Belegung** statt des Luftbilds die Belegungskarte der Karte
+(omsigen.belegung): Fahrbahn dunkel, Gehweg hell, Kreuzung lila, Gebäude rot, Grün, Wasser, Bauwerk orange. Netz und
+Belegung (`netz.json`, `belegung/`) schreibt der Editor nach jedem Speichern im Hintergrund neu.
 Gebäude mit **Fassaden** aus `earth-reverse-engineering/tools/lod2/korridor.py` (z. B. entlang Linie 16, liegen in
 `Documents\Aschaffenburg\fassaden\gebaeude\<gml-id>\`) bekommen dabei automatisch ihr Netz mit Texturatlas (Fenster,
 Farben aus Google-Earth-Fotos abgeleitet – nur private Nutzung); alle anderen behalten die erzeugten Texturen.

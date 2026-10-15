@@ -625,6 +625,7 @@ impl App {
                 v.stream(ziel, weite, std::time::Duration::from_millis(STREAM_BUDGET_MS));
             }
             self.karte = Some(self.karten[i].ordner.clone());
+            self.luftbild.karte_ordner = Some(self.root.join("maps").join(&self.karten[i].ordner));
             self.luftbild.karte(geo::Bezug::lesen(&self.root.join("maps").join(&self.karten[i].ordner)));
             self.meldung = format!("{} geoeffnet in {:.1} s", self.karten[i].ordner, t0.elapsed().as_secs_f32());
             window.set_title(&format!("{} - {}", self.karten[i].ordner, umgebung::titel()));
@@ -658,6 +659,7 @@ impl App {
         self.surface = Some(surface);
         self.viewer = Some(v);
         self.karte = Some(self.karten[i].ordner.clone());
+        self.luftbild.karte_ordner = Some(self.root.join("maps").join(&self.karten[i].ordner));
         self.luftbild.karte(geo::Bezug::lesen(&self.root.join("maps").join(&self.karten[i].ordner)));
         self.meldung = format!("{} geladen in {:.1} s", self.karten[i].ordner, t0.elapsed().as_secs_f32());
         window.set_title(&format!("{} - {}", self.karten[i].ordner, umgebung::titel()));
@@ -1360,6 +1362,10 @@ impl App {
                         let mut prozent = self.luftbild.deckkraft * 100.0;
                         if ui.add(egui::Slider::new(&mut prozent, 0.0..=100.0).integer().suffix(" %").show_value(true)).on_hover_text("Deckkraft des Luftbilds").changed() {
                             self.luftbild.deckkraft = prozent / 100.0;
+                        }
+                        if ui.checkbox(&mut self.luftbild.belegung, "Belegung").on_hover_text("statt Luftbild die Belegungskarte zeigen (omsigen.belegung): Fahrbahn dunkel, Gehweg hell, Kreuzung lila, Gebaeude rot, Gruen, Wasser, Bauwerk orange").changed()
+                            && self.luftbild.belegung && self.luftbild.deckkraft <= 0.0 {
+                            self.luftbild.deckkraft = 0.6;
                         }
                         if self.luftbild.laedt() {
                             ui.spinner();

@@ -108,6 +108,16 @@ Generators), 235 Kreuzungsknoten (= Kreuzungsobjekte), 379 mit Straßennamen.
 - Spätere Ebenen beziehen sich auf Kanten-IDs (z. B. „Laterne an Kante 412, Station 35 m, rechts“), nicht auf Koordinaten.
 
 ### F4 Belegungskarte
+**Erledigt 15.10.2026:** `omsigen/belegung.py` – je Kachel ein 0,5-m-Raster (600 × 600) mit den Klassen frei,
+fahrbahn, gehweg, kreuzung, gebaeude, gruen, wasser, bauwerk; Quellen netz.json (Fahrbahn zwischen den Fahrbahnkanten,
+Seitenraum bis zu den Außenkanten), die Kreuzungsmodelle `K_*.x` (Asphalt/Gehweg) und die Modelle der Schicht gebaeude
+(von oben). Ablage `maps/<Karte>/belegung/tile_<x>_<y>.png` (Palettenbild, Index = Klasse, Zeile 0 = Norden) und
+`belegung.json` (Fingerabdrücke Netz/Gebäude je Kachel, Konflikte „Gebäude über Fahrbahn“ ab 2 m²). Abfragen:
+`Belegung.klasse(x, z)`, `erlaubt(x, z, klassen)`, `raster(kachel)`. Generator berechnet sie mit, der Editor nach dem
+Speichern (nach netz.json); in der Leiste zeigt „Belegung“ (neben dem Luftbild-Regler) sie als Bodenbild. Geprüft an
+`Aschaffenburg_Linie16_v5`: deckungsgleich mit dem Luftbild (Herstallturm, Haibach) und im Editor; 183 Gebäude über
+Fahrbahn – erwartbar, solange die Straßen die alten Standardbreiten haben (S1). Grün und Wasser füllt Phase 3.
+
 Je Kachel ein Raster (z. B. 0,5 m), abgeleitet aus Netz und Gebäuden: Fahrbahn, Gehweg, Radweg, Kreuzungsplatte,
 Gebäude, Grün, Wasser, frei. Jede spätere Ebene platziert nur auf erlaubten Klassen (Baum nicht auf Fahrbahn, Laterne
 auf Gehweg, Gebäude nicht über Gehweg). Die Prüfer nutzen dieselbe Karte für Konflikte.
