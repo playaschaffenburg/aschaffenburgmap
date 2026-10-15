@@ -398,6 +398,16 @@ Im **World Editor → Kacheln bearbeiten** lädt „LoD2-Gebäude dieser Kachel 
 Darunter zeigt **Schichten → Zustand prüfen** (omsigen.schichten), welche Schicht-Pakete der Kachel gegen einen alten
 Stand von Straßen oder Gelände gebaut wurden („veraltet“) – verglichen wird die gespeicherte Karte; veraltete Gebäude
 lassen sich dort direkt neu bauen.
+**Boden** (omsigen.boden, Qualitätsplan S4): Malmasken je Kachel mit den Belägen Gras, Erde, Schotter, Pflaster,
+Asphalt und Wasser (`texture/map/tile_x_y.map.<n>.dds`, openOMSI zeichnet sie wie das Spiel). Quellen: Luftbild DOP20
+(CC BY 4.0, nur zur Einteilung – nie als sichtbare Textur), OSM-Flächen und -Wege (Park, Feld, Parkplatz, Platz,
+Fußwege, Gleise, Gewässer) und die Belegungskarte (Fahrbahn = Asphalt, Gehweg = Pflaster; Breiten aus `netz.json`).
+In **Schichten** steht der Boden je Kachel: „veraltet“, sobald die Straßen der Kachel seit dem Bau geändert und
+gespeichert wurden, „von Hand geändert“, wenn die Masken nachträglich bemalt wurden; „neu bauen“ bzw. „Boden dieser
+Kachel bauen“ baut im Hintergrund (danach lädt der Editor die Kachel neu). Ohne Editor:
+`python -m omsigen.boden <Karte> [--kacheln 3_7 4_7] [--bild uebersicht.png]`. Texturen: Standard-OMSI und, wenn
+installiert, Add-on Rheinhausen und die PAD-Labs-Texturen (Köln); Gewässer erzeugt omsigen selbst
+(`Texture\Aschaffenburg\boden_wasser.dds`). Kommen neue Beläge in `global.cfg`, die Karte neu öffnen.
 In der Leiste neben dem Luftbild-Regler zeigt **Belegung** statt des Luftbilds die Belegungskarte der Karte
 (omsigen.belegung): Fahrbahn dunkel, Gehweg hell, Kreuzung lila, Gebäude rot, Grün, Wasser, Bauwerk orange. Netz und
 Belegung (`netz.json`, `belegung/`) schreibt der Editor nach jedem Speichern im Hintergrund neu.

@@ -72,7 +72,8 @@ EIGEN_WASSER = 'Texture\\Aschaffenburg\\boden_wasser.dds'
 # je Kachel, Detail-Wiederholungen); Wiederholungen so, dass die Muster echte Groessen haben (Pflaster ~4 m je Bild).
 BELAEGE = [
     ('grund', [('Texture\\gras.bmp', 'Texture\\gras_det.bmp', 1, 60)]),
-    ('gras', [('Texture\\ADDON_Rheinhausen\\gras.dds', 'Texture\\gras_det.bmp', 20, 60),
+    ('gras', [('Texture\\ADDON_Rheinhausen\\gras_wild.dds', 'Texture\\gras_det.bmp', 25, 60),     # heller als gras.dds
+              ('Texture\\ADDON_Rheinhausen\\gras.dds', 'Texture\\gras_det.bmp', 20, 60),
               ('Texture\\gras.bmp', 'Texture\\gras_det.bmp', 1, 60)]),
     ('erde', [('Texture\\ADDON_Rheinhausen\\erde_feld01.dds', 'Texture\\noise_low.bmp', 30, 1),
               ('Texture\\Sand.bmp', 'Texture\\noise_low.bmp', 40, 1)]),

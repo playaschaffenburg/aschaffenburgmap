@@ -140,6 +140,26 @@ Hinter einem `[spline]`-Block (nach den zwei Leerzeilen) steht `[spline_terrain_
 *[Berlin-Spandau tile_2382_11285.map; openOMSI docs/FORMATS.md]*. In Spandau tragen 236 von 2486 Splines das
 Kennzeichen.
 
+## Bodentexturen und Malmasken `[groundtex]` *[Grundorf, Spandau, Ahlheim, Gladbeck, Köln, openOMSI]*
+
+In `global.cfg` je Belag ein Block `[groundtex]` mit fünf Zeilen: Textur, Detailtextur (beide ab dem **OMSI-Ordner**,
+z. B. `Texture\gras.bmp`), Größe der Malmaske als Zweierpotenz (`9` = 512 × 512 über die Kachel, 0,59 m je Texel),
+Wiederholungen der Textur je Kachel, Wiederholungen der Detailtextur je Kachel *[openOMSI `omsi-map/src/global.rs`
+GroundTex]*. Der erste Eintrag ist der Grund jeder Kachel (Standard: `texture\gras.bmp`, `texture\gras_det.bmp`,
+`0`, `1`, `60`), er hat keine Maske. Jahreszeiten: OMSI nimmt gleichnamige Dateien aus `Fall\`, `Spring\`,
+`WinterSnow\` neben der Textur (Standard-OMSI, Rheinhausen, PAD-Labs liefern sie mit).
+
+Malmaske des n-ten Eintrags (ab 1): `maps/<Karte>/texture/map/tile_X_Z.map.<n>.dds` – **unkomprimiertes A8**
+(Pixelformat ALPHA, 8 Bit, Alphamaske 0xFF, Kopf-Flags 0x1007, Caps 0x1002, meist ohne Mip-Stufen), 32 bis 1024
+Texel (in den Standardkarten meist 512), **Zeile 0 = Norden, Spalte 0 = Westen** (openOMSI dreht beim Laden um,
+`omsi-app/src/scene.rs` load_ground_paint; mit omsigen.boden an Gewässern und Wegen gegen das Luftbild geprüft).
+Fehlt die Datei, liegt der Belag in der Kachel nicht. Die Beläge werden in der Reihenfolge der Einträge über den
+Grund geblendet; openOMSI zeichnet sie weich (Gauß 0,85 Texel) und nimmt sie unter Straßen weg, die das Gelände
+ausschneiden. Stock-Beispiele: Spandau 8 Beläge (Schotter, Kopfstein, Asphalt, Sand, Felder, Betonplatten), Köln 14.
+
+omsigen (`omsigen/boden.py`, Qualitätsplan S4): Grund + Gras, Erde, Schotter, Pflaster, Asphalt, Wasser (Index =
+Belag), 512er-Masken, aus Luftbild DOP20, OSM-Flächen und der Belegungskarte.
+
 ## Wie die Standardkarten Brücken und Tunnel bauen (Studie Okt. 2026)
 
 Ausgewertet mit einem Durchlauf über alle Kacheln aller installierten Karten (Objekte/Splines mit „tunnel“,
