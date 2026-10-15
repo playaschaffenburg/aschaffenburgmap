@@ -320,6 +320,9 @@ def erzeuge(projekt, name, omsi=None, ausgabe='build', korrekturen=None, uebersc
     belegung_schreiben(info, root, log)
     from . import boden                       # S4: Malmasken (Belaege aus Luftbild, OSM-Flaechen und Belegung)
     boden.neue_karte(info['dir'], root, log, geodaten=utm and hat_gelaende)
+    if utm and omsi:                          # G3/G4: Strassenausstattung und Haltestellen (Schicht objekte); braucht
+        from . import ausstattung             # die installierten Objekte, also eine OMSI-Installation
+        ausstattung.neue_karte(info['dir'], omsi, log, osm_daten=hat_gelaende)
     pruefpunkte_schreiben(info, projekt, stops)
     with open(os.path.join(info['dir'], 'omsigen.json'), 'w', encoding='utf-8') as f:
         json.dump(dict(projekt=projekt.get('name'), origin=[proj.lat0, proj.lon0], offset=info['offset'],
