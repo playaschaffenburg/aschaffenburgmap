@@ -153,8 +153,10 @@ def write_map(out_maps_dir, name, chains, stops, omsi_dir=None, friendly=None, d
     ox, oz = karten_ursprung(chains, stops, junctions)
 
     nid, tiles = 1, collections.defaultdict(list)
+    ketten_ids = []
     for c in chains:
         ids = list(range(nid, nid + len(c['els']))); nid += len(c['els'])
+        ketten_ids.append(ids)
         cum = 0.0
         for i, el in enumerate(c['els']):
             x, z, h, L, R, spl = el
@@ -267,7 +269,7 @@ def write_map(out_maps_dir, name, chains, stops, omsi_dir=None, friendly=None, d
         f.write(f'Erzeugt mit omsigen am {stamp}.\nStrassendaten (c) OpenStreetMap-Mitwirkende, ODbL 1.0 '
                 f'(https://www.openstreetmap.org/copyright).\n{description}\n')
     return dict(dir=D, offset=(ox, oz), tiles=len(all_tiles), splines=sum(len(v) for v in tiles.values()),
-                objects=sum(len(v) for v in objs.values()), gebaeude=n_geb)
+                objects=sum(len(v) for v in objs.values()), gebaeude=n_geb, ketten_ids=ketten_ids)
 
 
 def install_splines(omsi_dir_or_out, extra=None):

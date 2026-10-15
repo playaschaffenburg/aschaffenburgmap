@@ -588,7 +588,7 @@ def build(ways_in, sdb, signs=()):
         if not els:
             continue
         e0, r0 = ch[0]; e1, r1 = ch[-1]
-        road_chains.append(dict(els=els, ebene=lvls, name=e0['t'].get('name', ''), hw=e0['t'].get('highway'),
+        road_chains.append(dict(els=els, ebene=lvls, name=e0['t'].get('name', ''), hw=e0['t'].get('highway'), tags=dict(e0['t']),
                                 node_s=(e0['n1'] if r0 else e0['n0']), node_e=(e1['n0'] if r1 else e1['n1']),
                                 edge_s=(e0, -1 if r0 else 0), edge_e=(e1, 0 if r1 else -1)))
 

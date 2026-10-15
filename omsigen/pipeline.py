@@ -173,6 +173,25 @@ def geo_schreiben(kartenordner, proj, offset, nn0, ort=''):
         f.write(CRLF.join(zeilen))
 
 
+def netz_schreiben(info, chains, omsi=None, log=print):
+    """Strassennetz der neuen Karte nach netz.json (F3): Attribute je Spline aus den Ketten des Generators
+    (netz_attribute.json), das Netz selbst aus den geschriebenen Kacheln (omsigen.netz_datei)"""
+    from . import netz_datei
+    attribute = {}
+    for c, ids in zip(chains, info['ketten_ids']):
+        hw = c.get('hw')
+        art = ('unsichtbar' if hw == 'invisible' else 'kreuzung' if hw == 'junction'
+               else 'bauwerk' if c.get('begleit') else 'strasse')
+        a = dict(art=art, name=c.get('name', ''), highway=hw or '')
+        if c.get('tags'):
+            a['tags'] = {k: v for k, v in c['tags'].items() if isinstance(v, (str, int, float))}
+        for sid in ids:
+            attribute[sid] = a
+    netz_datei.attribute_schreiben(info['dir'], attribute)
+    n = netz_datei.schreiben(info['dir'], omsi)
+    log(f'    Netz: {len(n["kanten"])} Kanten, {len(n["knoten"])} Knoten (netz.json)')
+
+
 def gebaeude_schicht(root, name, info, linie, breite, log=print):
     """Schicht "gebaeude" einer neuen UTM-Karte: derselbe Weg wie der Editor (omsigen.lod2.bauen je Kachel ueber den
     Geobezug, Schicht-Pakete LoD2/<kx>_<ky>/lod2.json), nur Gebaeude mit Mitte bis `breite` m um die Linie; die Pakete
@@ -248,6 +267,7 @@ def erzeuge(projekt, name, omsi=None, ausgabe='build', korrekturen=None, uebersc
                      description=desc, cam_xz=(entrypoints[0]['x'], entrypoints[0]['z']) if entrypoints else
                      tuple(linie[0]), overwrite=ueberschreiben, junctions=objekte, entrypoints=entrypoints,
                      raster=hoe.raster if hat_gelaende else None, gebaeude=geb)
+    netz_schreiben(info, chains, omsi, log)
     if utm:
         geo_schreiben(info['dir'], proj, info['offset'], hoe.base if hat_gelaende else 0.0,
                       projekt.get('beschreibung') or projekt.get('name', ''))

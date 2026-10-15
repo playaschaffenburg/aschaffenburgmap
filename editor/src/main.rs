@@ -1184,6 +1184,11 @@ impl App {
                         a.aenderungen = 0;
                     }
                     self.karten = karten::finden(&self.root);
+                    // F3: netz.json der gespeicherten Karte neu ableiten (Strassen koennen sich geaendert haben)
+                    let karte_ordner = if ueberschrieben { self.karte.as_ref().map(|k| self.root.join("maps").join(k)) } else { Some(ziel.clone()) };
+                    if let Some(d) = karte_ordner.filter(|d| d.join("global.cfg").is_file()) {
+                        schichten::netz_aktualisieren(&self.root, &d);
+                    }
                     if ueberschrieben {
                         // die Aenderungen stehen jetzt in der Karte: frisch laden (Sitzung, Netz, Verlauf von vorn), Kamera bleibt
                         self.kamera_merken = Some(self.kam.clone());

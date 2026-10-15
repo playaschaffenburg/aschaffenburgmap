@@ -123,3 +123,24 @@ pub fn name(schicht: &str) -> &'static str {
         _ => "?",
     }
 }
+
+/// netz.json der Karte neu schreiben (python -m omsigen.netz_datei, F3) - nach dem Speichern, im Hintergrund; das
+/// Ergebnis steht im Protokoll. So passt das Netz, auf das sich spaetere Schichten beziehen, immer zur Karte.
+pub fn netz_aktualisieren(root: &Path, karte_ordner: &Path) {
+    let args: Vec<String> = vec!["-m".into(), "omsigen.netz_datei".into(), karte_ordner.display().to_string(), "--omsi".into(), root.display().to_string()];
+    std::thread::spawn(move || {
+        let python = crate::kreuzung::python();
+        let mut cmd = std::process::Command::new(&python);
+        cmd.args(&args).current_dir(crate::kreuzung::omsigen_ordner());
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            cmd.creation_flags(0x0800_0000);
+        }
+        match cmd.output() {
+            Ok(o) if o.status.success() => log::info!("netz.json: {}", String::from_utf8_lossy(&o.stdout).trim()),
+            Ok(o) => log::warn!("netz.json nicht geschrieben: {}", String::from_utf8_lossy(&o.stderr).lines().last().unwrap_or("?")),
+            Err(e) => log::warn!("netz.json: {python} starten: {e}"),
+        }
+    });
+}

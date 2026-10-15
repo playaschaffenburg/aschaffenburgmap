@@ -90,6 +90,18 @@ Jede Ebene wird getrennt erzeugt und je Kachel eingesetzt; erneutes Einsetzen er
 - Von Hand im Editor gesetzte Objekte haben keinen Ebenen-Marker und werden nie automatisch ersetzt.
 
 ### F3 Gespeichertes Netz, ein Netz-Kern
+**Erledigt 15.10.2026:** `omsigen/netz_datei.py` leitet `maps/<Karte>/netz.json` aus der Karte selbst ab (alle
+`[spline]` der Kacheln): Splines mit zusammenfallenden Enden (gleiche .sli/Spiegelung) bilden Kanten `E<erste
+Spline-ID>`, Kantenenden an einem `K_*`-Objekt einen Kreuzungsknoten `J<Objekt-ID>`, sonst Querschnittswechsel bzw.
+Ende `N<x>_<z>`; je Kante Punkte alle 2 m mit Station und Höhe, Querschnitt aus der .sli (Fahrbahn, Außenkanten,
+Spuren, Gehwege) und Attribute. Der Generator schreibt die Attribute je Spline (`netz_attribute.json`: OSM-Name,
+Klasse, Tags, Art) und `netz.json` mit; der Editor schreibt `netz.json` nach jedem Speichern neu (Hintergrund,
+Protokoll). Abfragen für spätere Schichten: `Netz.punkt(kante, station, seite)`, `Netz.naechste(x, z)`,
+`Netz.streifen(kante, links, rechts)`; `Netz.laden` prüft per Fingerabdruck, ob netz.json zur Karte passt.
+Entscheidung: kein eigenes Rust-Netzformat, weil der Editor beim Speichern ohnehin Splines schreibt – die Karte ist die
+eine Wahrheit, netz.json ihre Lesart. Geprüft an `Aschaffenburg_Linie16_v5`: 412 Straßenkanten (= Straßenzüge des
+Generators), 235 Kreuzungsknoten (= Kreuzungsobjekte), 379 mit Straßennamen.
+
 - Das Straßennetz (Knoten, Kanten, Querschnitte, Regeln) wird als eigene Datei je Karte gespeichert (`netz.json`) und
   beim Öffnen gelesen – nicht nur als Splines.
 - Generator und Editor teilen ein Datenmodell (Rust `netz.rs` als Referenz, Python liest/schreibt dasselbe Format).
