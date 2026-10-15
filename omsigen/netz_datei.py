@@ -145,7 +145,8 @@ def _art(sli, qs):
 def ableiten(kartenordner, omsi=None):
     """Netz aus der Karte -> dict (Format siehe oben)"""
     from .splinedb import SplineDB
-    sdb = SplineDB(omsi)
+    # ohne OMSI-Ordner: die Wurzel der Karte (maps/<Karte>/../..) - dort liegen die eigenen Splines (z. B. Querschnitte)
+    sdb = SplineDB(omsi or os.path.dirname(os.path.dirname(os.path.abspath(kartenordner))))
     sp = splines_lesen(kartenordner)
     attr_pfad = os.path.join(kartenordner, ATTRIBUTE)
     attr = json.load(open(attr_pfad, encoding='utf-8')) if os.path.isfile(attr_pfad) else {}

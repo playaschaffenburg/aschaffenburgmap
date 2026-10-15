@@ -182,9 +182,12 @@ def kreuzungsspuren(arms, k=None):
     return conn_chains, conn_fail, n_moves
 
 
-def build(ways_in, sdb, signs=()):
+def build(ways_in, sdb, signs=(), waehle=None):
     """ways_in: Liste dict(tags, P=[(x,z),...]) in Metern; signs: Vorfahrt-Schilder/Ampeln dict(kind, p, direction). -> dict(road_chains, conn_chains, junctions, stats)
-    Kette = dict(els=[[x, z, h, L, R, spline], ...], name, hw)"""
+    Kette = dict(els=[[x, z, h, L, R, spline], ...], name, hw).
+    waehle(tags, dual, walk) -> (Spline, Richtungszwang): Querschnittswahl (Standard config.choose_spline; S1:
+    querschnitte.Querschnitte.waehle)"""
+    waehle = waehle or choose_spline
     # Bruecken und Tunnel gehoeren dazu (Hoehen: hoehen.py); verbunden wird nur ueber gemeinsame Punkte, also nie
     # zwischen einer Bruecke und der Strasse darunter
     ways = [dict(t=w['tags'], P=[tuple(p) for p in w['P']]) for w in ways_in]
@@ -252,7 +255,7 @@ def build(ways_in, sdb, signs=()):
                 e['dual'] = True
 
     for e in edges:
-        e['spl'], force = choose_spline(e['t'], e['dual'])
+        e['spl'], force = waehle(e['t'], e['dual'])
         e['osm_rev'] = force == -1
         if force == -1:
             e['P'] = e['P'][::-1]
@@ -278,7 +281,7 @@ def build(ways_in, sdb, signs=()):
                     side = (q[0] - m[0]) * math.cos(math.radians(h)) - (q[1] - m[1]) * math.sin(math.radians(h))
                     walk[1 if side > 0 else 0] = False
         if walk != [True, True]:
-            e['spl'], _ = choose_spline(e['t'], e['dual'], tuple(walk))
+            e['spl'], _ = waehle(e['t'], e['dual'], tuple(walk))
 
     # ============================================================ Kreisverkehre auf Kreis legen
     groups = []

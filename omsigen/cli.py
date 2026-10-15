@@ -30,12 +30,18 @@ def main(argv=None):
     ap.add_argument('--ohne-gelaende', action='store_true', help='flache Karte ohne DGM-Gelaende')
     ap.add_argument('--gebaeude', type=float, nargs='?', const=150.0, metavar='BREITE',
                     help='LoD2-Gebaeude bis BREITE m (Standard 150) um die Strecke (Bayern; Fassaden aus den Kartendaten)')
+    g = ap.add_argument_group('Querschnitte (S1)')
+    g.add_argument('--querschnitte', choices=['osm', 'standard'], default='osm',
+                   help='osm: je Strasse der Querschnitt aus OSM/Messung/Regeln, gebaut vom Editor (Standard); '
+                        'standard: die feste Liste der Marcel-Splines wie frueher')
+    g.add_argument('--querschnitte-messen', action='store_true',
+                   help='fehlende Fahrbahn-/Gehwegbreiten im Luftbild (DOP20) messen und in den Kartendaten merken')
     a = ap.parse_args(argv)
     projekt = pipeline.importiere(a.von, a.nach, a.stadt, a.ueber, a.breite, a.cache, a.osm_datei)
     r = pipeline.erzeuge(projekt, a.name, omsi=a.omsi, ausgabe=a.ausgabe, korrekturen=a.korrekturen,
                          ueberschreiben=a.ueberschreiben, kreuzungen=a.kreuzungen, titel=a.titel,
                          vorschau=a.vorschau, ansicht_html=a.ansicht, gelaende=not a.ohne_gelaende,
-                         gebaeude=a.gebaeude)
+                         gebaeude=a.gebaeude, querschnitte=a.querschnitte, messen=a.querschnitte_messen)
     return r['rc']
 
 

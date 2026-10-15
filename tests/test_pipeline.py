@@ -34,5 +34,5 @@ def test_alte_spline_kreuzungen(tmp_path):
     assert main(ARGS + ['--ausgabe', str(tmp_path), '--kreuzungen', 'spline']) == 0
     assert (tmp_path / 'Splines' / 'Aschaffenburg' / 'AB_kreuzung_spur.sli').exists()
     assert not (tmp_path / 'Sceneryobjects').exists()
-    res = validate(str(tmp_path / 'maps' / 'Test'), SplineDB(), edge_points=[(0, 0)])
+    res = validate(str(tmp_path / 'maps' / 'Test'), SplineDB(str(tmp_path)), edge_points=[(0, 0)])
     assert res['splines'] > 300
