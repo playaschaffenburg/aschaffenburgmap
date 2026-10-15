@@ -506,7 +506,12 @@ impl Uebergang {
 
     /// Objekt schreiben: `ordner`\<name>.sco, model\<name>.x, texture\ (aus Splines\Aschaffenburg\texture) -> .sco-Datei
     pub fn schreiben(&self, root: &Path, ordner: &Path, name: &str, titel: &str) -> Result<std::path::PathBuf> {
-        std::fs::create_dir_all(ordner.join("model"))?;
+        self.texturen_kopieren(root, ordner)?;
+        self.objekt_schreiben(ordner, name, titel)
+    }
+
+    /// die Texturen des Modells nach `ordner`\texture (aus Splines\Aschaffenburg\texture der Installation `root`)
+    pub fn texturen_kopieren(&self, root: &Path, ordner: &Path) -> Result<()> {
         std::fs::create_dir_all(ordner.join("texture"))?;
         let texturen: Vec<&str> = self.modell.materialien.iter().map(|s| s.as_str()).collect();
         crate::querschnitt::texturen_bereitstellen(root, &texturen)?;
@@ -519,6 +524,12 @@ impl Uebergang {
                 }
             }
         }
+        Ok(())
+    }
+
+    /// .sco und .x schreiben (ohne Texturen) -> .sco-Datei
+    pub fn objekt_schreiben(&self, ordner: &Path, name: &str, titel: &str) -> Result<std::path::PathBuf> {
+        std::fs::create_dir_all(ordner.join("model"))?;
         std::fs::write(ordner.join("model").join(format!("{name}.x")), self.modell.x_datei())?;
         let sco = ordner.join(format!("{name}.sco"));
         let text = self.sco(titel, &format!("{name}.x"));
@@ -583,7 +594,7 @@ mod tests {
     use super::*;
 
     fn q(teile: &[(Art, Richtung)]) -> Querschnitt {
-        let mut q = Querschnitt { name: "t".into(), teile: teile.iter().map(|(a, r)| Teil { richtung: *r, ..Teil::neu(*a) }).collect(), marken: vec![] };
+        let mut q = Querschnitt { name: "t".into(), teile: teile.iter().map(|(a, r)| Teil { richtung: *r, ..Teil::neu(*a) }).collect(), marken: vec![], versatz: 0.0 };
         q.marken_anpassen();
         q
     }

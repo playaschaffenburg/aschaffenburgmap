@@ -6,6 +6,7 @@
 //! Speichern als neue Karte (bearbeiten.rs, speichern.rs).
 //!
 //!   omsi-editor [--root <OMSI-2-Ordner>] [Kartenordner]
+//!   omsi-editor --querschnitte <auftrag.json>   (fuer den Generator: .sli-Dateien/Uebergaenge bauen, ohne Fenster)
 //!
 //! Bedienung: rechte Maustaste drehen/neigen, mittlere verschieben, Mausrad zoomen,
 //! W A S D / Pfeile verschieben, Q / E drehen, R / F neigen.
@@ -19,6 +20,7 @@ mod bauwerke;
 mod bearbeiten;
 mod foto;
 mod gelaende;
+mod generator;
 mod geo;
 mod hilfsansicht;
 mod kamera;
@@ -5396,6 +5398,7 @@ fn main() -> Result<()> {
     let mut posen = None;
     let mut sonderbau_json = None;
     let mut pruefung = None;
+    let mut querschnitte = None;
     let mut i = 0;
     while i < args.len() {
         let wert = args.get(i + 1).cloned();
@@ -5410,6 +5413,7 @@ fn main() -> Result<()> {
             ("--cam", Some(w)) => cam = Some(w),
             ("--posen", Some(w)) => posen = Some(PathBuf::from(w)),
             ("--sonderbau", Some(w)) => sonderbau_json = Some(PathBuf::from(w)),
+            ("--querschnitte", Some(w)) => querschnitte = Some(PathBuf::from(w)),
             ("--testlauf", Some(w)) => testlauf = w.parse().ok(),
             ("--wechsel", Some(w)) => wechsel = Some(w),
             _ => {
@@ -5419,6 +5423,10 @@ fn main() -> Result<()> {
             }
         }
         i += 2;
+    }
+    if let Some(a) = querschnitte {
+        // fuer den Generator: Querschnitte/Uebergaenge bauen, ohne Fenster (generator.rs)
+        return generator::kommandozeile(&a, &root);
     }
     if let Some(l) = posen {
         return posen_bilder(&root, karte.as_deref().context("Kartenordner angeben")?, &l, sonderbau_json.as_deref());
