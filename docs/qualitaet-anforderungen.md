@@ -156,6 +156,26 @@ openOMSI an festen Prüfpunkten. Ein Lauf erzeugt einen Bericht je Kachel (Funde
 ## 3. Straßen und Boden (S)
 
 ### S1 Querschnitte aus der Wirklichkeit
+**Erledigt 15.10.2026 (Abnahme Breiten nicht erreicht, siehe unten):** `omsigen/querschnitte.py` leitet je OSM-Weg den
+Querschnitt ab (Spuren je Richtung, `turn:lanes` zählt vor `lanes`, Bus-/Radfahrstreifen, Radweg, Parken neu/alt,
+Gehweg je Seite, Beläge, Markierung) – Fahrbahnbreite aus `width`, sonst Regel je Straßenklasse (Median der
+`width`-Angaben in OSM um die Linie 16: Wohnstraße 6,0 m, tertiary 7,0 m …). `omsigen/querschnitt_messung.py` misst je
+Weg die Gebäudeflucht aus LoD2 (Zwischenspeicher `Kartendaten\querschnitte\messungen.json`); der Querschnitt wird
+eingepasst (Achsversatz, wenn die OSM-Linie nicht mittig liegt, dann Seitenraum, dann Spuren). Woher jeder Wert kommt
+(tag/messung/regel) steht in `maps/<Karte>/querschnitte.json` und als Attribut `querschnitt` in netz.json. Die `.sli`
+baut der Querschnitt-Baukasten des Editors ohne Fenster (`omsi-editor --querschnitte`), geteilt je Typ in
+`Splines\Aschaffenburg\Q\` mit `.qs.json` (Baukasten: neues Feld Achsversatz); ohne Editor die alten Standard-Splines
+(`--querschnitte standard`). Ähnliche Nachbarn (≤ 0,5 m) werden angeglichen, echte Wechsel bekommen ein gerades
+Übergangsobjekt `UE_*` (uebergang.rs, über den Editor) statt einer Kreuzungsplatte; Kreuzungsspuren folgen `turn:lanes`.
+Abnahme `omsigen/querschnitt_pruefung.py`: 20 Prüfstellen entlang der Linie 16 (`Kartendaten\querschnitte\pruefstellen.json`,
+im Luftbild abgelesen, nur baumfreie Stellen), Funde `querschnitt_abweichung`/`abbiegestreifen_fehlt` im Prüfbericht.
+`Aschaffenburg_Linie16_S1` (gegen v7): 79 Funde – Spurenden 3 (dieselben wie v7), Gebäude über Fahrbahn 57 (v7: 183),
+Abbiegestreifen 33 geprüft / 0 fehlen; Fahrbahnbreite an den Prüfstellen im Mittel 1,86 m daneben (v7: 2,99 m), 2 von
+20 unter 0,5 m (6 bis 0,5 m), Gehwege im Mittel 1,07 m (v7: 1,98 m). Offen: echte Fahrbahnbreiten mit Parkstreifen
+(Würzburger Straße bis 15 m) – eine automatische Bordkanten-Messung im DOP20 wurde erprobt und wegen Schatten/Bäumen/Autos
+verworfen (3 von 20 auf 0,5 m); nächster Schritt Bordkanten aus den Laserdaten oder Breiten von Hand im Editor
+(Vermessen → `messungen.json`, Feld `fahrbahn`).
+
 - Querschnitt je Kante aus OSM-Tags: `width`, `lanes`, `lanes:forward/backward`, `turn:lanes`, `sidewalk`,
   `cycleway*`, `parking:*`, `surface`, `busway`, `maxspeed`; fehlende Werte aus Luftbild-Messung (`aufmass.py`) oder
   Regeln nach Straßenklasse.

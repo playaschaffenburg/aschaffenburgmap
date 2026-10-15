@@ -201,14 +201,16 @@ def gehwege(q):
 
 
 GEHWEG_MIN = 1.5          # m: so schmal wird ein Gehweg beim Einpassen hoechstens, danach faellt er weg
+SPUR_KOMFORT = 2.75       # m: so schmal werden Spuren, bevor ein Gehweg ganz wegfaellt
 RAND_GEBAEUDE = 0.3       # m Abstand zur Gebaeudeflucht
 
 
 def einpassen(q, flucht_l, flucht_r, herkunft, versatz_max=2.5, spur_min=SPUR_MIN):
     """Querschnitt in den Raum zwischen den Gebaeuden einpassen (Abstaende links/rechts der Achse, None = frei):
     1. Achsversatz, wenn eine Seite zu eng ist und die andere Platz hat (OSM-Linie nicht mittig),
-    2. aussen beginnend Seitenraum schmaler/weg (Gehweg bis GEHWEG_MIN, Radweg, Parken, Gehweg, Radfahrstreifen),
-    3. zuletzt die Spuren (bis SPUR_MIN). -> neuer Querschnitt (herkunft wird ergaenzt)"""
+    2. aussen beginnend Seitenraum schmaler/weg (Gehweg bis GEHWEG_MIN, Radweg, Parken), Spuren bis SPUR_KOMFORT,
+       dann Gehweg und Radfahrstreifen weg,
+    3. zuletzt die Spuren (bis spur_min). -> neuer Querschnitt (herkunft wird ergaenzt)"""
     import copy
     q = copy.deepcopy(q)
     lim = [flucht_l - RAND_GEBAEUDE if flucht_l is not None else None,
@@ -232,43 +234,53 @@ def einpassen(q, flucht_l, flucht_r, herkunft, versatz_max=2.5, spur_min=SPUR_MI
         if q['versatz']:
             herkunft['versatz'] = 'messung'
         u = ueber()
-    # 2. Seitenraum von aussen
-    schritte = [('gehweg', 'schmal'), ('radweg', 'weg'), ('gruen', 'weg'), ('parkstreifen', 'weg'), ('gehweg', 'weg'),
-                ('radfahrstreifen', 'weg'), ('mittelinsel', 'weg')]
-    for seite in (0, 1):
-        geaendert = False
-        for art, wie in schritte:
-            if u[seite] <= 0.01:
-                break
-            spuren = [i for i, t in enumerate(q['teile']) if t['art'] in SPUR]
-            idx = range(0, spuren[0]) if seite == 0 else range(len(q['teile']) - 1, spuren[-1], -1)
-            for i in list(idx):
-                t = q['teile'][i]
-                if t['art'] != art or u[seite] <= 0.01:
-                    continue
-                geaendert = True
-                if wie == 'schmal':
-                    neu = max(GEHWEG_MIN, t['breite'] - u[seite])
-                    t['breite'] = round(math.floor(neu / RASTER + 1e-6) * RASTER, 3)
-                else:
-                    t['breite'] = 0.0
+    # 2. Seitenraum von aussen: erst schmaler und Nebensachen weg, dann die Spuren bis SPUR_KOMFORT, erst danach
+    #    faellt der Gehweg (in der Wirklichkeit gibt es ihn fast immer, nur schmal), zuletzt Spuren bis spur_min
+    def seitenraum(schritte):
+        nonlocal u
+        for seite in (0, 1):
+            geaendert = False
+            for art, wie in schritte:
+                if u[seite] <= 0.01:
+                    break
+                spuren = [i for i, t in enumerate(q['teile']) if t['art'] in SPUR]
+                idx = range(0, spuren[0]) if seite == 0 else range(len(q['teile']) - 1, spuren[-1], -1)
+                for i in list(idx):
+                    t = q['teile'][i]
+                    if t['art'] != art or u[seite] <= 0.01:
+                        continue
+                    geaendert = True
+                    if wie == 'schmal':
+                        t['breite'] = round(math.floor(max(GEHWEG_MIN, t['breite'] - u[seite]) / RASTER + 1e-6) * RASTER, 3)
+                    else:
+                        t['breite'] = 0.0
+                    u = ueber()
+                k = [i for i, t in enumerate(q['teile']) if t['breite'] <= 0.0]
+                for i in reversed(k):             # entfernte Teile samt einer Grenzmarkierung
+                    del q['teile'][i]
+                    if q['marken']:
+                        del q['marken'][min(i, len(q['marken']) - 1)]
                 u = ueber()
-            k = [i for i, t in enumerate(q['teile']) if t['breite'] <= 0.0]
-            for i in reversed(k):                 # entfernte Teile samt einer Grenzmarkierung
-                del q['teile'][i]
-                if q['marken']:
-                    del q['marken'][min(i, len(q['marken']) - 1)]
-            u = ueber()
-        if geaendert:
-            herkunft['gehweg_' + ('links' if seite == 0 else 'rechts')] = 'messung'
-    # 3. Spuren
-    if max(u) > 0.01:
+            if geaendert:
+                herkunft['gehweg_' + ('links' if seite == 0 else 'rechts')] = 'messung'
+
+    def spuren_schmaler(grenze):
+        nonlocal u
+        if max(u) <= 0.01:
+            return
         spuren = [t for t in q['teile'] if t['art'] in SPUR]
         w = spuren[0]['breite']
-        neu = max(spur_min, w - 2.0 * max(u) / len(spuren))
-        for t in spuren:
-            t['breite'] = round(math.floor(neu / RASTER + 1e-6) * RASTER, 3)
-        herkunft['fahrbahn'] = 'messung'
+        neu = max(min(grenze, w), w - 2.0 * max(u) / len(spuren))
+        if neu < w - 1e-9:
+            for t in spuren:
+                t['breite'] = round(math.floor(neu / RASTER + 1e-6) * RASTER, 3)
+            herkunft['fahrbahn'] = 'messung'
+            u = ueber()
+    seitenraum([('gehweg', 'schmal'), ('radweg', 'weg'), ('gruen', 'weg'), ('parkstreifen', 'weg')])
+    spuren_schmaler(max(spur_min, SPUR_KOMFORT))
+    seitenraum([('gehweg', 'weg'), ('radfahrstreifen', 'weg'), ('mittelinsel', 'weg')])
+    # 3. Spuren
+    spuren_schmaler(spur_min)
     return q
 
 
@@ -602,6 +614,7 @@ class Querschnitte:
         self.typen = {}          # rel -> dict(datei, q)
         self.wahl = {}           # (Weg-Schluessel, rel) -> dict(herkunft, werte)
         self.wahl_weg = {}       # Weg-Schluessel -> zuletzt gewaehlt (fuer angeglichene Kanten)
+        self.benutzt = set()     # Typen, die die Strassenzuege wirklich nutzen (ketten_kennzeichnen)
 
     @staticmethod
     def weg_schluessel(t):
@@ -771,7 +784,7 @@ class Querschnitte:
         log = log or self.log
         if self.modus != 'osm' or not self.typen:
             return 0
-        reihe = sorted(self.typen)
+        reihe = sorted(r for r in self.typen if not self.benutzt or r in self.benutzt)   # angeglichene fallen weg
         auftrag = dict(root=os.path.abspath(root), ordner=ORDNER,
                        querschnitte=[dict(datei=self.typen[r]['datei'],
                                           querschnitt=bauanleitung(self.typen[r]['q'], self.typen[r]['datei']))
@@ -796,6 +809,7 @@ class Querschnitte:
 
     def ketten_kennzeichnen(self, ketten, net=None):
         """je Strassenzug c['querschnitt'] = dict(sli, herkunft, werte, osm) (fuer netz_attribute.json)"""
+        self.benutzt = {el[5] for c in ketten for el in c.get('els', ()) if el[5] in self.typen}
         for c in ketten:
             if c.get('hw') in ('junction', 'invisible') or not c.get('els') or not c.get('tags'):
                 continue
@@ -821,7 +835,7 @@ class Querschnitte:
                  typen={r: dict(datei=v['datei'], querschnitt=bauanleitung(v['q'], v['datei']),
                                 fahrbahn=round(sum(t['breite'] for t in v['q']['teile'] if t['art'] in UNTEN), 2),
                                 breite=round(sum(t['breite'] for t in v['q']['teile']), 2))
-                        for r, v in sorted(self.typen.items())},
+                        for r, v in sorted(self.typen.items()) if not self.benutzt or r in self.benutzt},
                  herkunft=zaehler, kanten=kanten)
         with open(os.path.join(kartenordner, 'querschnitte.json'), 'w', encoding='utf-8') as f:
             json.dump(d, f, ensure_ascii=False, indent=1)
