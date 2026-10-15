@@ -1,0 +1,176 @@
+{
+ "format": "omsigen-ausstattung-katalog",
+ "version": 1,
+ "hinweis": "Auswahl der Objekte fuer die Strassenausstattung (G3) und Haltestellen (G4). Je Typ gilt der erste Kandidat, dessen .sco in der OMSI-Installation liegt. Eigene Objekte (Texturwerkstatt) werden vorn eingetragen: entweder 'rel' (fertiges .sco, z. B. Sceneryobjects\\Aschaffenburg\\Ausstattung\\...) oder 'eigen' (von omsigen erzeugt). vorne = Richtung der Vorderseite im Objekt (Grad im Uhrzeigersinn ab +z: 0 = +z, 90 = +x, 180 = -z, 270 = -x); mast = Schild ohne eigenen Mast (kommt auf den Mast-Typ 'schild_mast' an dessen Anhaengepunkt).",
+ "addons": {
+  "Sceneryobjects\\PAD-Labs\\": "Koeln/PAD-Labs-Objekte (Sceneryobjects\\PAD-Labs)",
+  "Sceneryobjects\\ADDON_Rheinhausen\\": "Add-on Rheinhausen (Sceneryobjects\\ADDON_Rheinhausen)",
+  "Sceneryobjects\\O3D_SmallDetailStuff\\": "O3D SmallDetailStuff (Sceneryobjects\\O3D_SmallDetailStuff)"
+ },
+ "typen": {
+  "laterne_haupt": {"text": "Peitschenleuchte an Hauptstrassen (Ausleger zur Fahrbahn)", "kandidaten": [
+   {"rel": "Sceneryobjects\\Streetobjects_RUE\\sodiumlight_L_whip_L.sco", "vorne": 270, "radius": 0.2},
+   {"rel": "Sceneryobjects\\PAD-Labs\\Strassenschilder\\Strassenlaterne_2.sco", "vorne": 270, "radius": 0.2}]},
+  "laterne_wohn": {"text": "Aufsatzleuchte in Wohnstrassen und am Platz", "kandidaten": [
+   {"rel": "Sceneryobjects\\Streetobjects_MC\\strlt_gwg_70s_1.sco", "vorne": 0, "radius": 0.3}]},
+  "schild_mast": {"text": "Mast fuer Verkehrszeichen", "kandidaten": [
+   {"eigen": "schildmast", "vorne": 0, "radius": 0.12, "anhaenge": [2.45, 1.75]},
+   {"rel": "Sceneryobjects\\PAD-Labs\\Strassenschilder\\VZ_Mast_for_75cm.sco", "vorne": 0, "radius": 0.15}]},
+  "vz_205": {"text": "Vorfahrt gewaehren (Zeichen 205)", "kandidaten": [
+   {"eigen": "vz", "code": "205", "vorne": 0, "mast": true},
+   {"rel": "Sceneryobjects\\PAD-Labs\\Strassenschilder\\Vorfahrt_Gewaehren_63cm.sco", "vorne": 0, "mast": true},
+   {"rel": "Sceneryobjects\\Verkehrszeichen_MC\\VZ_att_vorfahrtgewahr_m_mast.sco", "vorne": 0}]},
+  "vz_206": {"text": "Halt! Vorfahrt gewaehren (Zeichen 206)", "kandidaten": [
+   {"eigen": "vz", "code": "206", "vorne": 0, "mast": true},
+   {"rel": "Sceneryobjects\\PAD-Labs\\Strassenschilder\\Stop60cm.sco", "vorne": 0, "mast": true}]},
+  "vz_301": {"text": "Vorfahrt an der naechsten Kreuzung (Zeichen 301)", "kandidaten": [
+   {"eigen": "vz", "code": "301", "vorne": 0, "mast": true},
+   {"rel": "Sceneryobjects\\PAD-Labs\\Strassenschilder\\Vorfahrt_63cm.sco", "vorne": 0, "mast": true},
+   {"rel": "Sceneryobjects\\Verkehrszeichen_MC\\VZ_att_vorfahrt_m_mast.sco", "vorne": 0}]},
+  "vz_306": {"text": "Vorfahrtstrasse (Zeichen 306)", "kandidaten": [
+   {"eigen": "vz", "code": "306", "vorne": 0, "mast": true},
+   {"rel": "Sceneryobjects\\PAD-Labs\\Strassenschilder\\Vorfahrtstrasse60cm.sco", "vorne": 0, "mast": true},
+   {"rel": "Sceneryobjects\\Verkehrszeichen_MC\\VZ_son_vorfahrtstr_m_mast.sco", "vorne": 0}]},
+  "vz_307": {"text": "Ende der Vorfahrtstrasse (Zeichen 307)", "kandidaten": [
+   {"eigen": "vz", "code": "307", "vorne": 0, "mast": true},
+   {"rel": "Sceneryobjects\\PAD-Labs\\Strassenschilder\\Vorfahrtstrasse_Ende60cm.sco", "vorne": 0, "mast": true}]},
+  "vz_274": {"text": "Zulaessige Hoechstgeschwindigkeit (Zeichen 274, Zahl als Beschriftung)", "kandidaten": [
+   {"eigen": "vz", "code": "274", "vorne": 0, "mast": true},
+   {"rel": "Sceneryobjects\\PAD-Labs\\Strassenschilder\\Zulaessige_Hochstgeschw60cm.sco", "vorne": 0, "mast": true, "texte": ["{wert}"]}]},
+  "vz_278": {"text": "Ende der zulaessigen Hoechstgeschwindigkeit (Zeichen 278)", "kandidaten": [
+   {"eigen": "vz", "code": "278", "vorne": 0, "mast": true},
+   {"rel": "Sceneryobjects\\PAD-Labs\\Strassenschilder\\Zulaessige_Hochstgeschw_Ende60cm.sco", "vorne": 0, "mast": true, "texte": ["{wert}"]}]},
+  "vz_274.1": {"text": "Beginn Tempo-30-Zone (Zeichen 274.1)", "kandidaten": [
+   {"eigen": "vz", "code": "274.1", "vorne": 0, "mast": true},
+   {"rel": "Sceneryobjects\\PAD-Labs\\Strassenschilder\\BeginnTempo_30Zone_84cm.sco", "vorne": 0, "mast": true}]},
+  "vz_274.2": {"text": "Ende Tempo-30-Zone (Zeichen 274.2)", "kandidaten": [
+   {"eigen": "vz", "code": "274.2", "vorne": 0, "mast": true},
+   {"rel": "Sceneryobjects\\PAD-Labs\\Strassenschilder\\Ende_Tempo_30Zone_84cm.sco", "vorne": 0, "mast": true}]},
+  "vz_267": {"text": "Verbot der Einfahrt (Zeichen 267)", "kandidaten": [
+   {"eigen": "vz", "code": "267", "vorne": 0, "mast": true},
+   {"rel": "Sceneryobjects\\PAD-Labs\\Strassenschilder\\EinfahrtVerbot60cm.sco", "vorne": 0, "mast": true}]},
+  "vz_250": {"text": "Verbot fuer Fahrzeuge aller Art (Zeichen 250)", "kandidaten": [
+   {"eigen": "vz", "code": "250", "vorne": 0, "mast": true},
+   {"rel": "Sceneryobjects\\PAD-Labs\\Strassenschilder\\FahrzeugeVerbot60cm.sco", "vorne": 0, "mast": true}]},
+  "vz_350": {"text": "Fussgaengerueberweg (Zeichen 350)", "kandidaten": [
+   {"eigen": "vz", "code": "350", "vorne": 0, "mast": true},
+   {"rel": "Sceneryobjects\\PAD-Labs\\Strassenschilder\\FussgaengerRechts75cm.sco", "vorne": 0, "mast": true}]},
+  "vz_357": {"text": "Sackgasse (Zeichen 357)", "kandidaten": [
+   {"eigen": "vz", "code": "357", "vorne": 0, "mast": true},
+   {"rel": "Sceneryobjects\\PAD-Labs\\Strassenschilder\\Sackgasse60cm.sco", "vorne": 0, "mast": true}]},
+  "vz_220": {"text": "Einbahnstrasse (Zeichen 220)", "kandidaten": [
+   {"rel": "Sceneryobjects\\PAD-Labs\\Strassenschilder\\Einbahnstr_Rechtsweisend30x80cm.sco", "vorne": 0, "mast": true}]},
+  "vz_215": {"text": "Kreisverkehr (Zeichen 215)", "kandidaten": [
+   {"eigen": "vz", "code": "215", "vorne": 0, "mast": true},
+   {"rel": "Sceneryobjects\\PAD-Labs\\Strassenschilder\\Kreisverkehr60cm.sco", "vorne": 0, "mast": true}]},
+  "vz_283": {"text": "Absolutes Haltverbot (Zeichen 283)", "kandidaten": [
+   {"eigen": "vz", "code": "283", "vorne": 0, "mast": true},
+   {"rel": "Sceneryobjects\\PAD-Labs\\Strassenschilder\\AbsolutesHaltverbot60cm.sco", "vorne": 0, "mast": true}]},
+  "vz_286": {"text": "Eingeschraenktes Haltverbot (Zeichen 286)", "kandidaten": [
+   {"eigen": "vz", "code": "286", "vorne": 0, "mast": true},
+   {"rel": "Sceneryobjects\\PAD-Labs\\Strassenschilder\\EingeschrHaltverbot60cm.sco", "vorne": 0, "mast": true}]},
+  "wartehalle": {"text": "Wartehalle (Glas, 4,4 x 1,8 m)", "kandidaten": [
+   {"rel": "Sceneryobjects\\ADDON_Rheinhausen\\Zane_Streetobjects\\hst_wartehaus_avenue.sco", "vorne": 180, "radius": 0.5},
+   {"rel": "Sceneryobjects\\Streetobjects_RUE\\Wartehaus_DDR.sco", "vorne": 270, "radius": 0.5}]},
+  "wartehalle_schmal": {"text": "Wartehalle schmal (4,4 x 1,1 m) fuer enge Gehwege", "kandidaten": [
+   {"rel": "Sceneryobjects\\ADDON_Rheinhausen\\Zane_Streetobjects\\hst_wartehaus_avenue_small.sco", "vorne": 180, "radius": 0.5}]},
+  "haltestelle_mast": {"text": "Haltestellenmast mit Zeichen 224 und Namensschild (exakte Schrift, von omsigen erzeugt)", "kandidaten": [
+   {"eigen": "haltestellenmast", "vorne": 0, "radius": 0.25}]},
+  "hochbord": {"text": "Erhoehter Bord an der Haltestelle (von omsigen erzeugt, Hoehe aus kerb:height)", "kandidaten": [
+   {"eigen": "hochbord", "vorne": 0}]},
+  "bank": {"text": "Sitzbank", "kandidaten": [
+   {"rel": "Sceneryobjects\\ADDON_Rheinhausen\\Zane_Streetobjects\\bank1.sco", "vorne": 180, "radius": 0.6},
+   {"rel": "Sceneryobjects\\Streetobjects_MC\\parkbench_1.sco", "vorne": 90, "radius": 0.6}]},
+  "muelleimer": {"text": "Muelleimer", "kandidaten": [
+   {"rel": "Sceneryobjects\\ADDON_Rheinhausen\\Zane_Streetobjects\\abfalleimer_design.sco", "vorne": 180, "radius": 0.3},
+   {"rel": "Sceneryobjects\\ADDON_Rheinhausen\\Zane_Streetobjects\\abfalleimer_db.sco", "vorne": 180, "radius": 0.3}]},
+  "poller": {"text": "Poller", "kandidaten": [
+   {"rel": "Sceneryobjects\\ADDON_Rheinhausen\\Zane_Streetobjects\\sperrpfosten01.sco", "vorne": 0, "radius": 0.1},
+   {"rel": "Sceneryobjects\\Streetobjects_MC\\bollard_metal_1.sco", "vorne": 0, "radius": 0.1}]},
+  "zaun": {"text": "Zaunfeld (entlang barrier=fence wiederholt)", "kandidaten": [
+   {"rel": "Sceneryobjects\\ADDON_Rheinhausen\\Zane_Streetobjects\\zaun_metall04a.sco", "vorne": 0, "laenge": 4.147, "mitte_x": 0.26, "radius": 0.1},
+   {"rel": "Sceneryobjects\\O3D_SmallDetailStuff\\Fence2a.sco", "vorne": 0, "laenge": 3.2, "mitte_x": 0.0, "radius": 0.1}]}
+ },
+ "regeln": {
+  "laternen": {
+   "trunk": {
+    "typ": "laterne_haupt",
+    "abstand": 35,
+    "seiten": "beide_versetzt"
+   },
+   "primary": {
+    "typ": "laterne_haupt",
+    "abstand": 35,
+    "seiten": "beide_versetzt"
+   },
+   "secondary": {
+    "typ": "laterne_haupt",
+    "abstand": 35,
+    "seiten": "rechts"
+   },
+   "tertiary": {
+    "typ": "laterne_haupt",
+    "abstand": 35,
+    "seiten": "rechts"
+   },
+   "secondary_link": {
+    "typ": "laterne_haupt",
+    "abstand": 35,
+    "seiten": "rechts"
+   },
+   "trunk_link": {
+    "typ": "laterne_haupt",
+    "abstand": 35,
+    "seiten": "rechts"
+   },
+   "unclassified": {
+    "typ": "laterne_wohn",
+    "abstand": 30,
+    "seiten": "rechts"
+   },
+   "residential": {
+    "typ": "laterne_wohn",
+    "abstand": 30,
+    "seiten": "rechts"
+   },
+   "living_street": {
+    "typ": "laterne_wohn",
+    "abstand": 25,
+    "seiten": "rechts"
+   },
+   "breit_beidseitig_m": 12.0,
+   "osm_umkreis_m": 15.0,
+   "osm_laterne_haupt_ab": "tertiary"
+  },
+  "abstaende": {
+   "bord_m": 0.5,
+   "bord_schild_m": 0.4,
+   "gebaeude_m": 0.3,
+   "kreuzung_m": 6.0,
+   "zufahrt_m": 2.5,
+   "querung_m": 3.0,
+   "objekt_m": 0.5,
+   "laterne_laterne_m": 8.0
+  },
+  "vorfahrtschilder": {
+   "osm": true,
+   "regel_vermutet": true,
+   "regel_vorfahrtstrasse": true,
+   "abstand_kreuzung_m": 3.0
+  },
+  "tempo": {
+   "wechsel": true,
+   "abstand_knoten_m": 6.0
+  },
+  "zaun_umkreis_m": 25.0,
+  "moebel_umkreis_m": 30.0,
+  "haltestelle": {
+   "bord_standard_m": 0.15,
+   "bord_raised_m": 0.18,
+   "mast_bord_m": 0.5,
+   "halle_bord_m": 1.2,
+   "halle_versatz_m": -6.0,
+   "osm_umkreis_m": 30.0
+  }
+ }
+}
