@@ -332,5 +332,9 @@ getrennt starten. Der OSM-Zwischenspeicher liegt relativ zum Arbeitsordner (`.ca
    prozedural in Blender (Blender MCP, als DDS gebacken), CC0-Materialien (Poly Haven, ambientCG) und ein lokaler
    KI-Bildgenerator (ComfyUI auf der RTX 3070, mit MCP) fuer Plakate, Ladenschilder, Graffiti und Gebaeude-Varianten.
    Schilder mit Schrift (Haltestelle, Verkehrszeichen) exakt aus Vektoren, nicht per KI.
-7. **Werkzeuge:** Blender MCP (Modelle/Texturen ansehen und bauen) und QGIS MCP (Ebenen, Luftbild, Belegung gemeinsam
-   pruefen) sind eingerichtet (15.10.2026).
+7. **Werkzeuge:** Blender MCP (Modelle/Texturen ansehen und bauen), QGIS MCP (Ebenen, Luftbild, Belegung gemeinsam
+   pruefen) und ComfyUI MCP sind eingerichtet (15.10.2026). Bildgenerator: vorhandene Installation
+   `C:\Users\ewanh\ComfyUI` (starten mit `py -3.12 main.py --listen 127.0.0.1 --port 8188`), Modell Juggernaut-XL v9
+   (SDXL): 1024x1024 in ca. 18 s, Spitze 7,6 GB von 8 GB. Der Generator ruft ComfyUI direkt ueber dessen HTTP-API auf
+   (reproduzierbar: Ablauf + Seed je Textur speichern), das MCP dient der Arbeit in der Sitzung. Schrift erzeugt SDXL
+   fehlerhaft - Texte immer aus Vektoren. Kachelbare Texturen brauchen einen Kachel-Modus (nahtlos) bzw. Nacharbeit.
