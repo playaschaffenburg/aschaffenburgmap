@@ -138,6 +138,16 @@ auf Gehweg, Gebäude nicht über Gehweg). Die Prüfer nutzen dieselbe Karte für
 - Trotzdem trägt jedes erzeugte Objekt seine Quelle (Manifest, `.sco`-Kommentar), damit das später nachrüstbar bleibt.
 
 ### F8 Prüfkette
+**Erledigt 15.10.2026:** `omsigen/pruefbericht.py` sammelt je Kachel: Spurenden ohne Anschluss und
+Beinahe-Anschlüsse (omsigen.ansicht; Kartenrand und vom Korridor abgeschnittene Straßen aus `omsigen.json` zählen
+nicht), veraltete/nicht eingesetzte Schichten, veraltete netz.json/Belegung, Gebäude über Fahrbahn, Budgets
+(vorläufig: 600 Objekte, 300 000 Dreiecke, 64 MB Texturen je Kachel). Prüforte: `maps/<Karte>/pruefpunkte.json` (der
+Generator schreibt die Haltestellen der Strecke hinein, eigene Kamera je Ort möglich), sonst gleichmäßig verteilte
+Haltestellen; `--bilder` Spielbild aus openOMSI (Blick die Straße entlang), `--luftbild` Luftbildvergleich.
+Ausgabe `maps/<Karte>/pruefung/bericht.json` + `bericht.html`. Der Generator erstellt den Bericht ohne Bilder am Ende;
+World Editor → Kacheln bearbeiten → „Prüfung“ zeigt die Funde der Kachel, „Prüfbericht erstellen“, „Bericht öffnen“.
+Stand `Aschaffenburg_Linie16_v7`: 186 Funde (3 Spurenden ohne Anschluss = Generator, 183 Gebäude über Fahrbahn).
+
 Je Ebene ein Prüfer (Bauprüfer erweitert), dazu Abgleich mit der Wirklichkeit (Luftbild, Fotos) und Spielbilder aus
 openOMSI an festen Prüfpunkten. Ein Lauf erzeugt einen Bericht je Kachel (Funde, Budgets, Bilder). Ziel 0 Funde.
 

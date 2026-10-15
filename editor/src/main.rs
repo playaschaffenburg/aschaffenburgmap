@@ -33,6 +33,7 @@ mod netz;
 mod objekteditor;
 mod orte;
 mod protokoll;
+mod pruefung;
 mod querschnitt;
 mod schichten;
 mod sonderbau;
@@ -314,6 +315,8 @@ struct App {
     lod2: Option<lod2::Lod2>,
     /// Zustand der Schichten je Kachel (World Editor, omsigen.schichten)
     schichten: schichten::Schichten,
+    /// Pruefbericht der Karte (World Editor, omsigen.pruefbericht)
+    pruefbericht: pruefung::Pruefung,
     vm_druck: Option<(f32, f32)>,
     vermessen_auto_erledigt: bool,
     mess_a: Option<DVec3>,
@@ -593,6 +596,7 @@ impl App {
             vermessen: None,
             lod2: None,
             schichten: schichten::Schichten::neu(),
+            pruefbericht: pruefung::Pruefung::neu(),
             vm_druck: None,
             vermessen_auto_erledigt: false,
             mess_a: None,
@@ -1995,6 +1999,43 @@ impl App {
                             }
                             if !self.schichten.meldung.is_empty() {
                                 ui.label(egui::RichText::new(&self.schichten.meldung).small().weak());
+                            }
+                            // Pruefbericht (F8): Funde dieser Kachel
+                            ui.separator();
+                            ui.label(egui::RichText::new("Pruefung").strong());
+                            if self.pruefbericht.abholen() {
+                                ui.ctx().request_repaint();
+                            }
+                            if self.pruefbericht.laeuft() {
+                                ui.ctx().request_repaint_after(std::time::Duration::from_millis(300));
+                            }
+                            if let Some(karte) = self.karte.clone() {
+                                let ordner = self.root.join("maps").join(&karte);
+                                self.pruefbericht.laden(&ordner);
+                                ui.horizontal(|ui| {
+                                    if ui.add_enabled(!self.pruefbericht.laeuft(), egui::Button::new("Pruefbericht erstellen"))
+                                        .on_hover_text("prueft die gespeicherte Karte: offene Spurenden, veraltete Schichten, Gebaeude ueber Fahrbahn, Budgets je Kachel").clicked() {
+                                        self.pruefbericht.erstellen(&self.root, &ordner);
+                                    }
+                                    if self.pruefbericht.hat_bericht() && ui.button("Bericht oeffnen").clicked() {
+                                        pruefung::Pruefung::oeffnen(&ordner);
+                                    }
+                                });
+                            }
+                            let funde = self.pruefbericht.kachel(k);
+                            if self.pruefbericht.hat_bericht() {
+                                if funde.is_empty() {
+                                    ui.colored_label(egui::Color32::from_rgb(110, 200, 110), "keine Funde in dieser Kachel");
+                                }
+                                for (art, n) in &funde {
+                                    ui.colored_label(egui::Color32::from_rgb(235, 160, 50), format!("{n} x {}", pruefung::name(art)));
+                                }
+                                if let Some(b) = self.pruefbericht.budget(k) {
+                                    ui.label(egui::RichText::new(b).small().weak());
+                                }
+                            }
+                            if !self.pruefbericht.meldung.is_empty() {
+                                ui.label(egui::RichText::new(&self.pruefbericht.meldung).small().weak());
                             }
                         }
                     }

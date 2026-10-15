@@ -296,11 +296,11 @@ class Netz:
         n = rechts(h)
         return x + n[0] * seite, y, z + n[1] * seite, h
 
-    def naechste(self, x, z, arten=('strasse',)):
-        """naechste Kante: (Kante, Station, Querlage rechts positiv, Abstand)"""
+    def naechste(self, x, z, arten=('strasse',), min_laenge=0.0):
+        """naechste Kante (mindestens min_laenge lang): (Kante, Station, Querlage rechts positiv, Abstand)"""
         best = None
         for e in self.kanten.values():
-            if arten and e['art'] not in arten:
+            if (arten and e['art'] not in arten) or e['laenge'] < min_laenge:
                 continue
             P = e['punkte']
             for a, b in zip(P, P[1:]):

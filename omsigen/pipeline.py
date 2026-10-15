@@ -192,6 +192,21 @@ def netz_schreiben(info, chains, omsi=None, log=print):
     log(f'    Netz: {len(n["kanten"])} Kanten, {len(n["knoten"])} Knoten (netz.json)')
 
 
+def pruefpunkte_schreiben(info, projekt, stops):
+    """feste Prueforte der Karte (F8, omsigen.pruefbericht): die Ziele der Strecke (Start, Zwischenziele, Ziel) mit dem
+    Namen der naechsten Haltestelle (bis 60 m)"""
+    ox, oz = info['offset']
+    orte = []
+    for i, z in enumerate(projekt.get('ziele', [])):
+        x, y = z['p'][0] - ox, z['p'][1] - oz
+        nah = min(stops, key=lambda s: math.hypot(s['x'] - z['p'][0], s['z'] - z['p'][1]), default=None)
+        name = nah['name'] if nah and math.hypot(nah['x'] - z['p'][0], nah['z'] - z['p'][1]) <= 60 else f'Ziel {i + 1}'
+        orte.append(dict(name=name, x=round(x, 1), z=round(y, 1)))
+    if orte:
+        with open(os.path.join(info['dir'], 'pruefpunkte.json'), 'w', encoding='utf-8') as f:
+            json.dump(orte, f, ensure_ascii=False, indent=1)
+
+
 def belegung_schreiben(info, root, log=print):
     """Belegungskarte der neuen Karte (F4, omsigen.belegung) aus netz.json, Kreuzungen und Gebaeuden"""
     from . import belegung
@@ -289,9 +304,11 @@ def erzeuge(projekt, name, omsi=None, ausgabe='build', korrekturen=None, uebersc
         if gebaeude and hat_gelaende:
             gebaeude_schicht(root, name, info, linie, gebaeude, log)
     belegung_schreiben(info, root, log)
+    pruefpunkte_schreiben(info, projekt, stops)
     with open(os.path.join(info['dir'], 'omsigen.json'), 'w', encoding='utf-8') as f:
         json.dump(dict(projekt=projekt.get('name'), origin=[proj.lat0, proj.lon0], offset=info['offset'],
                        projektion=getattr(proj, 'art', 'eben'),
+                       rand=[[round(x - info['offset'][0], 2), round(z - info['offset'][1], 2)] for x, z in projekt.get('rand', [])],
                        hoehe_basis=hoe.base if hat_gelaende else None,
                        length_m=projekt.get('laenge'), stats=st,
                        kreuzungen=[dict(j['vorfahrt'], objekt=j['name'], x=j['origin'][0] - info['offset'][0],
@@ -324,5 +341,12 @@ def erzeuge(projekt, name, omsi=None, ausgabe='build', korrekturen=None, uebersc
         ansicht.write_html(ansicht_html, r['m'], r['lanes'], r['roads'], r['objs'], r['ends'], r['summary'],
                            r['kreuzungen'])
         log(f'    Ansicht: {ansicht_html}')
+    try:                                          # Pruefbericht (F8) ohne Bilder: pruefung/bericht.html
+        from . import pruefbericht
+        pb = pruefbericht.erstellen(info['dir'], omsi or root, log=log)
+        log(f'    Pruefbericht: {pb["funde_gesamt"]} Funde ' + ', '.join(f'{pruefbericht.NAMEN.get(k, k)} {n}' for k, n in pb['arten'].items())
+            + f' -> {os.path.join(info["dir"], "pruefung", "bericht.html")}')
+    except Exception as e:
+        log(f'    Pruefbericht nicht erstellt: {type(e).__name__}: {e}')
     return dict(rc=0 if not offen else 2, dir=info['dir'], offen=len(offen), enden=len(enden), stats=st,
                 kreuzungen=len(junctions), vorfahrt=V, kdir=kdir, offset=info['offset'])
