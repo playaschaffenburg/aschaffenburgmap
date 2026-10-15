@@ -1,171 +1,149 @@
 # OMSIgen – Editor und Generator für OMSI-2-Karten
 
-OMSIgen ist der Karteneditor (Rust, `editor/`) mit allen seinen Funktionen und dem Generator `omsigen` dahinter.
-Die Karte, die damit entsteht, ist Aschaffenburg.
+OMSIgen ist der Karteneditor (Rust, `editor/`) mit allen seinen Funktionen und der Generator `omsigen` (Python)
+dahinter. Die Karte, die damit entsteht, ist Aschaffenburg; Pilotstrecke ist die Buslinie 16
+(Hauptbahnhof – Klinikum – Haibach „Am Wingert“).
 
 **Test und Prod:** Entwickelt und ausprobiert wird in TEST (Zweig `main`, dieser Ordner, Fenstertitel „OMSIgen TEST“).
 Getestete Stände werden mit `python tools/release.py X.Y.Z "Beschreibung"` zu einem Release: Zweig `prod`, Tag `vX.Y.Z`,
 eigener Ordner `..\OMSIgen-Prod` mit eigenem Build (Fenstertitel „OMSIgen“). Beide bearbeiten dieselben Karten;
-getrennt sind Code, Build und Protokolle. Versionen: `CHANGELOG.md`.
+getrennt sind Code, Build und Protokolle. Versionen: [CHANGELOG.md](CHANGELOG.md).
 
-## Generator
-
-`omsigen` baut aus OpenStreetMap-Daten eine befahrbare OMSI-2-Karte: Man gibt eine Stadt, Start und Ziel ein,
-das Tool sucht die Strecke über das echte Straßennetz und erzeugt alle Straßen in einem Korridor darum –
-mit Kreuzungen, deren Fahrspuren exakt verbunden sind.
+**Kartendaten** (Fassaden, Messungen, Korrekturen, Projekte, Sonderbau Ring) liegen nicht im Code, sondern in
+`Documents\Aschaffenburg` (`OMSIGEN_KARTENDATEN`), gemeinsam für TEST und PROD.
 
 ![Beispiel: Aschaffenburg Hbf – City Galerie](docs/beispiel_hbf_citygalerie.png)
 
-## Schnellstart (Windows)
+## Generator
+
+`omsigen` baut aus offenen Daten eine befahrbare OMSI-2-Karte. Man gibt Start, Ziel und Zwischenziele vor; das Tool
+sucht die Strecke über das echte Straßennetz und erzeugt alles in einem Korridor darum:
+
+| Ebene | Was entsteht | Quelle |
+|---|---|---|
+| Netz | Straßen mit echten Querschnitten (Breite, Spuren, Gehweg, Rad, Parken, Abbiegestreifen), Kreuzungsobjekte mit exakt verbundenen Spuren, Vorfahrt, Ampeln, Kreisverkehre, Querschnittsübergänge, Brücken und Tunnel | OSM, LoD2-Gebäudeflucht |
+| Höhen | Straßen auf dem Gelände, Kreuzungsplatten am Gefälle geneigt, stetige Steigung (`[spline_h]`), Böschungen statt Stufen | DGM1 Bayern |
+| Boden | Malmasken je Kachel: Gras, Erde, Schotter, Pflaster, Asphalt, Wasser | Luftbild DOP20, OSM-Flächen |
+| Gebäude | LoD2-Gebäude mit Fassadenfotos, auf dem Kartengelände gegründet, nach Hauptachse gedreht | LoD2 Bayern, Fassaden aus `earth-reverse-engineering` |
+| Ausstattung | Laternen, Verkehrszeichen passend zur Vorfahrt, Poller, Bänke, Mülleimer, Zäune; Haltestellen mit Mast, Namensschild, Wartehalle, Hochbord | OSM, Regeln je Straßenklasse |
+
+Dazu je Karte: Geobezug im UTM-Gitter (`omsi-editor-geo.cfg`), Schichten je Kachel (einzeln neu baubar,
+`schichten.json`), das Netz als `netz.json`, eine Belegungskarte (Fahrbahn/Gehweg/Gebäude …) und ein Prüfbericht.
+
+### Schnellstart (Windows)
 
 ```powershell
 pip install -r requirements.txt
-python -m omsigen --omsi "C:\Program Files (x86)\Steam\steamapps\common\OMSI 2" `
-    --stadt Aschaffenburg --von "Hauptbahnhof" --nach "City Galerie" `
-    --name Aschaffenburg_Hbf_CityGalerie --vorschau vorschau.png
+py -3.12 -m omsigen --omsi "C:\Program Files (x86)\Steam\steamapps\common\OMSI 2" `
+    --von 49.98015,9.14104 --nach 49.97585,9.16269 --ueber 49.97672,9.14859 `
+    --name Aschaffenburg_Test_v1 --titel "Aschaffenburg Test" --gebaeude 100
+py -3.12 -m omsigen.pruefbericht Aschaffenburg_Test_v1 --bilder --luftbild --max 6
 ```
 
-Die Karte erscheint danach in OMSI bzw. im nEditor unter dem angegebenen Namen. Vorhandene Karten werden nie
-überschrieben (außer mit `--ueberschreiben` für denselben Namen).
+Den vollständigen Befehl für die Pilotkarte Linie 16 enthält [docs/qualitaet-anforderungen.md](docs/qualitaet-anforderungen.md)
+(„Pilotkarte Linie 16 erzeugen“). Vorhandene Karten werden nie überschrieben – jede Version bekommt einen neuen Namen
+(`_v2`, `_v3` …). Der Generator endet mit Rückgabe ≠ 0, solange offene Spurenden gefunden werden; den Prüfbericht dann
+getrennt starten.
 
 | Option | Bedeutung |
 |---|---|
 | `--von`, `--nach` | Ortsname (mit `--stadt`) oder Koordinaten `"49.9805,9.1402"` |
 | `--ueber` | Zwischenziel, mehrfach möglich – damit lässt sich eine Buslinie nachfahren |
 | `--breite` | Korridor links/rechts der Strecke in Metern (Standard 150) |
-| `--omsi` | OMSI-Ordner: Karte und eigene Splines werden direkt installiert |
-| `--ausgabe` | ohne `--omsi`: Ausgabe in diesen Ordner (Standard `build/`) |
+| `--gebaeude [BREITE]` | LoD2-Gebäude im Korridor (mit Fassaden, sofern vorhanden) |
+| `--querschnitte osm\|standard` | echte Querschnitte (Standard) oder die feste Marcel-Liste |
+| `--omsi` | OMSI-Ordner: Karte, Splines und Objekte werden direkt installiert |
 | `--osm-datei` | Daten aus Datei statt Download, z. B. `samples/aschaffenburg_hbf_citygalerie.json` |
-| `--korrekturen` | eigene Korrekturen (Vorfahrt), JSON |
-| `--ansicht` | interaktive HTML-Ansicht der fertigen Karte |
+| `--korrekturen` | eigene Korrekturen (Vorfahrt, Ampel), JSON |
 
 Ohne Internet/OMSI ausprobieren:
 
 ```bash
-python -m omsigen --von "49.98053,9.14023" --nach "49.97790,9.14998" --name Test \
+py -3.12 -m omsigen --von "49.98053,9.14023" --nach "49.97790,9.14998" --name Test \
     --osm-datei samples/aschaffenburg_hbf_citygalerie.json --vorschau vorschau.png
-python -m pytest
+py -3.12 -m pytest
 ```
 
-## Karteneditor (Programm)
+`python` ist auf diesem Rechner ein leeres Python 3.15 – Generator und Tests laufen mit `py -3.12`.
+
+## Karteneditor (Rust)
+
+Bauen, Starten und alle Werkzeuge: [editor/README.md](editor/README.md). Kurz:
 
 ```powershell
-python -m omsieditor                      # Startdialog: OSM-Import, leer anfangen oder Projekt öffnen
-python -m omsieditor mein.omsiprojekt     # Projekt direkt öffnen
+cd editor
+cargo build --release
+target\release\omsi-editor.exe                 # Startbildschirm mit Kartenauswahl
 ```
 
-- **3D-Ansicht (Hauptansicht, wie Transport Fever 2):** Gelände aus dem DGM1 mit Luftbild, darauf die Karte genau
-  so, wie omsigen sie baut – echte OMSI-Spline-Profile mit Texturen, Kreuzungsplatten, Brücken mit Pfeilern,
-  Tunnel mit Portalen und Deckel. Nach jeder Änderung rechnet eine Live-Vorschau im Hintergrund neu.
-  Kamera: rechte Maustaste drehen/neigen, mittlere verschieben, Mausrad zoomen, W A S D / Pfeile, Q/E, R/F.
-  **F2** schaltet auf die 2D-Luftbildkarte um.
-- **Brücken und Tunnel bauen:** Beim Zeichnen hebt/senkt **Bild ↑/↓** den nächsten Punkt (Umschalt: 5 m).
-  Zwischen zwei Punkten verläuft die Straße gerade; wo sie dabei mindestens 4 m über dem Gelände liegt, wird sie
-  automatisch zur Brücke (Vorschau gelb), wo sie mindestens 5 m darunter liegt, zum Tunnel (blau). Beim Auswählen
-  ändert Bild ↑/↓ die Höhe des gewählten Punkts, Pos1 lässt ihn wieder dem Gelände folgen. Rechts lässt sich die
-  Ebene je Straße auch fest einstellen (automatisch / Boden / Brücke / Tunnel).
-- **Hintergrund 2D:** amtliches Luftbild der Bayerischen Vermessungsverwaltung (DOP40, 40 cm, CC BY 4.0, kostenfrei),
-  wird beim Zoomen nachgeladen und zwischengespeichert (`.cache/luftbild`)
-- **Auswählen (V):** Straße anklicken, Klasse/Name/Spuren/Einbahn/Tempo/Ebene/Vorfahrtstraße rechts ändern, Punkte
-  ziehen (gemeinsame Kreuzungspunkte wandern mit), Alt+Klick (2D) löscht einen Punkt, Entf löscht die Straße
-- **Straße zeichnen (B):** Klick setzt Punkte und rastet an vorhandenen Straßen ein – dort entsteht automatisch
-  eine Kreuzung; Doppelklick, Enter oder Rechtsklick beendet
-- Strg+Z/Strg+Y; Speichern als `.omsiprojekt`
-- Bild der 3D-Ansicht ohne Fenster: `python -m omsieditor.bild3d mein.omsiprojekt --png bild.png --cam=x,z,gier,neigung,abstand`
-- **Karte erzeugen (Strg+E):** baut die OMSI-Karte mit omsigen (Kreuzungsobjekte, Vorfahrt, Ampeln,
-  Wendeschleifen), prüft sie und zeigt auf Wunsch ein Spielbild aus openOMSI
+Die Darstellung kommt aus [openOMSI](https://github.com/openOMSI-Project/openOMSI) (Zweig `editor-api`, Patch in
+`editor/patches/`). Neben der exe müssen `dxcompiler.dll` und `dxil.dll` aus einem openOMSI-Release liegen, sonst
+bricht das Rendern ohne Fenster mit einem Stapelüberlauf ab. Der Editor ist das Hauptprodukt: jede Funktion des
+Generators soll dort bedienbar sein (Schichten neu bauen, Belegung und Prüfbericht ansehen, Querschnitt-Baukasten,
+Vermessen, Sonderbau, Gelände formen).
 
-## Karten prüfen und ansehen
+## Prüfen und vergleichen
 
 ```powershell
-# beliebige Karte lesen (eigene oder Standardkarten), Anschlüsse prüfen, Draufsicht + interaktive Ansicht
-python -m omsigen.ansicht Aschaffenburg_Live_v1 --png build/ansicht.png --html build/ansicht.html
-python -m omsigen.ansicht Grundorf --png build/kreuzung.png --bereich=340,-230,420,-150
-
-# Karte im Nachbau openOMSI laden und ein Spielbild rendern (Kamera: x,y,z,gier,neigung in Kartenmetern)
-python -m omsigen.openomsi Aschaffenburg_Live_v5 --png build/spiel.png --cam 390,320,60,0,-40 --verkehr 40 --sekunden 40
+py -3.12 -m omsigen.pruefbericht <Karte> --bilder --luftbild     # Funde je Kachel, Budgets, Spiel- und Luftbilder
+py -3.12 -m omsigen.vorbildstudie "Ahlheim 5" "Städtedreieck_V3" <Karte>   # Straßen/Kreuzungen gegen die Vorbilder
+py -3.12 -m omsigen.ansicht <Karte> --png build/ansicht.png --html build/ansicht.html   # Spuren, Beinahe-Anschlüsse
+py -3.12 -m omsigen.openomsi <Karte> --png build/spiel.png --cam 390,320,60,0,-40       # Spielbild aus openOMSI
+py -3.12 -m omsigen.luftbildvergleich --karte <Karte> --bereich x0 z0 x1 z1   # Boden, Markierungen, Borde gegen DOP
 ```
 
-`omsigen.ansicht` ersetzt „Show paths“ im nEditor: Fahrspuren, Gehwege, Vorfahrt-Regeln, Ampelpfade und
-Kreuzungsobjekte; Klick auf eine Spur zeigt Spline/Objekt, Datei, Kachel und Pfad-Index. Gemeldet werden
-„Beinahe-Anschlüsse“ (Spurenden mit Partner in ≤ 5 m, aber nicht exakt verbunden). Beim Generator erzeugt
-`--ansicht build/x.html` die Ansicht gleich mit. `omsigen.openomsi` braucht
-[openOMSI](https://github.com/openOMSI-Project/openOMSI) unter `Documents\OpenOmsi`.
+Maßstab für die Qualität sind **Ahlheim 5** und **Städtedreieck V3**: [docs/musterbuch.md](docs/musterbuch.md) hält
+fest, wie sie Straßen und Kreuzungen bauen (gemessen), und welche Regeln daraus für OMSIgen gelten.
 
-## Was das Tool kann
+## Qualitätsplan und Stand
 
-- Strecke über das echte Straßennetz (Einbahnstraßen beachtet), Korridor drumherum
-- Straßen aus Geraden und Kreisbögen, Spurenzahl und Einbahnstraßen aus OSM, getrennte Richtungsfahrbahnen
-- **Kreuzungsobjekte**: jede Kreuzung wird ein eigenes OMSI-Objekt wie in den Standardkarten – eine
-  durchgehende Platte (.x-Modell) aus Asphalt, Bordsteinen und gerundeten Gehwegecken, dazu die Abbiege-,
-  Geradeaus- und Gehwegpfade, die exakt an die Straßen anschließen; Mittelinseln bei getrennten Fahrbahnen,
-  Kreisverkehre (`--kreuzungen spline` baut noch wie früher nur aus Spur-Splines)
-- Gehwege an Einbahnstraßen nur dort, wo daneben Platz ist (Bypässe, Richtungsfahrbahnen)
-- **Vorfahrt nach realem Vorbild** (`omsigen/vorfahrt.py`): aus OSM-Schildern (Vorfahrt gewähren, Stopp),
-  Vorfahrtstraßen (`priority_road`), Kreisverkehren, StVO-Regeln (Tempo-30-Zone, Ausfahrt aus Zufahrten) und
-  zuletzt der Straßenklasse. Prioritäten wie in den Standardkarten (192/64, siehe docs/kartenstudie.md). Jede
-  Kreuzung vermerkt ihre Quelle; die HTML-Ansicht zeigt sie farbig (orange = nur vermutet).
-- **Korrekturdatei** `--korrekturen korrekturen/<stadt>.json`: Hauptstraße oder „rechts vor links“ je Kreuzung
-  festlegen, vermutete Vorfahrt bestätigen (`"bestaetigt": true`), Ampel erzwingen/abschalten (`"ampel"`)
-  (Vorlage: `korrekturen/beispiel.json`, Koordinaten per Klick in der HTML-Ansicht)
-- **Ampeln** (`omsigen/ampel.py`) an Kreuzungen mit OSM-Ampel: Phasenplan (gegenüberliegende Arme gemeinsam,
-  Hauptstraße zuerst, Umlauf 70–100 s), Bindung der Zufahrten, Signalmasten mit Signal unten und am Ausleger
-  wie in Grundorf
-- **Gelände** aus dem amtlichen Geländemodell DGM1 Bayern (1 m Raster, CC BY 4.0, wird automatisch geladen):
-  Straßen mit echten Steigungen, Kreuzungen flach auf Geländehöhe, Gelände unter Straßen angeglichen
-  (`--ohne-gelaende` für flache Karten; außerhalb Bayerns bleibt die Karte flach)
-- **Brücken und Tunnel** aus OSM sind Teil des Netzes: Brückenfahrbahn mindestens 5,5 m über dem Boden darunter,
-  Tunnel mindestens 6 m unter der Oberfläche, mit Rampen; berechnet als Ausgleichsrechnung über das ganze Netz
-  (`omsigen/hoehen.py`)
-- **Brückenkörper** mit Brüstung und Pfeilern, **Tunnelröhren** mit Portalen; das Gelände wird unter Tunneln abgesenkt und mit einem Deckel geschlossen (wie in den Standardkarten, ohne Geländelöcher)
-  (`omsigen/bauwerke.py`)
-- **Einsetzpunkte** an Start, Ziel und allen Haltestellen
-- **KI-Verkehr**: `ailists.cfg` mit den Standard-KI-Autos und -LKW, Tagesganglinie des Verkehrs; unsichtbare Wendeschleifen an
-  Straßenenden (Kartenrand, Sackgassen), damit die KI dort nicht stecken bleibt
-- Haltestellenschilder an den OSM-Haltestellen
-- automatische Prüfung jedes Spurendes + Draufsicht als PNG
+[docs/qualitaet-anforderungen.md](docs/qualitaet-anforderungen.md) beschreibt Anforderungen und Ablauf:
 
-## Noch offen (Roadmap)
-
-1. Fußgängerampeln und Fußgängerquerungen (Zebrastreifen); Ampeln und Vorfahrt sind erledigt
-4. Haltestellen mit Haltepunkten, Linien und Fahrplänen (aus GTFS-Daten)
-5. Gebäude (OSM-Umrisse, ggf. LoD2-Modelle), Bäume, Straßenmöbel
+| Phase | Inhalt | Stand |
+|---|---|---|
+| 0 | Fundament: Geobezug, Schichten, Netz-Datei, Belegungskarte, Prüfbericht | erledigt |
+| 1 | S1 Querschnitte, S4 Boden | erledigt (Breiten an 2 von 20 Prüfstellen < 0,5 m – offen) |
+| 2 | G1 Gebäude-Platzierung, G3 Straßenobjekte, G4 Haltestellen | erledigt |
+| – | Straßenlogik nach Vorbild (Musterbuch): Kreuzungen am Gefälle | erledigt; Linienführung, Kreuzungsgröße und Straßenraummodell als Vorstufe folgen |
+| 3 | Bäume, Parks | offen |
+| 4 | Markierungen, Fußgängerampeln, Fassaden, Backdrops, Texturwerkstatt | offen |
+| 5 | LOD/Budgets, Fahrpläne | offen |
 
 ## Projektaufbau
 
 ```
+editor/              Karteneditor (Rust, auf openOMSI); README mit allen Werkzeugen
 omsigen/
-  cli.py            Kommandozeile
-  pipeline.py       Import (OSM -> Projekt) und Erzeugen (Projekt -> Karte), gemeinsam fuer CLI und Editor
-  osm.py            Ortssuche (Nominatim), Download (Overpass), Zwischenspeicher
-  route.py          Projektion, Routing (Dijkstra), Korridor
-  network.py        Kanten, Knoten, Kreisverkehre, Kürzen, Ketten, Kreuzungsspuren
-  kreuzung.py       Kreuzungsobjekte: Fläche, Bordsteine, Pfade -> .sco + .x
-  gelaende.py       DGM1 Bayern laden (utm.py: Umrechnung nach UTM 32)
-  hoehen.py         Strassenhoehen, Bruecken/Tunnel, Gelaenderaster
-  bauwerke.py       Brueckenkoerper, Tunnelroehren, Pfeiler, Portale, Tunnelgraben und Deckel
-  ebenen.py         Hoehenvorgaben aus dem Editor, automatische Bruecken/Tunnel (wie TF2)
-  vorfahrt.py       Vorfahrt je Kreuzung (Schilder, Vorfahrtstraßen, StVO, Korrekturen)
-  ampel.py          Ampelprogramme, Bindung der Zufahrten, Signalmasten
-  studie.py         vorhandene OMSI-Karten auswerten (docs/kartenstudie.md)
-  geom.py           Geraden/Bögen/Doppelbögen in OMSI-Konvention
-  config.py         welche Spline für welche Straße
-  custom_splines.py eigene .sli (Einbahnstraßen, Kreuzungsspuren)
-  splinedb.py       Fahrspuren aus .sli lesen
-  writer.py         Kartenordner schreiben
-  check.py          Spurprüfung und Vorschau
-  ansicht.py        Karten-Betrachter für beliebige OMSI-Karten (PNG, HTML, Bericht)
-  openomsi.py       Karte in openOMSI rendern, dessen Pfadnetz-Auswertung lesen
-omsieditor/         Karteneditor (PySide6): Startdialog, 3D-Ansicht (ansicht3d, render3d, geometrie3d),
-                    2D-Luftbildkarte (karte), Eigenschaften, Export, bild3d (3D-Bild ohne Fenster)
-docs/omsi-format.md alles, was wir über das Dateiformat wissen
-samples/            Testdaten (OSM-Auszug Aschaffenburg)
+  cli.py, pipeline.py      Kommandozeile; Import (OSM -> Projekt) und Erzeugen (Projekt -> Karte)
+  osm.py, route.py         OSM laden, Routing, Korridor, Projektion (UTM)
+  network.py               Kanten, Knoten, Kreisverkehre, Ketten, Kreuzungsspuren
+  querschnitte.py          echte Querschnitte (S1); querschnitt_messung.py, querschnitt_pruefung.py
+  kreuzung.py              Kreuzungsobjekte (.sco + .x), geneigte Platten
+  vorfahrt.py, ampel.py    Vorfahrt je Kreuzung, Ampelprogramme
+  gelaende.py, hoehen.py   DGM1 Bayern; Straßenhöhen, Kreuzungsebenen, Ausrundung, Geländeraster
+  bauwerke.py              Brückenkörper, Tunnelröhren, Pfeiler, Portale
+  boden.py                 Malmasken je Kachel (S4)
+  lod2.py, platzierung.py  LoD2-Gebäude, Gründung, Drehung, Konflikte (G1)
+  ausstattung*.py          Straßenausstattung (G3); haltestellen.py (G4)
+  schichten.py             Schichten je Kachel (Pakete, Manifest, veraltet?)
+  netz_datei.py            netz.json aus der Karte ableiten
+  belegung.py              Belegungskarte je Kachel
+  pruefbericht.py          Prüfbericht je Kachel
+  vorbildstudie.py         Karten vermessen und mit den Vorbildern vergleichen
+  writer.py                Kartenordner schreiben (UTF-16, [spline_h])
+  ansicht.py, openomsi.py  Karten ansehen, Spielbilder rendern
+docs/                omsi-format.md (Dateiformat), musterbuch.md, qualitaet-anforderungen.md, kartenstudie.md
+tools/release.py     Release TEST -> PROD
+samples/             Testdaten (OSM-Auszug Aschaffenburg)
+tests/               pytest
 ```
 
-Benötigt die Standardinhalte von OMSI 2 (Splines `Marcel`, `template/NewMap`); diese werden nicht mitgeliefert.
+Benötigt die Standardinhalte von OMSI 2 (Splines `Marcel`, `template/NewMap`) sowie die Add-ons **Rheinhausen** und
+**PAD-Labs** (Bodentexturen, Ausstattung); erzeugte Karten nennen sie in ihrer Beschreibung.
 
 ## Daten und Lizenz
 
-Straßendaten © OpenStreetMap-Mitwirkende, verfügbar unter der
-[Open Database License](https://www.openstreetmap.org/copyright). Erzeugte Karten enthalten einen
-entsprechenden Hinweis; beim Weitergeben bitte beibehalten.
+- Straßendaten © OpenStreetMap-Mitwirkende, [Open Database License](https://www.openstreetmap.org/copyright).
+- Geländemodell DGM1, Luftbild DOP20/DOP40, LoD2-Gebäude, Laserdaten: Bayerische Vermessungsverwaltung, CC BY 4.0.
+
+Erzeugte Karten enthalten die Quellenangaben; beim Weitergeben bitte beibehalten. Alle Karten sind privat.

@@ -66,6 +66,10 @@ def changelog(v, text):
     p = os.path.join(REPO, 'CHANGELOG.md')
     alt = open(p, encoding='utf-8').read() if os.path.isfile(p) else '# OMSIgen - Versionen\n\nRelease-Staende (PROD). Entwickelt wird in TEST (Zweig main).\n'
     kopf, _, rest = alt.partition('\n## ')
+    if rest.startswith('Unveroeffentlicht'):      # gesammelte TEST-Aenderungen werden Teil der neuen Version
+        offen, _, rest = rest.partition('\n## ')
+        inhalt = offen.split('\n', 1)[1].strip() if '\n' in offen else ''
+        text = '\n\n'.join(t for t in (text, inhalt) if t)
     eintrag = f'\n## v{v} ({datetime.date.today().isoformat()})\n\n{text}\n'
     open(p, 'w', encoding='utf-8', newline='').write(kopf.rstrip('\n') + '\n' + eintrag + ('\n## ' + rest if rest else ''))
 
