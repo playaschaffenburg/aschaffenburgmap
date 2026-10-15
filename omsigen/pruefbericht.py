@@ -8,6 +8,8 @@ Gesammelt wird, was die Werkzeuge der Fundament-Phase liefern:
   - Platzierung: Gebaeude ueber Fahrbahn/Kreuzung mit Klasse und Hinweis, ueber Gehweg (Belegung); Gebaeude, die
     ueber dem Gelaende schweben oder im Gelaende versinken (G1, omsigen.platzierung)
   - Boden (S4, omsigen.boden): Kacheln ohne Malmasken, Fahrbahn auf Gras/Erde (Masken passen nicht zur Belegung)
+  - Ausstattung (G3/G4, omsigen.ausstattung): Objekte auf der Fahrbahn, Haltestellen ohne Wartehalle (OSM shelter=yes),
+    Vorfahrtzeichen gegen die Vorfahrt der Karte
   - Budgets je Kachel (F6, vorlaeufig): Objekte, Dreiecke, Texturspeicher
   - Querschnitte (S1, omsigen.querschnitt_pruefung): Pruefstellen der Kartendaten, an denen Fahrbahn- oder Gehwegbreite
     0,5 m oder mehr vom Luftbild abweichen; Strassenzuege mit weniger Spuren als OSM turn:lanes angibt
@@ -45,8 +47,8 @@ class _Modelle:
     def __call__(self, rel):
         if rel in self.cache:
             return self.cache[rel]
-        from .belegung import x_lesen
-        sco = os.path.join(self.omsi, *rel.split(chr(92)))
+        from .ausstattung_modelle import o3d_lesen, x_lesen          # .x auch mit Vorlagen/Rahmen, .o3d (G3)
+        sco = os.path.normpath(os.path.join(self.omsi, *rel.split(chr(92))))
         dreiecke, tex = 0, {}
         try:
             zeilen = [z.strip() for z in open(sco, encoding='cp1252', errors='replace')]
@@ -60,13 +62,14 @@ class _Modelle:
             if not datei:
                 continue
             x = os.path.join(os.path.dirname(sco), 'model', datei)
-            if not os.path.isfile(x) or not x.lower().endswith('.x'):
+            if not os.path.isfile(x) or not x.lower().endswith(('.x', '.o3d')):
                 continue
             try:
-                _, F, _, texnamen = x_lesen(x)
+                _, n, texnamen = (x_lesen(open(x, encoding='cp1252', errors='replace').read()) if x.lower().endswith('.x')
+                                  else o3d_lesen(open(x, 'rb').read()))
             except (ValueError, IndexError):
                 continue
-            dreiecke += len(F)
+            dreiecke += n
             for t in texnamen:
                 p = os.path.join(os.path.dirname(sco), 'texture', t)
                 if p not in tex:
@@ -317,6 +320,12 @@ def erstellen(kartenordner, omsi=None, mit_spiel=False, mit_luft=False, max_orte
         log(f'    Gebaeudehoehen nicht geprueft: {type(e).__name__}: {e}')
     # Boden (S4)
     funde += boden_funde(kartenordner, bel)
+    # Ausstattung (G3/G4): Objekte auf der Fahrbahn, Haltestellen ohne Wartehalle, Schilder gegen die Vorfahrt
+    try:
+        from . import ausstattung
+        funde += ausstattung.funde(kartenordner, omsi, bel)
+    except Exception as e:
+        log(f'    Ausstattung nicht geprueft: {type(e).__name__}: {e}')
     # Querschnitte (S1): Pruefstellen gegen das Luftbild, Abbiegestreifen nach turn:lanes
     try:
         from . import querschnitt_pruefung
@@ -364,7 +373,9 @@ NAMEN = {'spurende_offen': 'Spurende ohne Anschluss', 'beinahe_anschluss': 'Bein
          'gebaeude_versunken': 'Gebaeude versunken',
          'boden_fehlt': 'Boden fehlt', 'boden_fahrbahn_gras': 'Fahrbahn auf Gras (Boden)',
          'budget_objekte': 'Budget Objekte', 'budget_dreiecke': 'Budget Dreiecke', 'budget_textur_mb': 'Budget Texturspeicher',
-         'querschnitt_abweichung': 'Querschnitt weicht vom Luftbild ab', 'abbiegestreifen_fehlt': 'Abbiegestreifen fehlt'}
+         'querschnitt_abweichung': 'Querschnitt weicht vom Luftbild ab', 'abbiegestreifen_fehlt': 'Abbiegestreifen fehlt',
+         'objekt_auf_fahrbahn': 'Objekt auf der Fahrbahn', 'haltestelle_ohne_wartehalle': 'Haltestelle ohne Wartehalle (OSM: shelter=yes)',
+         'schild_widerspricht_vorfahrt': 'Schild widerspricht der Vorfahrt'}
 
 
 def _html(d):

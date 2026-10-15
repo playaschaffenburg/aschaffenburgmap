@@ -1,5 +1,7 @@
 //! Pruefbericht der Karte (omsigen.pruefbericht, Qualitaetsplan F8): je Kachel offene Spurenden, veraltete Schichten,
-//! Gebaeude ueber Fahrbahn/Gehweg, schwebend oder versunken (mit Hinweis je Fund), Boden (fehlende Malmasken, Fahrbahn auf Gras), Budgets. Der World Editor zeigt die Funde der gewaehlten Kachel und erstellt den Bericht im
+//! Gebaeude ueber Fahrbahn/Gehweg, schwebend oder versunken (mit Hinweis je Fund), Boden (fehlende Malmasken,
+//! Fahrbahn auf Gras), Ausstattung (Objekt auf Fahrbahn, Haltestelle ohne Wartehalle, Schild gegen die Vorfahrt),
+//! Budgets. Der World Editor zeigt die Funde der gewaehlten Kachel und erstellt den Bericht im
 //! Hintergrund (ohne Bilder; Spielbilder und Luftbildvergleich: python -m omsigen.pruefbericht <Karte> --bilder --luftbild).
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver};
@@ -31,6 +33,9 @@ pub fn name(art: &str) -> &str {
         "budget_textur_mb" => "Budget Texturspeicher",
         "querschnitt_abweichung" => "Querschnitt weicht vom Luftbild ab",
         "abbiegestreifen_fehlt" => "Abbiegestreifen fehlt",
+        "objekt_auf_fahrbahn" => "Objekt auf der Fahrbahn",
+        "haltestelle_ohne_wartehalle" => "Haltestelle ohne Wartehalle (OSM: shelter=yes)",
+        "schild_widerspricht_vorfahrt" => "Schild widerspricht der Vorfahrt",
         a => a,
     }
 }

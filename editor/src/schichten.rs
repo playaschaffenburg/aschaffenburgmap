@@ -11,11 +11,13 @@ pub struct Schichten {
     pub meldung: String,
     /// Boden neu bauen (omsigen.boden) fuer diese Kacheln, laeuft im Hintergrund
     boden_job: Option<(Vec<(i32, i32)>, Receiver<Result<serde_json::Value, String>>)>,
+    /// Strassenausstattung neu bauen (omsigen.ausstattung, G3/G4): Pakete je Kachel, eingesetzt wird in der Sitzung
+    objekte_job: Option<Receiver<Result<serde_json::Value, String>>>,
 }
 
 impl Schichten {
     pub fn neu() -> Schichten {
-        Schichten { job: None, stand: None, meldung: String::new(), boden_job: None }
+        Schichten { job: None, stand: None, meldung: String::new(), boden_job: None, objekte_job: None }
     }
 
     pub fn boden_laeuft(&self) -> bool {
@@ -65,6 +67,58 @@ impl Schichten {
 
     pub fn laeuft(&self) -> bool {
         self.job.is_some()
+    }
+
+    pub fn objekte_laeuft(&self) -> bool {
+        self.objekte_job.is_some()
+    }
+
+    /// Strassenausstattung und Haltestellen der Kacheln neu planen (Laternen, Schilder, Poller, Baenke, Haltestellen aus
+    /// OSM und Regeln, gegen die gespeicherte Karte): python -m omsigen.ausstattung <Karte> --omsi <root> --nur-pakete
+    /// --kacheln kx_ky ... - die Pakete setzt danach die Sitzung ein (wie LoD2)
+    pub fn objekte_bauen(&mut self, root: &Path, karte: &str, kacheln: Vec<(i32, i32)>) {
+        if self.objekte_job.is_some() || kacheln.is_empty() {
+            return;
+        }
+        let (tx, rx) = channel();
+        let mut args: Vec<String> = vec!["-m".into(), "omsigen.ausstattung".into(), karte.to_string(), "--omsi".into(), root.display().to_string(),
+                                         "--nur-pakete".into(), "--kacheln".into()];
+        args.extend(kacheln.iter().map(|k| format!("{}_{}", k.0, k.1)));
+        std::thread::spawn(move || {
+            let _ = tx.send(python_json(&args));
+        });
+        self.meldung = format!("baue Strassenausstattung fuer {} Kachel(n) ...", kacheln.len());
+        self.objekte_job = Some(rx);
+    }
+
+    /// Ergebnis der Ausstattung abholen (jedes Bild): Some((Pakete mit ihren Objektpfaden, Meldung)), wenn fertig
+    pub fn objekte_abholen(&mut self) -> Option<(Vec<(std::path::PathBuf, Vec<String>)>, String)> {
+        let rx = self.objekte_job.as_ref()?;
+        match rx.try_recv() {
+            Ok(r) => {
+                self.objekte_job = None;
+                let (liste, m) = match r {
+                    Ok(v) => {
+                        let liste: Vec<(std::path::PathBuf, Vec<String>)> = v["pakete"].as_array().into_iter().flatten().filter_map(|p| p.as_str()).map(|p| {
+                            let json = std::path::PathBuf::from(p);
+                            let objekte = std::fs::read(&json).ok().and_then(|b| serde_json::from_slice::<serde_json::Value>(&b).ok())
+                                .and_then(|j| j["objekte"].as_array().map(|a| a.iter().filter_map(|o| o["rel"].as_str().map(|s| s.to_string())).collect()))
+                                .unwrap_or_default();
+                            (json, objekte)
+                        }).collect();
+                        (liste, format!("Ausstattung gebaut: {} Objekte in {} Kachel(n), {} Haltestellen-Steige - wird eingesetzt", v["objekte"], v["kacheln"], v["haltestellen"]))
+                    }
+                    Err(e) => (Vec::new(), format!("Ausstattung nicht gebaut: {e}")),
+                };
+                self.meldung = m.clone();
+                Some((liste, m))
+            }
+            Err(std::sync::mpsc::TryRecvError::Empty) => None,
+            Err(_) => {
+                self.objekte_job = None;
+                None
+            }
+        }
     }
 
     /// Zustand im Hintergrund abfragen: python -m omsigen.schichten <Karte> --omsi <root> --json

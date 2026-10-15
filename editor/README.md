@@ -421,6 +421,15 @@ Kachel bauen“ baut im Hintergrund (danach lädt der Editor die Kachel neu). Oh
 `python -m omsigen.boden <Karte> [--kacheln 3_7 4_7] [--bild uebersicht.png]`. Texturen: Standard-OMSI und, wenn
 installiert, Add-on Rheinhausen und die PAD-Labs-Texturen (Köln); Gewässer erzeugt omsigen selbst
 (`Texture\Aschaffenburg\boden_wasser.dds`). Kommen neue Beläge in `global.cfg`, die Karte neu öffnen.
+**Ausstattung** (omsigen.ausstattung, Qualitätsplan G3/G4, Schicht „Objekte“): Laternen (OSM `highway=street_lamp`,
+sonst Abstand/Seite nach Straßenklasse), Verkehrszeichen (OSM `traffic_sign`, Vorfahrtzeichen passend zu den
+`priority`-Regeln der Kreuzungen, Tempowechsel), Poller, Zäune, Bänke, Mülleimer und die Haltestellen (Mast mit Zeichen
+224 und exakt gesetztem Namensschild, Wartehalle, erhöhter Bord) – alle über Kante/Station/Seite aus `netz.json` auf dem
+Seitenraum der Belegung. Welche Objekte benutzt werden, steht in `omsigen/ausstattung_katalog.json` (Standard-OMSI,
+Rheinhausen, PAD-Labs; eigene Objekte lassen sich je Typ vorn eintragen). In **Schichten** „Ausstattung dieser Kachel
+bauen“ bzw. bei „veraltet“ „neu bauen“: plant im Hintergrund gegen die gespeicherte Karte und setzt das Paket wie LoD2
+in die Sitzung (ersetzt nur die Objekte mit der Kennung `\Objekte\<x>_<y>\`). Ohne Editor:
+`python -m omsigen.ausstattung <Karte> [--kacheln 3_7] [--nur-pakete]`; Übersicht in `maps/<Karte>/ausstattung.json`.
 In der Leiste neben dem Luftbild-Regler zeigt **Belegung** statt des Luftbilds die Belegungskarte der Karte
 (omsigen.belegung): Fahrbahn dunkel, Gehweg hell, Kreuzung lila, Gebäude rot, Grün, Wasser, Bauwerk orange. Netz und
 Belegung (`netz.json`, `belegung/`) schreibt der Editor nach jedem Speichern im Hintergrund neu. Unter **Prüfung**
