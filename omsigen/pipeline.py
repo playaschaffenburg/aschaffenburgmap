@@ -112,7 +112,7 @@ def berechne(projekt, name='Vorschau', omsi=None, korrekturen=None, kreuzungen='
     dict(proj, sdb, net, signs, stops, junctions, vorfahrt, hoe, hat_gelaende, bw, chains, objekte, querschnitte).
     gel: vorhandenes Gelaende-Objekt (Editor), sonst wird es angelegt.
     querschnitte: 'osm' = Querschnitte aus OSM/Messung/Regeln (S1, omsigen.querschnitte; die .sli baut erzeuge),
-    'standard' = feste Liste; messen: fehlende Breiten im Luftbild messen (omsigen.querschnitt_messung)"""
+    'standard' = feste Liste; messen: Gebaeudeflucht (LoD2) der Strassen messen (omsigen.querschnitt_messung)"""
     proj = projektion_fuer(projekt)
     if gelaende and gel is None:
         gel = gel_mod.Gelaende(proj, log=log)

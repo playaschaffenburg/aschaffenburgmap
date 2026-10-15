@@ -35,7 +35,8 @@ def main(argv=None):
                    help='osm: je Strasse der Querschnitt aus OSM/Messung/Regeln, gebaut vom Editor (Standard); '
                         'standard: die feste Liste der Marcel-Splines wie frueher')
     g.add_argument('--querschnitte-messen', action='store_true',
-                   help='fehlende Fahrbahn-/Gehwegbreiten im Luftbild (DOP20) messen und in den Kartendaten merken')
+                   help='Gebaeudeflucht je Strasse aus LoD2 messen (Querschnitt passt zwischen die Haeuser, Achsversatz) '
+                        'und in den Kartendaten merken (gemerkte Messungen gelten immer)')
     a = ap.parse_args(argv)
     projekt = pipeline.importiere(a.von, a.nach, a.stadt, a.ueber, a.breite, a.cache, a.osm_datei)
     r = pipeline.erzeuge(projekt, a.name, omsi=a.omsi, ausgabe=a.ausgabe, korrekturen=a.korrekturen,

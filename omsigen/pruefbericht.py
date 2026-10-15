@@ -7,6 +7,8 @@ Gesammelt wird, was die Werkzeuge der Fundament-Phase liefern:
   - Ableitungen: netz.json und Belegung passen nicht mehr zur Karte (omsigen.netz_datei, omsigen.belegung)
   - Platzierung: Gebaeude ueber Fahrbahn/Kreuzung (Belegung)
   - Budgets je Kachel (F6, vorlaeufig): Objekte, Dreiecke, Texturspeicher
+  - Querschnitte (S1, omsigen.querschnitt_pruefung): Pruefstellen der Kartendaten, an denen Fahrbahn- oder Gehwegbreite
+    0,5 m oder mehr vom Luftbild abweichen; Strassenzuege mit weniger Spuren als OSM turn:lanes angibt
 Prueforte (maps/<Karte>/pruefpunkte.json, sonst die Haltestellen der Karte) bekommen auf Wunsch ein Spielbild aus
 openOMSI (--bilder) und einen Luftbildvergleich von oben (--luftbild).
 
@@ -262,6 +264,12 @@ def erstellen(kartenordner, omsi=None, mit_spiel=False, mit_luft=False, max_orte
             x, z = objpos.get(c['objekt'], (None, None))
             funde.append(dict(art=c['art'], x=x and round(x, 1), z=z and round(z, 1),
                               text=f'{os.path.basename(c["objekt"].replace(chr(92), "/"))}: {c["flaeche_m2"]} m2'))
+    # Querschnitte (S1): Pruefstellen gegen das Luftbild, Abbiegestreifen nach turn:lanes
+    try:
+        from . import querschnitt_pruefung
+        funde += querschnitt_pruefung.funde(kartenordner)
+    except Exception as e:                       # Luftbild nicht erreichbar o. ae.: der Bericht entsteht trotzdem
+        log(f'    Querschnitte nicht geprueft: {type(e).__name__}: {e}')
     # Budgets
     bud = budgets(kartenordner, omsi)
     for key, b in bud.items():
@@ -299,7 +307,8 @@ NAMEN = {'spurende_offen': 'Spurende ohne Anschluss', 'beinahe_anschluss': 'Bein
          'schicht_veraltet': 'Schicht veraltet', 'schicht_gebaut': 'Schicht nicht eingesetzt',
          'netz_veraltet': 'netz.json veraltet', 'netz_fehlt': 'netz.json fehlt', 'belegung_veraltet': 'Belegung veraltet',
          'belegung_fehlt': 'Belegung fehlt', 'gebaeude_auf_fahrbahn': 'Gebaeude ueber Fahrbahn',
-         'budget_objekte': 'Budget Objekte', 'budget_dreiecke': 'Budget Dreiecke', 'budget_textur_mb': 'Budget Texturspeicher'}
+         'budget_objekte': 'Budget Objekte', 'budget_dreiecke': 'Budget Dreiecke', 'budget_textur_mb': 'Budget Texturspeicher',
+         'querschnitt_abweichung': 'Querschnitt weicht vom Luftbild ab', 'abbiegestreifen_fehlt': 'Abbiegestreifen fehlt'}
 
 
 def _html(d):

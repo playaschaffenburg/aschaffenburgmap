@@ -3,8 +3,9 @@
 Ableitung je OSM-Weg (in Splinerichtung, links nach rechts):
   Gehweg | Radweg (Hochbord) | Parkstreifen | Radfahrstreifen | Fahrspuren zurueck | Fahrspuren vor | ... gespiegelt
 Quellen je Wert, in dieser Reihenfolge: OSM-Tag (`width`, `lanes`, `lanes:forward/backward`, `turn:lanes*`,
-`sidewalk*`, `cycleway*`, `parking:*`/`parking:lane:*`, `surface`, `busway*`, `bus:lanes*`, `maxspeed`), Messung im
-Luftbild (omsigen.querschnitt_messung, Zwischenspeicher in den Kartendaten) und Regeln nach Strassenklasse (REGELN).
+`sidewalk*`, `cycleway*`, `parking:*`/`parking:lane:*`, `surface`, `busway*`, `bus:lanes*`, `maxspeed`), Messung aus
+LoD2 (Gebaeudeflucht, omsigen.querschnitt_messung, Zwischenspeicher in den Kartendaten) und Regeln nach Strassenklasse
+(REGELN, aus den width-Angaben in OSM).
 Woher jeder Wert kommt, steht in `herkunft` (tag / messung / regel) und landet je Strassenzug in
 maps/<Karte>/querschnitte.json und in netz_attribute.json (Attribut "querschnitt").
 
@@ -35,16 +36,17 @@ RASTER = 0.05                 # m: Breiten werden darauf gerundet (gleiche Quers
 MESSUNGEN = os.path.join(KARTENDATEN, 'querschnitte', 'messungen.json')
 
 # je Strassenklasse: Spurbreite (zweistreifig), Breite einer einstreifigen Einbahnstrasse, Gehwegbreite, Gehweg ohne
-# Angabe ('both'/'no'). Spurbreiten nach RASt 06, abgeglichen mit den `width`-Angaben in Aschaffenburg (Wohnstrassen
-# 5-6 m, Sammelstrassen 6-7 m)
+# Angabe ('both'/'no'). Fahrbahnbreiten = Median der `width`-Angaben in OSM rund um die Linie 16 (Stand 15.10.2026:
+# Wohnstrasse 6,0 m (23 Wege), Sammelstrasse tertiary 7,0 m (16), unclassified 5,0 m (6), verkehrsberuhigt 4,9 m (17),
+# einstreifige Einbahn-Wohnstrasse 4,5-5,4 m); ohne Daten nach RASt 06
 REGELN = {
     'motorway': (3.75, 4.0, 0.0, 'no'), 'motorway_link': (3.5, 4.0, 0.0, 'no'),
     'trunk': (3.5, 4.0, 2.5, 'no'), 'trunk_link': (3.5, 4.0, 2.5, 'no'),
-    'primary': (3.25, 4.0, 2.5, 'both'), 'primary_link': (3.25, 4.0, 2.5, 'no'),
-    'secondary': (3.25, 3.75, 2.5, 'both'), 'secondary_link': (3.25, 3.75, 2.5, 'no'),
-    'tertiary': (3.0, 3.5, 2.25, 'both'), 'tertiary_link': (3.0, 3.5, 2.25, 'no'),
-    'unclassified': (2.75, 3.5, 2.0, 'both'), 'residential': (2.75, 3.5, 2.0, 'both'),
-    'living_street': (2.5, 3.25, 0.0, 'no'), 'service': (2.5, 3.25, 0.0, 'no'),
+    'primary': (3.5, 4.0, 2.5, 'both'), 'primary_link': (3.25, 4.0, 2.5, 'no'),
+    'secondary': (3.5, 4.0, 2.5, 'both'), 'secondary_link': (3.25, 4.0, 2.5, 'no'),
+    'tertiary': (3.5, 4.0, 2.25, 'both'), 'tertiary_link': (3.25, 4.0, 2.25, 'no'),
+    'unclassified': (2.5, 4.0, 2.0, 'both'), 'residential': (3.0, 5.0, 2.0, 'both'),
+    'living_street': (2.45, 3.5, 0.0, 'no'), 'service': (2.5, 3.25, 0.0, 'no'),
     'bus': (3.25, 3.5, 0.0, 'no'), 'busway': (3.25, 3.5, 0.0, 'no'),
 }
 REGEL_STANDARD = (2.75, 3.5, 2.0, 'no')
@@ -293,13 +295,14 @@ def ableiten(t, dual=False, walk=(True, True), messung=None):
     lf, lb = _int(t.get('lanes:forward')), _int(t.get('lanes:backward'))
     tl, tf, tb = _turn(t.get('turn:lanes')), _turn(t.get('turn:lanes:forward')), _turn(t.get('turn:lanes:backward'))
     herkunft['spuren'] = 'tag' if (lanes or lf or lb or tl or tf or tb) else 'regel'
+    # turn:lanes zaehlt jede Spur einzeln - widerspricht lanes, gilt turn:lanes (Abbiegestreifen sind sonst weg)
     if einbahn:
-        n_vor = lanes or (len(tl) if tl else None) or lf or 1
+        n_vor = max(lanes or lf or 1, len(tl or tf or []))
         n_zur = 0                                 # (Gegenbus oneway:bus=no: noch keine eigene Spur)
     else:
-        if lf is None and tf:
+        if tf and (lf is None or len(tf) > lf):
             lf = len(tf)
-        if lb is None and tb:
+        if tb and (lb is None or len(tb) > lb):
             lb = len(tb)
         if lf and lb:
             n_vor, n_zur = lf, lb
@@ -826,11 +829,11 @@ class Querschnitte:
 
 
 def vorbereiten(projekt, proj, sdb, modus='osm', messen=False, log=print):
-    """Querschnittswahl fuer einen Lauf (pipeline.berechne); messen: fehlende Breiten vorher im Luftbild messen"""
+    """Querschnittswahl fuer einen Lauf (pipeline.berechne); messen: Gebaeudeflucht (LoD2) der Strassen vorher messen"""
     if modus == 'osm' and messen:
         from . import querschnitt_messung
         try:
             querschnitt_messung.ergaenzen(projekt, proj, log=log)
         except Exception as e:                    # ohne Messung geht es mit Tags und Regeln weiter
-            log(f'    Querschnitte: Messung im Luftbild nicht moeglich ({type(e).__name__}: {e})')
+            log(f'    Querschnitte: Messung nicht moeglich ({type(e).__name__}: {e})')
     return Querschnitte(sdb, modus, log=log)

@@ -5,6 +5,10 @@ bis zum naechsten Gebaeude (Grundriss von oben, mit Dachueberstand) links und re
 Treffer. Strassenraum (Fahrbahn + Seitenraum) kann nicht breiter sein als der Raum zwischen den Haeusern - das nutzt
 querschnitte.ableiten (Querschnitt einpassen, Achsversatz, wenn die OSM-Linie nicht mittig liegt).
 
+Eine automatische Messung der Bordkanten im Luftbild (DOP20) wurde erprobt und verworfen: Schatten, Baumkronen und
+parkende Autos machen sie unzuverlaessig (an den 20 Pruefstellen nur 3 auf 0,5 m genau). Das Luftbild dient deshalb nur
+der Abnahme (omsigen.querschnitt_pruefung, abgelesene Pruefstellen).
+
 Zwischenspeicher je OSM-Weg in den Kartendaten (querschnitte/messungen.json, mit Pruefsumme der Weggeometrie), damit
 ein neuer Lauf nicht wieder alle Gebaeude lesen muss:
   {"format": "omsigen-querschnitt-messungen", "version": 1,
@@ -20,9 +24,9 @@ import numpy as np
 from .config import KARTENDATEN
 
 DATEI = os.path.join(KARTENDATEN, 'querschnitte', 'messungen.json')
-FORMAT, VERSION = 'omsigen-querschnitt-messungen', 1
+FORMAT, VERSION = 'omsigen-querschnitt-messungen', 2
 SCHRITT, ENDE_FREI, REICHWEITE = 4.0, 8.0, 30.0
-QUANTIL, MIN_ANTEIL = 25, 0.4
+QUANTIL, MIN_ANTEIL = 25, 0.25
 KLASSEN = {'primary', 'secondary', 'tertiary', 'unclassified', 'residential', 'living_street', 'service', 'trunk',
            'primary_link', 'secondary_link', 'tertiary_link', 'trunk_link', 'bus', 'busway'}
 

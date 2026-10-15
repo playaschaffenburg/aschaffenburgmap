@@ -5,6 +5,7 @@ import math
 import os
 import shutil
 
+import numpy as np
 import pytest
 
 from omsigen import querschnitte as Q
@@ -18,13 +19,13 @@ def arten(q):
 
 def test_wohnstrasse_nach_regel():
     a = Q.ableiten({'highway': 'residential'})
-    assert arten(a['q']) == [('gehweg', 2.0, 'vor'), ('fahrspur', 2.75, 'zurueck'), ('fahrspur', 2.75, 'vor'),
+    assert arten(a['q']) == [('gehweg', 2.0, 'vor'), ('fahrspur', 3.0, 'zurueck'), ('fahrspur', 3.0, 'vor'),
                              ('gehweg', 2.0, 'vor')]
     assert a['force'] == 0 and a['q']['marken'][1] == 'keine'          # Wohnstrasse ohne Mittellinie
     assert a['herkunft']['fahrbahn'] == 'regel' and a['herkunft']['gehweg'] == 'regel'
     i = Q.info(a['q'])
-    assert i['lanes'] == [(-1.375, 1), (1.375, 0)] and i['walks'] == [-3.75, 3.75]
-    assert (i['cl'], i['cr'], i['ol'], i['or_']) == (-2.75, 2.75, -4.75, 4.75)
+    assert i['lanes'] == [(-1.5, 1), (1.5, 0)] and i['walks'] == [-4.0, 4.0]
+    assert (i['cl'], i['cr'], i['ol'], i['or_']) == (-3.0, 3.0, -5.0, 5.0)
 
 
 def test_breite_spuren_gehweg_rad_parken_aus_tags():
@@ -155,6 +156,94 @@ def test_gebaeudeflucht_messen():
     li, re = M.flucht([(0.0, 0.0), (100.0, 0.0)], STRtree(polys), polys)
     assert len(li) == len(re) == 22
     assert M.seite_auswerten(li) == 5.0
-    assert M.seite_auswerten(re) == 8.0                    # die halbe Zeile reicht (Anteil >= 40 %)
-    assert M.seite_auswerten([None] * 8 + [3.0] * 2) is None
+    assert M.seite_auswerten(re) == 8.0                    # die halbe Zeile reicht (Anteil >= 25 %)
+    assert M.seite_auswerten([None] * 8 + [3.0] * 1) is None
     assert M.pruefsumme([(0, 0), (1, 1)], 500000, 5500000) != M.pruefsumme([(0, 0), (1, 2)], 500000, 5500000)
+
+
+def _kreuzung_t(tags_west):
+    """T-Kreuzung: Hauptstrasse West-Ost, Nebenstrasse nach Norden; tags_west fuer den westlichen Arm"""
+    sdb = SplineDB()
+    qs = Q.Querschnitte(sdb, 'osm', messungen={}, exe='x')
+    ways = [dict(tags=dict(tags_west, osm_id='1'), P=[(-150, 0), (0, 0)]),
+            dict(tags={'highway': 'secondary', 'osm_id': '2'}, P=[(0, 0), (150, 0)]),
+            dict(tags={'highway': 'residential', 'osm_id': '3'}, P=[(0, 0), (0, 150)])]
+    return build(ways, sdb, waehle=qs.waehle, angleichen=qs.angleichen, uebergang=qs.uebergang), sdb, qs
+
+
+def test_abbiegestreifen_nach_turn_lanes():
+    """2 Spuren Richtung Kreuzung mit turn:lanes:forward=left|through: die linke biegt nur links ab, die rechte faehrt
+    nur geradeaus (ohne turn:lanes fahren beide geradeaus)"""
+    from omsigen.geom import end_of
+    t = {'highway': 'secondary', 'lanes': '3', 'lanes:forward': '2', 'lanes:backward': '1',
+         'turn:lanes:forward': 'left|through'}
+    net, sdb, qs = _kreuzung_t(t)
+    west = [ch for ch in net['road_chains'] if ch['tags'].get('osm_id') == '1'][0]
+    pos, h = end_of(west['els'][-1])
+    ins = sorted([l for l in spurenden(pos, h, west['els'][-1][5], 'e', sdb) if l['kind'] == 'in'], key=lambda l: l['right'])
+    assert len(ins) == 2
+    links, rechts = key(ins[0]['p']), key(ins[1]['p'])
+    bew = {}
+    for c in net['conn_chains']:
+        bew.setdefault(key((c['els'][0][0], c['els'][0][1])), set()).add(c['mv'])
+    assert bew[links] == {'links'} and bew[rechts] == {'gerade'}, bew
+    # ohne turn:lanes: beide Spuren geradeaus, die linke zusaetzlich links
+    net2, sdb2, _ = _kreuzung_t({k: v for k, v in t.items() if not k.startswith('turn')})
+    west = [ch for ch in net2['road_chains'] if ch['tags'].get('osm_id') == '1'][0]
+    pos, h = end_of(west['els'][-1])
+    ins = sorted([l for l in spurenden(pos, h, west['els'][-1][5], 'e', sdb2) if l['kind'] == 'in'], key=lambda l: l['right'])
+    bew = {}
+    for c in net2['conn_chains']:
+        bew.setdefault(key((c['els'][0][0], c['els'][0][1])), set()).add(c['mv'])
+    assert bew[key(ins[0]['p'])] == {'links', 'gerade'} and bew[key(ins[1]['p'])] == {'gerade'}
+
+
+def test_angleichen_und_uebergang():
+    """aehnliche Nachbarn (6,0 / 6,3 m) werden ein Querschnitt; ein echter Wechsel (1+1 -> 2+1) wird ein gerades
+    Uebergangsobjekt statt Kreuzungsplatte, die Arme liegen genau eine Uebergangslaenge auseinander"""
+    from omsigen import kreuzung
+    sdb = SplineDB()
+    qs = Q.Querschnitte(sdb, 'osm', messungen={}, exe='x')
+    ways = [dict(tags={'highway': 'tertiary', 'width': '6.0', 'osm_id': '1'}, P=[(0, 0), (100, 0)]),
+            dict(tags={'highway': 'tertiary', 'width': '6.3', 'osm_id': '2'}, P=[(200, 0), (100, 0)]),
+            dict(tags={'highway': 'tertiary', 'lanes': '3', 'lanes:forward': '2', 'lanes:backward': '1', 'osm_id': '3'},
+                 P=[(200, 0), (300, 1.0), (400, 1.0)])]
+    net = build(ways, sdb, waehle=qs.waehle, angleichen=qs.angleichen, uebergang=qs.uebergang)
+    rels = {ch['tags']['osm_id']: ch['els'][0][5] for ch in net['road_chains']}
+    assert rels.get('1') == rels.get('2') or len(net['road_chains']) == 2      # 6,0 und 6,3 m: eine Datei
+    ue = qs.uebergaenge_planen(net, 'T')
+    assert len(ue) == 1 and len(net['uebergang_knoten']) == 1
+    o = ue[0]
+    assert Q.UE_LAENGE[0] <= o['laenge'] <= Q.UE_LAENGE[1] and abs(o['laenge'] - Q.uebergang_laenge(o['uebergang']['a'], o['uebergang']['b'])) < 0.3
+    assert o['rel'].endswith('UE_001.sco') and o['knoten'] in net['uebergang_knoten']
+    objekte = kreuzung.build_objects(net, sdb, 'T')
+    assert all(j['knoten'] not in net['uebergang_knoten'] for j in objekte)
+    # Standardmodus: keine Uebergaenge, 12-m-Platten wie bisher
+    assert Q.Querschnitte(SplineDB(), 'standard', exe='x').uebergaenge_planen(net, 'T') == []
+
+
+def test_kantenvorschlaege_und_lage_der_karte():
+    """Profil: Asphalt (dunkel) zwischen -3 und +3,5 m, heller Gehweg, rechts Gruen -> Kanten dort; Lage einer Kante der
+    Karte im Querweg der Pruefstelle (auch bei Gegenrichtung)"""
+    from omsigen import querschnitt_pruefung as QP
+    s = np.arange(-10, 10.001, 0.1)
+    A = np.zeros((30, len(s), 3))
+    A[:, :, :] = 185.0
+    A[:, (s > -3.0) & (s < 3.5), :] = 90.0
+    A[:, s > 7.0, :] = [70.0, 130.0, 60.0]
+    v = sorted(x for x, _ in QP.kanten_vorschlagen(A, s)[:3])
+    assert [round(x) for x in v] == [-3, 4, 7] or all(min(abs(x - r) for x in v) < 0.25 for r in (-3.0, 3.5, 7.0)), v
+
+    class N:                                      # Kante nach Osten, Pruefstelle 1 m rechts (suedlich) der Achse
+        kanten = {'E1': dict(querschnitt=dict(fahrbahn=[-3.0, 3.0], aussen=[-5.0, 5.0]), sli='x', attribute={})}
+
+        def naechste(self, x, z):
+            return ('E1', 50.0, 1.0, 1.0)
+
+        def punkt(self, k, st, seite=0.0):
+            return (st, 0.0, 0.0, 90.0)
+    b = dict(ost0=0.0, nord0=0.0)
+    k = QP.karte_an_stelle(N(), b, dict(ost=50.0, nord=-1.0, richtung=90.0))
+    assert k['bord'] == [-4.0, 2.0] and k['aussen'] == [-6.0, 4.0]
+    k = QP.karte_an_stelle(N(), b, dict(ost=50.0, nord=-1.0, richtung=270.0))
+    assert k['bord'] == [-2.0, 4.0]
