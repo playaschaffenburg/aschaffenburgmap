@@ -288,3 +288,9 @@ Stand 15.10.2026: `Aschaffenburg_Linie16_v7`, 186 Funde (3 Spurenden, 183 Gebäu
    in ihrer Beschreibung (LIESMICH), damit klar ist, was installiert sein muss.
 4. **Generator:** Python bleibt der Generator, der Rust-Editor die Oberfläche (wie heute).
 5. **Reihenfolge:** Fundament → Straßen/Boden → Gebäude/Objekte → Vegetation/Backdrops.
+6. **Texturwerkstatt (Phase 2):** eigene Texturen fuer eigene Objekte aus vier Quellen - Fotos (entzerrt, kachelbar),
+   prozedural in Blender (Blender MCP, als DDS gebacken), CC0-Materialien (Poly Haven, ambientCG) und ein lokaler
+   KI-Bildgenerator (ComfyUI auf der RTX 3070, mit MCP) fuer Plakate, Ladenschilder, Graffiti und Gebaeude-Varianten.
+   Schilder mit Schrift (Haltestelle, Verkehrszeichen) exakt aus Vektoren, nicht per KI.
+7. **Werkzeuge:** Blender MCP (Modelle/Texturen ansehen und bauen) und QGIS MCP (Ebenen, Luftbild, Belegung gemeinsam
+   pruefen) sind eingerichtet (15.10.2026).
