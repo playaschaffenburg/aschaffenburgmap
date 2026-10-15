@@ -44,6 +44,13 @@ Vorhanden und nutzbar: `Trees_MC` (43 Baum-Billboards mit Jahreszeiten), Laserda
 ## 2. Fundament (F) – zuerst, Voraussetzung für S, G, V
 
 ### F1 Ein Geobezug für alle Karten
+**Erledigt 15.10.2026:** `route.Projection` rechnet im UTM-Gitter (Bezugspunkt auf ganze Meter), `pipeline.erzeuge`
+schreibt `omsi-editor-geo.cfg` (ost0/nord0 = Bezugspunkt + Kartenversatz, nn0 = Höhenbasis); Projektdateien ohne
+`"projektion": "utm"` behalten die alte ebene Näherung (`route.EbeneProjektion`). Geprüft an `Aschaffenburg_Linie16_v3`:
+Luftbildvergleich Herstallturm und Haibach (5 km vom Bezugspunkt) deckungsgleich; LoD2 über den Editor-Weg (Geobezug) und
+über den Generator liegen auf 1 mm gleich. Ein gemeinsamer Geländeabtaster steht noch aus (Generator nutzt bei UTM die
+Projektmeter direkt, Editor das 5×5-Mittel).
+
 - Der Generator schreibt Karten im UTM-Raster mit `omsi-editor-geo.cfg` (ost0/nord0/nn0) statt `route.Projection`.
   Eine Karte = ein Bezug; Kachelraster bleibt beim Erweitern gleich.
 - Ein Geländeabtaster für Generator und Editor (heute: Punkt-bilinear vs. 5×5-Mittel).

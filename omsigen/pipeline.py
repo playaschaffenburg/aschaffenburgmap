@@ -7,7 +7,7 @@ Projekt (JSON, Endung .omsiprojekt): siehe neues_projekt(). Koordinaten in Meter
 Projektion route.Projection)."""
 import collections, json, math, os
 from . import osm, ansicht, kreuzung, vorfahrt, bauwerke, ebenen, gelaende as gel_mod, hoehen as hoe_mod
-from .route import Projection, route, corridor
+from .route import Projection, projektion_fuer, route, corridor
 from .network import build, proj_point
 from .splinedb import SplineDB
 from .writer import write_map, place_stops, install_splines, spur_punkt
@@ -16,8 +16,9 @@ VERSION = 1
 
 
 def neues_projekt(lat0, lon0, name='Neues Projekt'):
-    return dict(version=VERSION, name=name, ursprung=[lat0, lon0], strassen=[], haltestellen=[], schilder=[],
-                rand=[], linie=[], quelle='', beschreibung='')
+    # Projektmeter = UTM-Gitter um den Ursprung (route.Projection); aeltere Dateien ohne "projektion" = ebene Naeherung
+    return dict(version=VERSION, name=name, ursprung=[lat0, lon0], projektion='utm', strassen=[], haltestellen=[],
+                schilder=[], rand=[], linie=[], quelle='', beschreibung='')
 
 
 def laden(path):
@@ -74,6 +75,7 @@ def importiere(von, nach, stadt=None, ueber=(), breite=150.0, cache='.cache', os
         if min(proj_point(p, a_, b_)[1] for a_, b_ in zip(line, line[1:])) <= breite:
             stops.append(dict(name=s['name'], p=list(p)))
     P = neues_projekt(proj.lat0, proj.lon0, f'{von} - {nach}')
+    P['utm_zone'] = proj.zone
     P.update(strassen=[dict(id=i + 1, tags=w['tags'], punkte=[list(q) for q in w['P']]) for i, w in enumerate(ways)],
              haltestellen=stops,
              schilder=[dict(kind=g['kind'], p=list(proj.to_m(g['lat'], g['lon'])), direction=g.get('direction'))
@@ -108,7 +110,7 @@ def berechne(projekt, name='Vorschau', omsi=None, korrekturen=None, kreuzungen='
     """Projekt -> alles, was die Karte ausmacht, ohne Dateien zu schreiben (auch fuer die 3D-Vorschau im Editor):
     dict(proj, sdb, net, signs, stops, junctions, vorfahrt, hoe, hat_gelaende, bw, chains, objekte).
     gel: vorhandenes Gelaende-Objekt (Editor), sonst wird es angelegt."""
-    proj = Projection(*projekt['ursprung'])
+    proj = projektion_fuer(projekt)
     if gelaende and gel is None:
         gel = gel_mod.Gelaende(proj, log=log)
     hat_gelaende = bool(gelaende and gel and any(gel.hoehe(*q) is not None for q in linie_probe(projekt)))
@@ -154,6 +156,21 @@ def berechne(projekt, name='Vorschau', omsi=None, korrekturen=None, kreuzungen='
             f"Tunnelabschnitte mit {b['portale']} Portalen und {b['deckel']} Deckeln ueber dem Tunnelgraben")
     return dict(proj=proj, sdb=sdb, net=net, signs=signs, stops=stops, junctions=junctions, vorfahrt=V, hoe=hoe,
                 hat_gelaende=hat_gelaende, bw=bw, chains=chains + bw['ketten'], objekte=junctions + bw['objekte'])
+
+
+CRLF = chr(13) + chr(10)
+
+
+def geo_schreiben(kartenordner, proj, offset, nn0, ort=''):
+    """omsi-editor-geo.cfg wie der Rust-Editor (geo.rs Bezug::schreiben): Kartenpunkt (x, y) = (Ost - ost0, Nord - nord0),
+    Hoehe in der Karte = NN - nn0. ost0/nord0 = UTM der Suedwestecke der Kachel 0 0 = Bezugspunkt + Kartenversatz."""
+    zeilen = ['# omsi-editor: Lage der Karte in der Welt (OMSI liest diese Datei nicht)',
+              '# Kartenpunkt (x, y) = (UTM-Ost - ost0, UTM-Nord - nord0); Hoehe in der Karte = Hoehe ueber NN - nn0',
+              f'ort = {" ".join(ort.split())}', f'lat = {proj.lat0:.7f}', f'lon = {proj.lon0:.7f}',
+              f'utm_zone = {proj.zone}', f'ost0 = {proj.e0 + offset[0]:.3f}', f'nord0 = {proj.n0 + offset[1]:.3f}',
+              f'nn0 = {nn0:.2f}', '']
+    with open(os.path.join(kartenordner, 'omsi-editor-geo.cfg'), 'w', encoding='utf-8', newline='') as f:
+        f.write(CRLF.join(zeilen))
 
 
 def erzeuge(projekt, name, omsi=None, ausgabe='build', korrekturen=None, ueberschreiben=False, kreuzungen='objekt',
@@ -206,8 +223,14 @@ def erzeuge(projekt, name, omsi=None, ausgabe='build', korrekturen=None, uebersc
                      description=desc, cam_xz=(entrypoints[0]['x'], entrypoints[0]['z']) if entrypoints else
                      tuple(linie[0]), overwrite=ueberschreiben, junctions=objekte, entrypoints=entrypoints,
                      raster=hoe.raster if hat_gelaende else None, gebaeude=geb)
+    if getattr(proj, 'art', '') == 'utm':
+        geo_schreiben(info['dir'], proj, info['offset'], hoe.base if hat_gelaende else 0.0,
+                      projekt.get('beschreibung') or projekt.get('name', ''))
+        log(f'    Geobezug: UTM {proj.zone}, Kachel 0 0 bei Ost {proj.e0 + info["offset"][0]:.0f} / '
+            f'Nord {proj.n0 + info["offset"][1]:.0f} (omsi-editor-geo.cfg)')
     with open(os.path.join(info['dir'], 'omsigen.json'), 'w', encoding='utf-8') as f:
         json.dump(dict(projekt=projekt.get('name'), origin=[proj.lat0, proj.lon0], offset=info['offset'],
+                       projektion=getattr(proj, 'art', 'eben'),
                        hoehe_basis=hoe.base if hat_gelaende else None,
                        length_m=projekt.get('laenge'), stats=st,
                        kreuzungen=[dict(j['vorfahrt'], objekt=j['name'], x=j['origin'][0] - info['offset'][0],

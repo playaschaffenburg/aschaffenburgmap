@@ -67,6 +67,8 @@ class Gelaende:
 
     def hoehe(self, x, z):
         """Hoehe ueber NN am Projektpunkt (x Ost, z Nord in Metern) oder None"""
+        if getattr(self.proj, 'art', '') == 'utm' and self.proj.zone == 32:
+            return self.hoehe_utm(*self.proj.utm(x, z))     # Projektmeter sind schon UTM 32 (ohne Umweg ueber lat/lon)
         lat, lon = self.proj.to_ll(x, z)
         return self.hoehe_utm(*to_utm(lat, lon))
 

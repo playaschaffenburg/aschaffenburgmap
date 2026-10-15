@@ -6,7 +6,7 @@ from PySide6.QtGui import QAction, QKeySequence, QActionGroup
 from PySide6.QtWidgets import (QMainWindow, QDockWidget, QWidget, QFormLayout, QLineEdit, QComboBox, QSpinBox,
                                QCheckBox, QLabel, QPushButton, QFileDialog, QMessageBox, QVBoxLayout, QStackedWidget,
                                QDoubleSpinBox, QGroupBox)
-from omsigen.route import Projection
+from omsigen.route import projektion_fuer
 from omsigen.gelaende import Gelaende
 from . import luftbild as lb
 from .karte import Karte
@@ -174,7 +174,7 @@ class Fenster(QMainWindow):
     def __init__(self, modell):
         super().__init__()
         self.m = modell
-        self.proj = Projection(*modell.p['ursprung'])
+        self.proj = projektion_fuer(modell.p)
         self.resize(1500, 950)
         self.gel = Gelaende(self.proj, log=lambda *a: None)
         self.karte2d = Karte(modell, self.proj, self)

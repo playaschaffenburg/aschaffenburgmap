@@ -73,13 +73,17 @@ def test_fassade_aus_ablage(tmp_path):
 
 
 def test_projekt_abbild():
-    from omsigen.route import Projection
+    from omsigen.route import EbeneProjektion, Projection
     from omsigen.utm import to_utm
-    proj = Projection(49.97, 9.18)
     e, n = to_utm(49.97, 9.18)
+    # UTM-Projekt: Projektmeter = UTM minus Bezugspunkt (ganze Meter)
+    proj = Projection(49.97, 9.18)
     x, y = L.projekt_abbild(proj)(np.array([e, e + 100.0]), np.array([n, n]))
-    assert abs(x[0]) < 1e-3 and abs(y[0]) < 1e-3
-    assert abs(np.hypot(x[1], y[1]) - 100.0 / 0.9996 * 0.9996) < 0.2   # 100 m Ost bleiben ~100 m
+    assert abs(x[0] - (e - proj.e0)) < 1e-6 and abs(y[0] - (n - proj.n0)) < 1e-6 and abs(x[1] - x[0] - 100.0) < 1e-6
+    # alte ebene Projektion: Umweg ueber lat/lon, 100 m Ost bleiben ~100 m
+    alt = EbeneProjektion(49.97, 9.18)
+    x, y = L.projekt_abbild(alt)(np.array([e, e + 100.0]), np.array([n, n]))
+    assert abs(x[0]) < 0.2 and abs(y[0]) < 0.2 and abs(np.hypot(x[1] - x[0], y[1] - y[0]) - 100.0) < 0.3
 
 
 def test_gebaeude_nur_in_kartenkacheln(tmp_path):

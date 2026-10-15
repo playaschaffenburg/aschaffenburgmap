@@ -398,6 +398,8 @@ def projekt_abbild(proj):
 
     def abbild(e, n):
         e, n = np.atleast_1d(e).astype(float), np.atleast_1d(n).astype(float)
+        if getattr(proj, 'art', '') == 'utm' and proj.zone == 32:
+            return e - proj.e0, n - proj.n0          # Projektmeter sind UTM 32: nur verschieben
         ll = [from_utm(a, b) for a, b in zip(e, n)]
         xy = np.array([proj.to_m(lat, lon) for lat, lon in ll])
         return xy[:, 0], xy[:, 1]

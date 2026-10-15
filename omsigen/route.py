@@ -4,7 +4,39 @@ import numpy as np
 
 
 class Projection:
-    """Ebene Naeherung um einen Bezugspunkt: x = Ost (m), z = Nord (m)"""
+    """UTM-Gitter um einen Bezugspunkt: x = Ost (m), z = Nord (m) relativ zu (e0, n0) = UTM des Bezugspunkts auf ganze
+    Meter. So liegt jede Generator-Karte im selben Gitter wie die Editor-Karten (omsi-editor-geo.cfg: ost0 = e0 +
+    Kartenversatz), und Luftbild, LoD2, Vermessen und Abgleich passen ohne Umrechnung."""
+    art = 'utm'
+
+    def __init__(self, lat0, lon0, zone=None):
+        from .geodaten import zone_fuer
+        from .utm import to_utm
+        self.lat0, self.lon0 = lat0, lon0
+        self.zone = zone or zone_fuer(lat0, lon0)
+        e, n = to_utm(lat0, lon0, self.zone)
+        self.e0, self.n0 = float(round(e)), float(round(n))
+
+    def to_m(self, lat, lon):
+        from .utm import to_utm
+        e, n = to_utm(lat, lon, self.zone)
+        return (e - self.e0, n - self.n0)
+
+    def to_ll(self, x, z):
+        from .utm import from_utm
+        return from_utm(x + self.e0, z + self.n0, self.zone)
+
+    def utm(self, x, z):
+        return (x + self.e0, z + self.n0)
+
+    def aus_utm(self, e, n):
+        return (e - self.e0, n - self.n0)
+
+
+class EbeneProjektion:
+    """Ebene Naeherung um einen Bezugspunkt (bis Okt. 2026): x = Ost (m), z = Nord (m) - nur noch fuer Projektdateien,
+    deren Strassen schon in diesen Metern gespeichert sind (ohne "projektion": "utm")"""
+    art = 'eben'
 
     def __init__(self, lat0, lon0):
         self.lat0, self.lon0 = lat0, lon0
@@ -16,6 +48,13 @@ class Projection:
 
     def to_ll(self, x, z):
         return (self.lat0 + z / self.my, self.lon0 + x / self.mx)
+
+
+def projektion_fuer(projekt):
+    """Projektion eines Projekts: UTM fuer neue Projekte, die alte ebene Naeherung fuer aeltere Dateien"""
+    if projekt.get('projektion') == 'utm':
+        return Projection(*projekt['ursprung'], zone=projekt.get('utm_zone'))
+    return EbeneProjektion(*projekt['ursprung'])
 
 
 def _nk(c):

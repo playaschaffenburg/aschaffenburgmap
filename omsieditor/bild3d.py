@@ -54,7 +54,7 @@ def main(argv=None):
     a = ap.parse_args(argv)
     from omsigen import pipeline
     from omsigen.config import DEFAULT_OMSI
-    from omsigen.route import Projection
+    from omsigen.route import projektion_fuer
     from . import geometrie3d as g3
     from .render3d import Kamera
     from . import luftbild as lb
@@ -71,7 +71,7 @@ def main(argv=None):
     k.ziel = [x, raster.hoehe(x, z) or 0.0, z]
     bilder = {}
     if not a.ohne_luftbild:
-        proj = Projection(*P['ursprung'])
+        proj = projektion_fuer(P)
         for t in raster.kacheln:
             x0, z0 = raster.kachel_ecke(t)
             d = lb.rechteck_laden(proj, x0, z0, x0 + g3.TILE, z0 + g3.TILE, pixel=1024)
