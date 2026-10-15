@@ -146,9 +146,15 @@ def berechne(projekt, name='Vorschau', omsi=None, korrekturen=None, kreuzungen='
             ', '.join(f'{k} {n}' for k, n in q.most_common()) + f" (davon mit Ampel {sum(v['ampel'] for v in V)})")
     else:
         chains = chains + net['conn_chains']
-    # Hoehen: Gelaende (DGM1 Bayern), Strassenprofile, Bruecken/Tunnel, flache Kreuzungen, Vorgaben aus dem Editor
+    # Hoehen: Gelaende (DGM1 Bayern), Strassenprofile, Bruecken/Tunnel, Kreuzungsplatten, Vorgaben aus dem Editor
     hoe = hoe_mod.Hoehen(gel, log=log)
     hoe.berechnen(net, sdb, junctions, ziele)
+    for j in junctions:                     # Platten am Gefaelle geneigt (musterbuch.md 2), Uebergaenge mit Steigung
+        if j.get('uebergang') and j.get('neigung'):
+            r = math.radians(j['rot'])
+            j['steigung'] = j['neigung'][0] * math.sin(r) + j['neigung'][1] * math.cos(r)
+        else:
+            kreuzung.ebene_anwenden(j)
     if hat_gelaende:
         hs = [h for ch in net['road_chains'] for h in ch['y']]
         log(f'    Gelaende: Basis {hoe.base:.0f} m ue. NN, Strassen {min(hs):.1f} bis {max(hs):.1f} m darueber, '

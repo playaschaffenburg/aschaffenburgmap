@@ -62,6 +62,25 @@ an 354 von 750 Armen ein Knick von mindestens 2 %, an 89 Armen von mindestens 8 
   dass die Pfade in der `.sco` ihre Höhenänderung (`[path]` Feld 8) mitbekommen. Das muss in OMSI 2 selbst geprüft
   werden, bevor es Standard wird.
 
+**Umsetzung im Generator (15.10.2026)**, schon vor dem Straßenraummodell:
+- `hoehen.py`: Jede Kreuzungsplatte ist eine Ebene mit Höhe und Neigung nach Ost und Nord. Neigung kostet in der
+  Ausgleichsrechnung etwas, die Querneigung der Hauptarme (höchste Straßenklasse) viel. Höchstneigung 10 %.
+  Das erste Element jedes Arms muss die Plattenneigung in Armrichtung haben (K-H1).
+- Die Straßen werden als `[spline_h]` geschrieben, wie OMSI und openOMSI es rechnen: kubisch, mit Steigung am
+  Anfang und Ende und Höhenänderung. Die Steigung ist an den Elementgrenzen stetig (K-H2/T-4), an der Kreuzung
+  ist sie genau die Plattenneigung.
+- `kreuzung.ebene_anwenden`: Modell und Pfade der Platte liegen in dieser Ebene, die Pfade bekommen dazu ihre
+  Höhenänderung (Feld 8). Querschnittsübergänge (S1) bekommen die Steigung längs ihrer Achse.
+- Ausrundung: In den ersten 40 m eines Arms wird die Steigung stärker geglättet (an der Platte das Fünffache).
+  Im T-Test mit einer 8-%-Nebenstraße erreicht die Steigung 90 % erst nach 38 m (Vorbilder: 27–45 m). Die Platte
+  bleibt dabei mit 1,7 % Querneigung fast eben (Querstrafe 100). Nebenstraßen liegen dadurch vor der Einmündung bis
+  etwa 1,5 m neben dem Rohgelände; die Böschung gleicht das an.
+- Befund am T-Test: Ohne die Strafe auf die Querneigung kippte die Platte um 7,5 % quer zur ebenen Hauptstraße,
+  damit die steile Nebenstraße flacher ansetzt. In der Wirklichkeit behält die Hauptstraße ihr Profil, deshalb die
+  starke Strafe.
+- `netz_datei.splines_lesen` las die Höhenänderung von `[spline_h]` an der falschen Stelle und rechnete die Höhe
+  linear statt kubisch. Beides ist korrigiert.
+
 ## 3. Linienführung
 
 - **T-1:** Bögen mit großen Radien. Median 50–80 m, nur ein Viertel unter 20–30 m (Abbiegebögen, Kreuzungsnähe).

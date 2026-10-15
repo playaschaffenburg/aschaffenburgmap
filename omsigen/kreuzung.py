@@ -228,15 +228,22 @@ def x_file(V, F, mats=None):
 
 
 # ============================================================ Objekt (.sco)
-def _path_lines(e, height, kind, width, direction, blinker):
-    """eine Geraden/Bogen-Strecke als [path] (12 Zeilen, Objektkoordinaten: x rechts, y vorwaerts, z hoch)"""
+def _path_lines(e, height, kind, width, direction, blinker, ebene=None):
+    """eine Geraden/Bogen-Strecke als [path] (12 Zeilen, Objektkoordinaten: x rechts, y vorwaerts, z hoch);
+    ebene (gx, gz): Platte geneigt - Hoehe am Anfang und Hoehenaenderung des Pfads aus der Ebene"""
     x, z, h, L, R = e[:5]
-    vals = [x, z, height, h % 360, R, L, 0, 0, kind, width, direction, blinker]
+    dh = 0.0
+    if ebene:
+        (xe, ze), _ = end_of(list(e[:5]))
+        height = height + ebene[0] * x + ebene[1] * z
+        dh = ebene[0] * (xe - x) + ebene[1] * (ze - z)
+    vals = [x, z, height, h % 360, R, L, 0, dh, kind, width, direction, blinker]
     return ['[path]'] + [f'{v:.4f}' if isinstance(v, float) else str(v) for v in vals] + ['']
 
 
-def sco_text(name, mesh_file, moves, walks, ampel_block=()):
-    """moves: Liste (Elemente, Blinker[, Signalgruppe oder None]); die Signalgruppe gilt fuer das erste Stueck"""
+def sco_text(name, mesh_file, moves, walks, ampel_block=(), ebene=None):
+    """moves: Liste (Elemente, Blinker[, Signalgruppe oder None]); die Signalgruppe gilt fuer das erste Stueck;
+    ebene (gx, gz): Neigung der Platte je m nach Ost/Nord (ebene_anwenden)"""
     L = ['Erzeugt mit omsigen (Aschaffenburg-KI). Strassendaten (c) OpenStreetMap-Mitwirkende, ODbL.', '',
          '[friendlyname]', name, '', '[groups]', '1', 'Aschaffenburg', '',
          '[rendertype]', 'surface', '', '[LightMapMapping]', '', '[fixed]', '', '[surface]', '',
@@ -246,12 +253,12 @@ def sco_text(name, mesh_file, moves, walks, ampel_block=()):
         els, blinker = mv[0], mv[1]
         gruppe = mv[2] if len(mv) > 2 else None
         for i, e in enumerate(els):
-            L += _path_lines(e, ASPH_H, 0, 3.0, 0, blinker)
+            L += _path_lines(e, ASPH_H, 0, 3.0, 0, blinker, ebene)
             if i == 0 and gruppe is not None:
                 L += ['[use_traffic_light]', str(gruppe), '']
     for els in walks:
         for e in els:
-            L += _path_lines(e, WALK_H, 1, 2.0, 2, 0)
+            L += _path_lines(e, WALK_H, 1, 2.0, 2, 0, ebene)
     L += ['[mesh]', mesh_file, '']
     return '\r\n'.join(L) + '\r\n'
 
@@ -320,10 +327,31 @@ def build_objects(net, sdb, map_name, korrekturen=(), to_ll=None):
                         signale=ampel.signale(arms, plan, sdb) if plan else [],
                         sco=sco_text(f'{map_name} Kreuzung {n + 1}', name + '.x', moves, J['walks'],
                                      ampel.sco_block(plan) if plan else ()),
+                        sco_args=(f'{map_name} Kreuzung {n + 1}', name + '.x', moves, J['walks'],
+                                  tuple(ampel.sco_block(plan)) if plan else ()),
                         paths=idx + sum(len(w) for w in J['walks']),
                         rel=f'Sceneryobjects\\Aschaffenburg\\{map_name}\\{name}.sco', geom=J,
                         mesh=(V, F), mats=list(MATS)))
     return out
+
+
+def ebene_anwenden(j):
+    """Kreuzungsplatte in die Ebene der Hoehenrechnung legen (hoehen.py: j['neigung'] = (gx, gz) je m nach Ost/Nord,
+    j['hoehe'] am Objektursprung): Modell und Pfade steigen mit, damit die Arme ohne Knick anschliessen - wie die
+    gekippten Platten in Ahlheim/Staedtedreieck (docs/musterbuch.md, Abschnitt 2). -> True, wenn geneigt"""
+    gx, gz = j.get('neigung') or (0.0, 0.0)
+    if (abs(gx) < 1e-5 and abs(gz) < 1e-5) or 'sco_args' not in j:
+        return False
+    n = math.sqrt(1.0 + gx * gx + gz * gz)
+    oben = (-gx / n, 1.0 / n, -gz / n)
+    V, F = j['mesh']
+    V2 = [(v[0], v[1] + gx * v[0] + gz * v[2], v[2]) + (oben if v[4] > 0.99 else tuple(v[3:6])) + tuple(v[6:8])
+          for v in V]
+    j['mesh'] = (V2, F)
+    j['x'] = x_file(V2, F, j.get('mats'))
+    titel, modell, moves, walks, ampel_block = j['sco_args']
+    j['sco'] = sco_text(titel, modell, moves, walks, ampel_block, ebene=(gx, gz))
+    return True
 
 
 def install_objects(root, map_name, objects, omsi_dir=None, overwrite=False):

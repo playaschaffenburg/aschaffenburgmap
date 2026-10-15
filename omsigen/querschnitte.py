@@ -773,7 +773,7 @@ class Querschnitte:
             dict(ordner=os.path.abspath(kdir), name=o['name'], titel=f"Uebergang {os.path.basename(o['uebergang']['sli_a'])[:-4]}"
                  f" -> {os.path.basename(o['uebergang']['sli_b'])[:-4]}",
                  a=dict(querschnitt=bauanleitung(o['uebergang']['a'], 'a')),
-                 b=dict(querschnitt=bauanleitung(o['uebergang']['b'], 'b')), laenge=o['laenge'], steigung=0.0)
+                 b=dict(querschnitt=bauanleitung(o["uebergang"]["b"], "b")), laenge=o["laenge"], steigung=o.get("steigung", 0.0))
             for o in ue])
         a = editor_auftrag(auftrag, self.exe)
         ok = 0

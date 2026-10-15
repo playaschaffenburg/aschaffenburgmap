@@ -216,6 +216,24 @@ def _arm_kennzahlen(prof):
     return abs(prof[0][1]), gmax, aus, flach
 
 
+def _modell_neigung(omsi, rel):
+    """Neigung (je m nach Ost, Nord) einer omsigen-Kreuzungsplatte aus der Normalen ihrer Oberflaeche (.x)"""
+    sco = os.path.join(omsi, *rel.split(BS))
+    try:
+        info = AM.sco_lesen(sco)
+        pfad = AM.mesh_pfad(sco, info['meshes'][0]) if info['meshes'] else None
+        z = open(pfad, encoding='cp1252', errors='replace').read().split('MeshNormals', 1)[1].split(chr(10))
+    except (OSError, IndexError, TypeError):
+        return 0.0, 0.0
+    for l in z[2:200]:
+        w = [x for x in l.replace(',', ' ').replace(';', ' ').split() if x]
+        if len(w) == 3:
+            nx, ny, nz = (float(v) for v in w)
+            if ny > 0.5:
+                return -nx / ny, -nz / ny
+    return 0.0, 0.0
+
+
 def messen(d, omsi=DEFAULT_OMSI, log=print):
     bib = Bibliothek(omsi)
     S_alle, O, T, n_kacheln = karte_lesen(d)
@@ -274,18 +292,25 @@ def messen(d, omsi=DEFAULT_OMSI, log=print):
         netz = json.load(open(netz_datei, encoding='utf-8'))
         byid = {s['id']: s for s in S}
         kanten = {k['id']: k for k in netz['kanten']}
+        objekte = {o['id']: o for o in O}
         for kn in netz['knoten']:
             if kn['art'] != 'kreuzung':
                 continue
             x0, _, z0 = kn['pos']
-            an, ab = [], []
+            an, ab, gesehen = [], [], set()
             for kid in kn['kanten']:
-                ids = [i for i in kanten.get(kid, {}).get('splines', []) if i in byid]
+                k = kanten.get(kid, {})
+                if k.get('art') == 'unsichtbar':        # KI-Wendeschleifen: nicht Teil der Platte
+                    continue
+                ids = [i for i in k.get('splines', []) if i in byid]
                 if not ids:
                     continue
                 kand = [(byid[ids[0]], 'a'), (byid[ids[0]], 'e'), (byid[ids[-1]], 'a'), (byid[ids[-1]], 'e')]
                 s, w = min(kand, key=lambda c: math.hypot((c[0]['gx'] if c[1] == 'a' else c[0]['e'][0]) - x0,
                                                          (c[0]['gz'] if c[1] == 'a' else c[0]['e'][1]) - z0))
+                if (s['id'], w) in gesehen:
+                    continue
+                gesehen.add((s['id'], w))
                 an.append((s, w))
                 ab.append(math.hypot((s['gx'] if w == 'a' else s['e'][0]) - x0, (s['gz'] if w == 'a' else s['e'][1]) - z0))
             if len(an) < 2:
@@ -293,7 +318,17 @@ def messen(d, omsi=DEFAULT_OMSI, log=print):
             n_kr += 1
             armzahl[len(an)] += 1
             platten.append(2 * st.median(ab))
-            arme += [_arm_kennzahlen(_profil(s, w, enden)) for s, w in an]
+            # Neigung der Platte aus ihrem Modell (omsigen neigt Platten am Gefaelle, hoehen.py/kreuzung.ebene_anwenden):
+            # Knick = Steigung des Arms minus Plattenneigung in Armrichtung
+            o = objekte.get(kn.get('objekt'))
+            bx, bz = _modell_neigung(omsi, o['file']) if o else (0.0, 0.0)
+            geneigt += math.hypot(bx, bz) >= 0.01
+            for s, w in an:
+                h = math.radians(s['h'] if w == 'a' else s['e'][2] + 180.0)      # von der Kreuzung weg
+                k = _arm_kennzahlen(_profil(s, w, enden))
+                soll = 100 * (bx * math.sin(h) + bz * math.cos(h))
+                g_an = s['g'][0] if w == 'a' else -s['g'][1]
+                arme.append((abs(g_an - soll),) + k[1:])
     hang = [a for a in arme if a[1] >= 4.0]
     r['kreuzungen'] = dict(anzahl=n_kr, arme=dict(sorted(armzahl.items())), platte_quartile=_q(platten),
                            geneigt=geneigt, arme_gesamt=len(arme),

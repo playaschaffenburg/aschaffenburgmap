@@ -164,10 +164,17 @@ def write_map(out_maps_dir, name, chains, stops, omsi_dir=None, friendly=None, d
             t = (int(x // TILE), int(z // TILE))
             y = c['y'][i] if 'y' in c else 0.0          # Hoehe (relativ zur Basis) und Steigung in Prozent
             g = c['g'][i] if 'g' in c else 0.0
-            tiles[t].append(['[spline]', '0', spl, str(ids[i]), str(ids[i - 1] if i else 0),
-                             str(ids[i + 1] if i < len(ids) - 1 else 0), fmt(x - TILE * t[0]), fmt(y),
-                             fmt(z - TILE * t[1]), fmt(h % 360), fmt(L), fmt(R), fmt(g), fmt(g), '0', '0', '0', '0',
-                             fmt(cum), '', ''])
+            if c.get('g01'):                            # [spline_h]: Steigung Anfang/Ende + Hoehenaenderung (Ausrundung)
+                g0, g1 = c['g01'][i]
+                tiles[t].append(['[spline_h]', '0', spl, str(ids[i]), str(ids[i - 1] if i else 0),
+                                 str(ids[i + 1] if i < len(ids) - 1 else 0), fmt(x - TILE * t[0]), fmt(y),
+                                 fmt(z - TILE * t[1]), fmt(h % 360), fmt(L), fmt(R), fmt(g0), fmt(g1),
+                                 fmt(c['dh'][i]), '0', '0', '0', '0', fmt(cum), '', ''])
+            else:
+                tiles[t].append(['[spline]', '0', spl, str(ids[i]), str(ids[i - 1] if i else 0),
+                                 str(ids[i + 1] if i < len(ids) - 1 else 0), fmt(x - TILE * t[0]), fmt(y),
+                                 fmt(z - TILE * t[1]), fmt(h % 360), fmt(L), fmt(R), fmt(g), fmt(g), '0', '0', '0', '0',
+                                 fmt(cum), '', ''])
             if c.get('align') and c['align'][i]:       # Gelaendeloch entlang des Splines (wie Berlin-Spandau)
                 tiles[t][-1] += ['[spline_terrain_align]', '']
             cum += L

@@ -15,6 +15,7 @@ from .geom import end_of, rvec
 from .config import KI
 from .kreuzung import x_file
 from .network import ebene
+from .hoehen import hoehe_im_element
 
 TEX = 'betonwand1.bmp'           # Beton aus Splines\Marcel\texture
 GRAS = 'gras.bmp'                # Bodentextur der Karte (OMSI\Texture, global.cfg [groundtex], 1x je Kachel)
@@ -203,6 +204,8 @@ def bauen(net, sdb, hoe, map_name):
                 splines.setdefault(datei, tunnel_sli(l, r))
                 st['tunnel'] += 1
             k = dict(els=[list(e[:5]) + [KI + datei] for e in run], y=ys[i0:i1], g=gs[i0:i1], begleit=art)
+            if ch.get('g01'):                 # gleiche Ausrundung wie die Fahrbahn ([spline_h])
+                k['g01'], k['dh'] = ch['g01'][i0:i1], ch['dh'][i0:i1]
             s0 = [0.0]
             for e in run:
                 s0.append(s0[-1] + e[3])
@@ -213,6 +216,8 @@ def bauen(net, sdb, hoe, map_name):
                 i = next((j for j in range(len(run)) if s0[j + 1] >= s), len(run) - 1)
                 t = min(max(s - s0[i], 0.0), run[i][3])
                 p, h = _punkt(run[i], t)
+                if k.get('g01'):
+                    return p, h, hoehe_im_element(k['y'][i], *k['g01'][i], k['dh'][i], run[i][3], t)
                 return p, h, k['y'][i] + k['g'][i] / 100 * t
             if art == 'bruecke':
                 n = max(0, round(laenge / PFEILER_ABSTAND) - 1)

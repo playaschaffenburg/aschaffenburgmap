@@ -1,11 +1,16 @@
-"""Hoehen fuer die Karte: Strassenprofile mit Steigungen, flache Kreuzungen, Bruecken und Tunnel, Gelaenderaster.
+"""Hoehen fuer die Karte: Strassenprofile mit Steigungen, Kreuzungsplatten als Ebene, Bruecken und Tunnel, Gelaenderaster.
 
 Alle Hoehen in der Karte sind relativ zu einer Basishoehe (Meter ueber NN, Standard: tiefster Strassenpunkt - 2 m).
-- Kreuzung: flach auf Gelaendehoehe ihres Mittelpunkts; die Strassen enden genau auf dieser Hoehe.
-- Strasse: Gelaende entlang der Strecke, geglaettet (gleitendes Mittel ueber GLAETTEN m).
+- Kreuzung (docs/musterbuch.md, Abschnitt 2): Platte = Ebene h0 + gx (x - cx) + gz (z - cz) um den Mittelpunkt der
+  Arme. Eben, solange keine durchgehende Strasse eine Neigung braucht (Neigung kostet NEIGUNG_GEWICHT, hoechstens
+  NEIGUNG_MAX - wie die gekippten Platten in Ahlheim/Staedtedreieck). Jeder Arm setzt mit der Plattenneigung in seiner
+  Richtung an (ANSATZ_GEWICHT) - kein Knick an der Plattenkante.
+- Strasse: Gelaende entlang der Strecke, geglaettet (zweite Ableitung klein, Massstab GLAETTEN m).
 - Bruecke / Tunnel (OSM bridge / tunnel): linear zwischen den Hoehen an ihren Enden (das DGM zeigt dort den
   Boden darunter bzw. darueber, nicht die Fahrbahn).
-- Spline: Starthoehe + gleichbleibende Steigung (Prozent) je Element; Elemente sind hoechstens TEILEN m lang.
+- Spline: [spline_h] mit Steigung am Anfang und Ende und Hoehenaenderung (kubisch wie OMSI, siehe
+  hoehe_im_element): die Steigung laeuft stetig ueber die Elementgrenzen (Ausrundung), an Kreuzungen genau die
+  Plattenneigung. Elemente sind hoechstens TEILEN m lang.
 - Gelaende: DGM im 5-m-Raster der Kacheln; unter Strassen und Kreuzungen auf Fahrbahnhoehe angeglichen (nicht unter
   Bruecken und ueber Tunneln), daneben eine Boeschung 1 : BOESCHUNG zum Gelaende (mindestens UEBERGANG breit) statt
   einer Stufe - je groesser der Hoehenunterschied, desto breiter der Uebergang (S4). Im Grundriss eines Gebaeudes
@@ -13,6 +18,7 @@ Alle Hoehen in der Karte sind relativ zu einer Basishoehe (Meter ueber NN, Stand
 import math
 import numpy as np
 from .geom import end_of, sample
+from .config import RANK
 
 TEILEN = 20.0          # m: laengere Elemente werden geteilt (Hoehenverlauf folgt dem Gelaende)
 GLAETTEN = 30.0        # m: Fenster des gleitenden Mittels
@@ -24,9 +30,46 @@ STEIGUNG_GEWICHT = 4.0  # Gewicht der Steigungsstrafe in der Ausgleichsrechnung
 LICHTE_HOEHE = 5.5      # m: Brueckenfahrbahn mindestens so weit ueber dem Boden darunter
 UEBERDECKUNG = 6.0      # m: Tunnelfahrbahn mindestens so weit unter der Oberflaeche
 RAMPE = 0.12            # der geforderte Abstand waechst vom Bauwerksende an mit hoechstens 12 %
-KREUZUNG_GEWICHT = 5.0  # Kreuzungen halten sich stark ans Gelaende (flache Platte)
+KREUZUNG_GEWICHT = 5.0  # Kreuzungen halten sich stark ans Gelaende
 ZIEL_GEWICHT = 20.0     # Hoehenvorgaben aus dem Editor (Projekt: strasse['hoehen']) gehen vor dem Gelaende
 ZIEL_RADIUS = 3.0       # m: Vorgabe gilt fuer Netzpunkte in diesem Umkreis
+ANSATZ_GEWICHT = 100.0  # erstes Element eines Arms: Steigung = Plattenneigung in Armrichtung (je Einheit Steigung)
+NEIGUNG_GEWICHT = 15.0  # Neigung der Kreuzungsplatte kostet (eben bevorzugt; durchgehendes Gefaelle kippt sie)
+NEIGUNG_MAX = 0.10      # steiler wird keine Platte (Ahlheim: bis 8,7 %)
+AUSRUNDUNG_STRECKE = 40.0  # m: so weit von der Platte wird die Steigung staerker geglaettet ...
+AUSRUNDUNG_FAKTOR = 5.0    # ... an der Platte um diesen Faktor
+QUER_GEWICHT = 100.0     # Querneigung der Hauptrichtung (Arme der hoechsten Strassenklasse) kostet viel: die Hauptstrasse
+                        # behaelt ihr Profil, die Nebenstrasse passt sich an (Ahlheim: Nebenarm mit 8 % Quergefaelle)
+
+
+def hoehe_im_element(y, g0, g1, dh, L, t):
+    """Hoehe nach t Metern in einem Element: Steigung g0 -> g1 (%) und Hoehenaenderung dh - kubisch wie OMSI
+    [spline_h] (openOMSI omsi-geometry height_at); dh None: [spline] (Steigung linear)"""
+    L = max(L, 1e-6)
+    u = min(max(t / L, 0.0), 1.0)
+    if dh is None:
+        return y + t * (g0 + (g1 - g0) * u * 0.5) / 100.0
+    m0, m1 = g0 / 100.0 * L, g1 / 100.0 * L
+    return y + (u ** 3 - 2 * u * u + u) * m0 + (3 * u * u - 2 * u ** 3) * dh + (u ** 3 - u * u) * m1
+
+
+def scheitel_steigungen(s, h, ansatz):
+    """Steigung (%) an jedem Punkt einer Kette (C1: Ableitung der Parabel durch die Nachbarpunkte); ansatz[i] (oder
+    None) gibt sie vor (Kreuzung: Plattenneigung in Kettenrichtung)"""
+    n = len(h)
+    m = [(h[i + 1] - h[i]) / (s[i + 1] - s[i]) * 100 if s[i + 1] > s[i] else 0.0 for i in range(n - 1)]
+    G = []
+    for i in range(n):
+        if ansatz[i] is not None:
+            G.append(ansatz[i])
+        elif i == 0:
+            G.append(m[0] if m else 0.0)
+        elif i == n - 1:
+            G.append(m[-1])
+        else:
+            d1, d2 = s[i] - s[i - 1], s[i + 1] - s[i]
+            G.append((m[i - 1] * d2 + m[i] * d1) / (d1 + d2) if d1 + d2 > 0 else 0.0)
+    return G
 
 
 def zerlegen(els, lvls, maxlen=TEILEN):
@@ -63,7 +106,8 @@ class Hoehen:
     def __init__(self, gel, log=print):
         self.gel, self.log = gel, log
         self.base = 0.0
-        self.kreuz = {}            # Knoten -> Hoehe (relativ)
+        self.kreuz = {}            # Knoten -> Hoehe (relativ) im Mittelpunkt der Arme
+        self.ebenen = {}           # Knoten -> (cx, cz, h0, gx, gz): Platte als Ebene
         self.proben = []           # (x, z, h, innen) fuer das Gelaende: Strassen
         self.flaechen = []         # (x, z, h) Punkte auf Kreuzungsflaechen
 
@@ -90,10 +134,14 @@ class Hoehen:
         werte = [h for h in werte if h is not None] + [h for _, _, h in ziele]
         self.base = math.floor(min(werte)) - 2.0 if werte and self.gel else 0.0
 
+        # Unbekannte: je Kreuzung Hoehe h0 im Mittelpunkt der Arme und Neigung gx, gz (Platte = Ebene), je
+        # Kettenpunkt (ausser an Kreuzungen) eine Hoehe. Ein Punkt ist eine Summe [(Spalte, Faktor)].
         nvar = 0
-        jvar = {}
-        for k in net['arms']:
-            jvar[k] = nvar; nvar += 1
+        jvar, jgx, jgz, jmitte = {}, {}, {}, {}
+        for k, arms in net['arms'].items():
+            jvar[k], jgx[k], jgz[k] = nvar, nvar + 1, nvar + 2
+            nvar += 3
+            jmitte[k] = (sum(a['pos'][0] for a in arms) / len(arms), sum(a['pos'][1] for a in arms) / len(arms))
         rows, cols, vals, rhs = [], [], [], []
         nrow = 0
 
@@ -102,8 +150,19 @@ class Hoehen:
             for c, v in eintraege:
                 rows.append(nrow); cols.append(c); vals.append(v)
             rhs.append(ziel); nrow += 1
+
+        def mal(T, f):
+            return [(c, v * f) for c, v in T]
+
+        def an_platte(k, p):
+            cx, cz = jmitte[k]
+            return [(jvar[k], 1.0), (jgx[k], p[0] - cx), (jgz[k], p[1] - cz)]
+
+        def richtung(p, q):
+            d = math.dist(p, q)
+            return ((q[0] - p[0]) / d, (q[1] - p[1]) / d) if d > 1e-6 else (0.0, 0.0)
         bauwerk_arme = {}                        # Kreuzung -> Anzahl Arme auf Bruecke/im Tunnel
-        bauwerk = []                             # (Variable, Boden, 'bruecke'/'tunnel') fuer die Ungleichungen
+        bauwerk = []                             # (Punkt, Boden, 'bruecke'/'tunnel', Weg) fuer die Ungleichungen
         info = []
         for ch in chains:
             els, lv = ch['els'], ch['ebene']
@@ -111,19 +170,21 @@ class Hoehen:
             s = [0.0]
             for e in els:
                 s.append(s[-1] + e[3])
-            var = []
+            var, knoten_an = [], []
             for i in range(len(pts)):
                 knoten = ch.get('node_s') if i == 0 else ch.get('node_e') if i == len(pts) - 1 else None
                 if knoten in jvar:
-                    var.append(jvar[knoten])
+                    var.append(an_platte(knoten, pts[i]))
+                    knoten_an.append(knoten)
                     if lv[0 if i == 0 else -1]:
                         bauwerk_arme[knoten] = bauwerk_arme.get(knoten, 0) + 1
                 else:
-                    var.append(nvar); nvar += 1
-            info.append((ch, pts, s, var))
+                    var.append([(nvar, 1.0)]); nvar += 1
+                    knoten_an.append(None)
+            info.append((ch, pts, s, var, knoten_an))
             # Gelaende: Punkte, deren beide Nachbarelemente auf Grund liegen
             for i, p in enumerate(pts):
-                if var[i] in jvar.values() and i in (0, len(pts) - 1):
+                if knoten_an[i] is not None:
                     continue                     # Kreuzungshoehe hat eine eigene Zeile
                 links = lv[i - 1] if i > 0 else lv[0]                 # am Ende zaehlt das eine Nachbarelement
                 rechts = lv[i] if i < len(els) else lv[-1]
@@ -143,43 +204,64 @@ class Hoehen:
                 if h is not None:
                     ds = ((s[i] - s[i - 1]) if i > 0 else 0) + ((s[i + 1] - s[i]) if i < len(els) else 0)
                     w = math.sqrt(max(ds, 1.0) / (2 * TEILEN))
-                    zeile([(var[i], w)], w * h)
+                    zeile(mal(var[i], w), w * h)
             # Glaette: zweite Ableitung * GLAETTEN^2
             for i in range(1, len(pts) - 1):
                 d1, d2 = s[i] - s[i - 1], s[i + 1] - s[i]
                 if d1 < 1e-3 or d2 < 1e-3:
                     continue
                 f = GLAETTEN ** 2 * 2 / (d1 + d2) * math.sqrt((d1 + d2) / (2 * TEILEN))
-                zeile([(var[i - 1], f / d1), (var[i], -f / d1 - f / d2), (var[i + 1], f / d2)], 0.0)
+                # nahe einer Kreuzung staerker: lange Ausrundung von der Platte in die Hangsteigung (Vorbilder 20-55 m)
+                ab = min(s[i] if knoten_an[0] is not None else 1e9, s[-1] - s[i] if knoten_an[-1] is not None else 1e9)
+                f *= 1.0 + (AUSRUNDUNG_FAKTOR - 1.0) * max(0.0, 1.0 - ab / AUSRUNDUNG_STRECKE)
+                zeile(mal(var[i - 1], f / d1) + mal(var[i], -f / d1 - f / d2) + mal(var[i + 1], f / d2), 0.0)
             # Steigung leicht bestrafen: auf langen Strecken bestimmt das Gelaende den Verlauf, kurze Stuecke
             # zwischen zwei Kreuzungen werden fast eben (sonst Spruenge zwischen benachbarten Kreuzungshoehen)
             for i in range(len(pts) - 1):
                 d = max(s[i + 1] - s[i], 0.5)
                 f = STEIGUNG_GEWICHT * math.sqrt(d / TEILEN) / d
-                zeile([(var[i], -f), (var[i + 1], f)], 0.0)
+                zeile(mal(var[i], -f) + mal(var[i + 1], f), 0.0)
+            # Ansatz an der Platte: Steigung des ersten Elements = Neigung der Platte in Armrichtung (kein Knick)
+            for i_e, i_n in ((0, 1), (len(pts) - 1, len(pts) - 2)):
+                k = knoten_an[i_e]
+                if k is None or len(pts) < 2:
+                    continue
+                d = s[i_n] - s[i_e] if i_n > i_e else s[i_e] - s[i_n]
+                if d < 1e-3:
+                    continue
+                u = richtung(pts[i_e], pts[i_n])
+                f = ANSATZ_GEWICHT / d
+                zeile(mal(var[i_n], f) + mal(var[i_e], -f) + [(jgx[k], -ANSATZ_GEWICHT * u[0]),
+                                                                 (jgz[k], -ANSATZ_GEWICHT * u[1])], 0.0)
             # sehr kurze Verbindung zwischen zwei Kreuzungen: praktisch gleiche Hoehe (beide Platten gehoeren zusammen)
-            if s[-1] < 10 and var[0] in jvar.values() and var[-1] in jvar.values():
-                zeile([(var[0], -20.0), (var[-1], 20.0)], 0.0)
+            if s[-1] < 10 and knoten_an[0] is not None and knoten_an[-1] is not None:
+                zeile(mal(var[0], -20.0) + mal(var[-1], 20.0), 0.0)
         if ziele:                                 # Hoehenvorgaben: naechste Vorgabe im Umkreis ZIEL_RADIUS
             from scipy.spatial import cKDTree
             baum = cKDTree(np.array([(x, z) for x, z, _ in ziele]))
             gesetzt = set()
-            for ch, pts, s, var in info:
+            for ch, pts, s, var, kn in info:
                 d, idx = baum.query(np.array(pts), distance_upper_bound=ZIEL_RADIUS)
-                for v, di, k in zip(var, d, idx):
-                    if np.isfinite(di) and v not in gesetzt:
-                        gesetzt.add(v)
-                        zeile([(v, ZIEL_GEWICHT)], ZIEL_GEWICHT * (ziele[k][2] - self.base))
+                for T, di, k in zip(var, d, idx):
+                    if np.isfinite(di) and T[0][0] not in gesetzt:
+                        gesetzt.add(T[0][0])
+                        zeile(mal(T, ZIEL_GEWICHT), ZIEL_GEWICHT * (ziele[k][2] - self.base))
         for k, arms in net['arms'].items():
+            zeile([(jgx[k], NEIGUNG_GEWICHT)], 0.0)            # eben bevorzugt
+            zeile([(jgz[k], NEIGUNG_GEWICHT)], 0.0)
+            rang = [RANK.get((a.get('tags') or {}).get('highway'), 0) for a in arms]
+            for a, r in zip(arms, rang):                         # Querneigung der Hauptarme klein halten
+                if r == max(rang) and 'h' in a:
+                    hr = math.radians(a['h'])
+                    zeile([(jgx[k], -QUER_GEWICHT * math.cos(hr)), (jgz[k], QUER_GEWICHT * math.sin(hr))], 0.0)
             if bauwerk_arme.get(k, 0) * 2 > len(arms):    # Kreuzung liegt selbst auf der Bruecke/im Tunnel
                 continue
-            cx = sum(a['pos'][0] for a in arms) / len(arms)
-            cz = sum(a['pos'][1] for a in arms) / len(arms)
-            h = self.gelaende(cx, cz)
+            h = self.gelaende(*jmitte[k])
             if h is not None:
                 zeile([(jvar[k], KREUZUNG_GEWICHT)], KREUZUNG_GEWICHT * h)
         if nvar == 0:
             return self
+
         def loesen():
             # exakt ueber die Normalgleichungen (duenn, symmetrisch positiv definit; winzige Regularisierung fuer
             # Teilnetze ohne Gelaendewert). lsqr brach bei der ganzen Linie 16 (2400 Unbekannte) nach 20000 Schritten
@@ -189,19 +271,32 @@ class Hoehen:
             A = coo_matrix((vals, (rows, cols)), shape=(nrow, nvar)).tocsr()
             N = (A.T @ A).tocsc() + identity(nvar, format='csc') * 1e-9
             return spsolve(N, A.T @ np.array(rhs))
+
+        def wert(T):
+            return float(sum(loes[c] * v for c, v in T))
         loes = loesen()
-        # Ungleichungen: Bruecke >= Boden + LICHTE_HOEHE, Tunnel <= Oberflaeche - UEBERDECKUNG; verletzte
-        # Bedingungen als Zusatzzeilen, dann neu rechnen (aktive Menge)
-        aktiv = set()
+        # Ungleichungen: Bruecke >= Boden + LICHTE_HOEHE, Tunnel <= Oberflaeche - UEBERDECKUNG, Plattenneigung
+        # <= NEIGUNG_MAX; verletzte Bedingungen als Zusatzzeilen, dann neu rechnen (aktive Menge)
+        aktiv, gekappt = set(), set()
         for _ in range(6):
             neu = 0
-            for v, g, art, weg in bauwerk:
+            for n_, (T, g, art, weg) in enumerate(bauwerk):
                 abstand = min(LICHTE_HOEHE if art == 'bruecke' else UEBERDECKUNG, RAMPE * weg)
                 ziel = g + abstand if art == 'bruecke' else g - abstand
-                verletzt = loes[v] < ziel - 0.05 if art == 'bruecke' else loes[v] > ziel + 0.05
-                if verletzt and v not in aktiv:
-                    aktiv.add(v)
-                    zeile([(v, 3.0)], 3.0 * ziel)
+                v = wert(T)
+                verletzt = v < ziel - 0.05 if art == 'bruecke' else v > ziel + 0.05
+                if verletzt and n_ not in aktiv:
+                    aktiv.add(n_)
+                    zeile(mal(T, 3.0), 3.0 * ziel)
+                    neu += 1
+            for k in jvar:
+                gx, gz = loes[jgx[k]], loes[jgz[k]]
+                n_ = math.hypot(gx, gz)
+                if n_ > NEIGUNG_MAX + 1e-3 and k not in gekappt:
+                    gekappt.add(k)
+                    f = NEIGUNG_MAX / n_
+                    zeile([(jgx[k], 200.0)], 200.0 * gx * f)
+                    zeile([(jgz[k], 200.0)], 200.0 * gz * f)
                     neu += 1
             if not neu:
                 break
@@ -209,13 +304,31 @@ class Hoehen:
         if aktiv:
             self.log(f'    Gelaende: {len(aktiv)} Bruecken-/Tunnelpunkte auf Mindestabstand zum Boden gesetzt')
         for k, v in jvar.items():
+            cx, cz = jmitte[k]
             self.kreuz[k] = float(loes[v])
+            self.ebenen[k] = (cx, cz, float(loes[v]), float(loes[jgx[k]]), float(loes[jgz[k]]))
+        geneigt = sum(1 for e in self.ebenen.values() if math.hypot(e[3], e[4]) >= 0.01)
+        if geneigt:
+            self.log(f'    Kreuzungen: {geneigt} von {len(self.ebenen)} Platten folgen dem Gefaelle (Neigung >= 1 %, '
+                     f'hoechstens {max(math.hypot(e[3], e[4]) for e in self.ebenen.values()) * 100:.1f} %)')
         enden = {}
-        for ch, pts, s, var in info:
-            h = [float(loes[v]) for v in var]
+        for ch, pts, s, var, knoten_an in info:
+            h = [wert(T) for T in var]
             els, lv = ch['els'], ch['ebene']
             ch['y'] = h[:-1]
             ch['g'] = [(h[i + 1] - h[i]) / els[i][3] * 100 if els[i][3] > 0 else 0.0 for i in range(len(els))]
+            # Steigung an jedem Punkt: an Kreuzungen die Plattenneigung in Kettenrichtung, sonst stetig (C1)
+            ansatz = [None] * len(pts)
+            for i_e, i_n in ((0, 1), (len(pts) - 1, len(pts) - 2)):
+                k = knoten_an[i_e]
+                if k is None:
+                    continue
+                u = richtung(pts[i_n], pts[i_e]) if i_e else richtung(pts[i_e], pts[i_n])     # in Kettenrichtung
+                _, _, _, gx, gz = self.ebenen[k]
+                ansatz[i_e] = (gx * u[0] + gz * u[1]) * 100
+            G = scheitel_steigungen(s, h, ansatz)
+            ch['g01'] = [(G[i], G[i + 1]) for i in range(len(els))]
+            ch['dh'] = [h[i + 1] - h[i] for i in range(len(els))]
             enden[pts[0]] = h[0]; enden[pts[-1]] = h[-1]
             for i, e in enumerate(els):          # Proben fuers Gelaende (nicht unter Bruecken, nicht ueber Tunneln)
                 if lv[i]:
@@ -226,14 +339,23 @@ class Hoehen:
                     innen = 7.0
                 P = sample(e, 2.0)
                 for (q, _), t in zip(P, np.linspace(0, 1, len(P))):
-                    self.proben.append((q[0], q[1], h[i] + (h[i + 1] - h[i]) * t, innen))
+                    self.proben.append((q[0], q[1], hoehe_im_element(h[i], G[i], G[i + 1], h[i + 1] - h[i], e[3],
+                                                                     t * e[3]), innen))
         for ch in net.get('wenden', []) + net.get('conn_chains', []):
             self._verbinden(ch, enden)
         for j in kreuzungen:
             k = j.get('knoten')
-            j['hoehe'] = self.kreuz.get(k, self.gelaende(*j['origin']) or 0.0)
-            for x, z in j.get('flaeche', ()):
-                self.flaechen.append((x, z, j['hoehe']))
+            if k in self.ebenen:                 # Platte als Ebene: Hoehe am Objektursprung, Neigung je m nach Ost/Nord
+                cx, cz, h0, gx, gz = self.ebenen[k]
+                ox, oz = j['origin']
+                j['hoehe'] = h0 + gx * (ox - cx) + gz * (oz - cz)
+                j['neigung'] = (gx, gz)
+                for x, z in j.get('flaeche', ()):
+                    self.flaechen.append((x, z, h0 + gx * (x - cx) + gz * (z - cz)))
+            else:
+                j['hoehe'] = self.gelaende(*j['origin']) or 0.0
+                for x, z in j.get('flaeche', ()):
+                    self.flaechen.append((x, z, j['hoehe']))
         return self
 
     def _verbinden(self, ch, enden):

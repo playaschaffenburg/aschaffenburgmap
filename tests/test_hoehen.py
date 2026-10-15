@@ -103,4 +103,7 @@ def test_grosses_netz_sackgassen_folgen_dem_hang():
     g = Hang()
     hoe = Hoehen(g, log=lambda *a: None).berechnen(net, SplineDB())
     abw = [abs(y + hoe.base - g.hoehe(e[0], e[1])) for ch in net['road_chains'] for e, y in zip(ch['els'], ch['y'])]
-    assert max(abw) < 0.6
+    # die Sackgassen steigen mit 8 %, die Platten behalten fast die Querneigung der Hauptstrasse (< 2 %): die
+    # Ausrundung dazwischen ist wie in Ahlheim ~40 m lang (8 % ueber 40 m -> rechnerisch ~1,5 m neben dem Rohgelaende,
+    # die Boeschung gleicht es an). Frueher (Knick an der Platte) 0,6 m; ungeloest (lsqr) bis 17 m.
+    assert max(abw) < 2.0 and sorted(abw)[len(abw) // 2] < 1.0

@@ -74,19 +74,15 @@ def splines_lesen(kartenordner):
         _, bl = schichten.bloecke(schichten.lesen(kartenordner, k))
         for b in bl:
             kopf = b[0].strip()
-            if kopf not in ('[spline]', '[spline_h]') or len(b) < 19:
+            # [spline_h]: die Hoehenaenderung steht direkt nach den beiden Steigungen (wie openOMSI tile.rs, Editor)
+            if kopf not in ('[spline]', '[spline_h]') or len(b) < (20 if kopf == '[spline_h]' else 19):
                 continue
             try:
-                f = [float(v) for v in b[3:19]]
+                f = [float(v) for v in b[3:14]]
+                dh = float(b[14]) if kopf == '[spline_h]' else None
             except ValueError:
                 continue
             sid = int(f[0])
-            dh = 0.0
-            if kopf == '[spline_h]' and len(b) > 19:
-                try:
-                    dh = float(b[19])
-                except ValueError:
-                    dh = 0.0
             out[sid] = dict(id=sid, sli=b[2].strip(), spiegel=any(z.strip() == '[mirror]' for z in b),
                             prev=int(f[1]), next=int(f[2]), x=f[3] + k[0] * KACHEL, y=f[4], z=f[5] + k[1] * KACHEL,
                             h=f[6], L=f[7], R=f[8], g0=f[9], g1=f[10], dh=dh, kachel=list(k))
@@ -148,10 +144,10 @@ def ende(s):
 
 
 def hoehe_bei(s, t):
-    """Hoehe nach t Metern: Steigung linear von g0 nach g1 (%), dazu [spline_h]-Hoehenaenderung"""
-    L = s['L'] or 1.0
-    g = s['g0'] + (s['g1'] - s['g0']) * t / L / 2.0
-    return s['y'] + t * g / 100.0 + s['dh'] * t / L
+    """Hoehe nach t Metern: [spline] Steigung linear von g0 nach g1 (%), [spline_h] kubisch mit Hoehenaenderung dh
+    (wie OMSI, hoehen.hoehe_im_element)"""
+    from .hoehen import hoehe_im_element
+    return hoehe_im_element(s['y'], s['g0'], s['g1'], s.get('dh'), s['L'] or 1.0, t)
 
 
 # ---------------------------------------------------------------- ableiten
