@@ -51,3 +51,42 @@ def test_kacheln_im_kreis():
     assert ks == [(0, 0)]
     ks = set(L.kacheln_im_kreis((299.0, 150.0), 10.0))
     assert ks == {(0, 0), (1, 0)}
+
+
+def test_fassade_aus_ablage(tmp_path):
+    # Ablage wie earth-reverse-engineering/tools/lod2/korridor.py: Punkte relativ zum Ursprung (UTM), z = NHN, uv glTF
+    ordner = tmp_path / 'DEBY_LOD2_1'
+    ordner.mkdir()
+    (ordner / 'fassade.jpg').write_bytes(b'jpg')
+    f = dict(id='DEBY_LOD2_1', ursprung=[1005.0, 2000.0], punkte=[[-5, 0, 136], [5, 0, 136], [5, 0, 142]],
+             uv=[[0.0, 1.0], [1.0, 1.0], [1.0, 0.0]], dreiecke=[[0, 1, 2]], textur='fassade.jpg')
+    (ordner / 'gebaeude.json').write_text(__import__('json').dumps(f), encoding='utf-8')
+    fa = L.fassade_laden('DEBY_LOD2_1', str(tmp_path))
+    assert fa is not None and L.fassade_laden('DEBY_LOD2_2', str(tmp_path)) is None
+    g = dict(mitte=np.array([5.0, 2.5]))
+    m, o = L.bauen_fassade(g, fa, dict(ost0=1000, nord0=2000, nn0=130))
+    assert m.mats == ['fassade'] and len(m.F) == 1
+    # .x-Koordinaten (x, hoch, vor) relativ zur Grundrissmitte, Hoehe ueber nn0; uv wie glTF (x_file schreibt -v)
+    pts = sorted((round(v[0], 3), round(v[1], 3), round(v[2], 3)) for v in m.V)
+    assert pts == [(-5.0, 6.0, -2.5), (5.0, 6.0, -2.5), (5.0, 12.0, -2.5)]
+    assert sorted((v[6], -v[7]) for v in m.V) == [(0.0, 1.0), (1.0, 0.0), (1.0, 1.0)]
+
+
+def test_projekt_abbild():
+    from omsigen.route import Projection
+    from omsigen.utm import to_utm
+    proj = Projection(49.97, 9.18)
+    e, n = to_utm(49.97, 9.18)
+    x, y = L.projekt_abbild(proj)(np.array([e, e + 100.0]), np.array([n, n]))
+    assert abs(x[0]) < 1e-3 and abs(y[0]) < 1e-3
+    assert abs(np.hypot(x[1], y[1]) - 100.0 / 0.9996 * 0.9996) < 0.2   # 100 m Ost bleiben ~100 m
+
+
+def test_gebaeude_nur_in_kartenkacheln(tmp_path):
+    from omsigen import writer
+    kette = dict(els=[(10.0, 10.0, 90.0, 50.0, 0.0, r'Splines\x.sli')])
+    geb = [dict(origin=(40.0, 30.0), rel=r'Sceneryobjects\A\B1.sco'), dict(origin=(5000.0, 5000.0), rel=r'Sceneryobjects\A\B2.sco')]
+    info = writer.write_map(str(tmp_path), 'K', [kette], [], gebaeude=geb)
+    assert info['gebaeude'] == 1
+    text = ''.join(open(f, encoding='utf-16').read() for f in __import__('glob').glob(str(tmp_path / 'K' / 'tile_*.map')))
+    assert 'B1.sco' in text and 'B2.sco' not in text

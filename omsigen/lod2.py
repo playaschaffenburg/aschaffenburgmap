@@ -10,12 +10,15 @@ Gelaende). Fassaden und Daecher bekommen erzeugte Texturen nach Gebaeudefunktion
           oder --mitte x y --radius r (alle Kacheln, die den Kreis beruehren)
           -> je OMSI-Kachel Sceneryobjects/Aschaffenburg/<Karte>/LoD2/<kx>_<ky>/ mit Objekten, Texturen und lod2.json
           (Sonderbau-Format, Kennung LoD2/<kx>_<ky>/: erneutes Einsetzen ersetzt nur die LoD2-Gebaeude dieser Kachel)
+  Fassaden: liegt fuer ein Gebaeude eine Fassade aus earth-reverse-engineering (tools/lod2/korridor.py) in
+          Kartendaten/fassaden/gebaeude/<gml-id>/, wird deren Netz mit Texturatlas benutzt (--fassaden, --ohne-fassaden)
 
 Bruecken (53001), Mauern (51007/51009_1700), Staumauern/Wehre gehoeren nicht dazu: die baut OMSIgen selbst."""
 import argparse
 import json
 import math
 import os
+import shutil
 import sys
 import xml.etree.ElementTree as ET
 
@@ -190,6 +193,76 @@ def bauen_gebaeude(g):
     return m, o
 
 
+# Fassaden aus earth-reverse-engineering/tools/lod2/korridor.py (je Gebaeude ein Netz in UTM 32 + NHN mit Texturatlas,
+# aus Google-Earth-Fotos abgeleitet - nur private Nutzung): gibt es eine, ersetzt sie die erzeugten Texturen
+def fassaden_ordner():
+    from .config import KARTENDATEN
+    return os.path.join(KARTENDATEN, 'fassaden', 'gebaeude')
+
+
+QUELLE_FASSADE = 'Fassaden aus Google-Earth-Fotos abgeleitet (nur private Nutzung)'
+
+
+def dds_bc1(quelle, ziel):
+    """Bild -> DDS mit BC1 (DXT1) und allen Mip-Stufen: 1/8 des Grafikspeichers von RGBA, und openOMSI/OMSI laden
+    es ohne eigenes Komprimieren (1400 Fassaden als JPG: ~5 GB unkomprimiert, der Editor hing beim ersten Bild)"""
+    import io
+    import struct
+    from PIL import Image
+    img = Image.open(quelle).convert('RGB')
+    w, h = img.size
+    stufen = []
+    while True:
+        lw, lh = stufen and (max(1, stufen[-1][0] // 2), max(1, stufen[-1][1] // 2)) or (w, h)
+        stufen.append((lw, lh))
+        if lw == 1 and lh == 1:
+            break
+    daten = b''
+    for lw, lh in stufen:
+        stufe = img.resize((lw, lh), Image.LANCZOS) if (lw, lh) != (w, h) else img
+        if lw < 4 or lh < 4:                         # ein Block: auf 4x4 gestreckt kodieren
+            stufe = stufe.resize((4, 4), Image.NEAREST)
+        b = io.BytesIO()
+        stufe.save(b, format='DDS', pixel_format='DXT1')
+        daten += b.getvalue()[128:]                  # nur die Bloecke (Kopf: 128 Byte)
+    # Kopf 128 Byte: Kennung, 7 Felder, 11 reserviert, Pixelformat (Groesse, FOURCC, 'DXT1', 5 Masken), Caps 1-4, reserviert
+    kopf = struct.pack('<4s7I44x2I4s5I5I', b'DDS ', 124, 0x1 | 0x2 | 0x4 | 0x1000 | 0x20000 | 0x80000,
+                       h, w, max(1, (w + 3) // 4) * max(1, (h + 3) // 4) * 8, 0, len(stufen),
+                       32, 0x4, b'DXT1', 0, 0, 0, 0, 0, 0x1000 | 0x400000 | 0x8, 0, 0, 0, 0)
+    assert len(kopf) == 128
+    with open(ziel, 'wb') as f:
+        f.write(kopf + daten)
+
+
+def fassade_laden(gid, ordner):
+    pfad = os.path.join(ordner, gid, 'gebaeude.json') if ordner else ''
+    if not pfad or not os.path.isfile(pfad):
+        return None
+    f = json.load(open(pfad, encoding='utf-8'))
+    f['bild'] = os.path.join(ordner, gid, f['textur'])
+    return f if os.path.isfile(f['bild']) else None
+
+
+def bauen_fassade(g, f, bez, abbild=None):
+    """Gebaeude mit Fassade -> Mesh (Objektursprung wie bauen_gebaeude: Mitte des LoD2-Grundrisses, Hoehe absolut).
+    abbild(ost, nord) -> (x, y) Kartenkoordinaten (Arrays); ohne: UTM-Karte mit bez ost0/nord0"""
+    from .sonderbau_ring import Mesh
+    m = Mesh()
+    o = np.array([g['mitte'][0], g['mitte'][1], 0.0])
+    P = np.asarray(f['punkte'], float)
+    E, N = P[:, 0] + f['ursprung'][0], P[:, 1] + f['ursprung'][1]
+    X, Y = abbild(E, N) if abbild else (E - bez['ost0'], N - bez['nord0'])
+    P = np.c_[X - o[0], Y - o[1], P[:, 2] - bez['nn0']]
+    UV = np.asarray(f['uv'], float)
+    for a, b, c in f['dreiecke']:
+        n = np.cross(P[b] - P[a], P[c] - P[a])
+        if np.linalg.norm(n) < 1e-9:
+            continue
+        # glTF-uv (0,0 oben links) -> Mesh-uv (x_file schreibt -v)
+        m.dreieck('fassade', [P[a], P[b], P[c]], [(UV[i, 0], -UV[i, 1]) for i in (a, b, c)], n)
+    return m, o
+
+
 TEX = {'wohnen': 'LOD2_fassade_wohnen.bmp', 'gewerbe': 'LOD2_fassade_gewerbe.bmp', 'putz': 'LOD2_putz.bmp',
        'sandstein': 'LOD2_sandstein.bmp', 'beton': 'LOD2_beton.bmp', 'dach_ziegel': 'LOD2_dach_ziegel.bmp',
        'dach_flach': 'LOD2_dach_flach.bmp'}
@@ -225,8 +298,9 @@ def texturen(ziel):
     rauschen((128, 128, 124), st=14).save(os.path.join(ziel, TEX['dach_flach']))
 
 
-def sco_text(name, mats):
-    L = [f'Erzeugt mit OMSIgen (omsigen.lod2). Quelle: {QUELLE}.', '', '[friendlyname]', f'LoD2 {name}', '',
+def sco_text(name, mats, fassade=False):
+    quelle = QUELLE + ('; ' + QUELLE_FASSADE if fassade else '')
+    L = [f'Erzeugt mit OMSIgen (omsigen.lod2). Quelle: {quelle}.', '', '[friendlyname]', f'LoD2 {name}', '',
          '[groups]', '1', 'Aschaffenburg', '', '[fixed]', '', '[absheight]', '', '[mesh]', name + '.x', '']
     return '\r\n'.join(L) + '\r\n'
 
@@ -243,10 +317,15 @@ def kacheln_im_kreis(mitte, radius):
     return out
 
 
-def bauen(omsi, karte, omsi_kacheln, laden_erlaubt=False, pruefen=True):
+def bauen(omsi, karte, omsi_kacheln, laden_erlaubt=False, pruefen=True, fassaden='standard', statistik=None):
     """LoD2-Gebaeude je OMSI-Kachel (Gebaeudemitte in der Kachel): Objekte in LoD2/<kx>_<ky>/ und je Kachel ein
-    lod2.json mit Kennung LoD2/<kx>_<ky>/ im Pfad - erneutes Einsetzen ersetzt nur die Gebaeude dieser Kachel
+    lod2.json mit Kennung LoD2/<kx>_<ky>/ im Pfad - erneutes Einsetzen ersetzt nur die Gebaeude dieser Kachel.
+    fassaden: Ordner der Fassaden je Gebaeude ('standard' = Kartendaten/fassaden/gebaeude, None = keine);
+    statistik (dict) bekommt 'fassaden' = Zahl der Gebaeude mit Fassade
     -> (Liste json-Pfade, Gebaeude, Dreiecke)"""
+    if fassaden == 'standard':
+        fassaden = fassaden_ordner()
+    n_fassaden = 0
     bs = '\\'
     from .aufmass import bezug_lesen
     from .kreuzung import x_file
@@ -277,7 +356,9 @@ def bauen(omsi, karte, omsi_kacheln, laden_erlaubt=False, pruefen=True):
     for e, n in noetig:
         for g in gebaeude(datei(e, n), bez, lambda p: x0 <= p[0] < x1 and y0 <= p[1] < y1 and in_kachel(p)):
             k = (math.floor(g['mitte'][0] / 300), math.floor(g['mitte'][1] / 300))
-            m, o = bauen_gebaeude(g)
+            name = g['id'].replace('DEBY_LOD2_', 'B')
+            fa = fassade_laden(g['id'], fassaden)
+            m, o = bauen_fassade(g, fa, bez) if fa else bauen_gebaeude(g)
             if m.leer():
                 continue
             ordner = os.path.join(basis, f'{k[0]}_{k[1]}')
@@ -285,23 +366,108 @@ def bauen(omsi, karte, omsi_kacheln, laden_erlaubt=False, pruefen=True):
             if k not in fertig_tex:                    # Texturen je Kachelordner (OMSI sucht sie neben dem Objekt)
                 texturen(os.path.join(ordner, 'texture'))
                 fertig_tex.add(k)
-            name = g['id'].replace('DEBY_LOD2_', 'B')
+            if fa:
+                dds_bc1(fa['bild'], os.path.join(ordner, 'texture', name + '.dds'))
+                mats = [('fassade', name + '.dds')]
+                n_fassaden += 1
+            else:
+                mats = [(kk, TEX[kk]) for kk in m.mats]
             with open(os.path.join(ordner, 'model', name + '.x'), 'w', newline='') as f:
-                f.write(x_file(m.V, m.F, [(kk, TEX[kk]) for kk in m.mats]))
-            open(os.path.join(ordner, name + '.sco'), 'w', encoding='cp1252', newline='').write(sco_text(name, m.mats))
+                f.write(x_file(m.V, m.F, mats))
+            open(os.path.join(ordner, name + '.sco'), 'w', encoding='cp1252', newline='').write(sco_text(name, m.mats, bool(fa)))
             je[k].append(dict(name=name, rel=bs.join([rel0, f'{k[0]}_{k[1]}', name + '.sco']), x=round(float(o[0]), 3), y=round(float(o[1]), 3),
-                              z=0.0, funktion=g['funktion'], dach=g['dach'], hoehe=g['hoehe']))
+                              z=0.0, funktion=g['funktion'], dach=g['dach'], hoehe=g['hoehe'], fassade=bool(fa)))
             n_dr += len(m.F)
     pfade = []
     for (kx, ky), objekte in sorted(je.items()):
         ordner = os.path.join(basis, f'{kx}_{ky}')
         os.makedirs(ordner, exist_ok=True)
         out = dict(karte=karte, marker=bs + 'LoD2' + bs + f'{kx}_{ky}' + bs, kachel=[kx, ky], objekte=objekte, strassen=[], kreuzungen=[],
-                   gelaende=[], gelaende_zurueck=[], quellen=[QUELLE])
+                   gelaende=[], gelaende_zurueck=[], quellen=[QUELLE] + ([QUELLE_FASSADE] if any(o.get('fassade') for o in objekte) else []))
         pfad = os.path.join(ordner, 'lod2.json')
         json.dump(out, open(pfad, 'w', encoding='utf-8'), indent=1, ensure_ascii=False)
         pfade.append(pfad)
+    if statistik is not None:
+        statistik['fassaden'] = n_fassaden
     return pfade, sum(len(v) for v in je.values()), n_dr
+
+
+def projekt_abbild(proj):
+    """UTM 32 -> Projektmeter des Generators (route.Projection: ebene Naeherung um lat0/lon0)"""
+    from .utm import from_utm
+
+    def abbild(e, n):
+        e, n = np.atleast_1d(e).astype(float), np.atleast_1d(n).astype(float)
+        ll = [from_utm(a, b) for a, b in zip(e, n)]
+        xy = np.array([proj.to_m(lat, lon) for lat, lon in ll])
+        return xy[:, 0], xy[:, 1]
+    return abbild
+
+
+def bauen_fuer_projekt(root, name, proj, basis, linie, breite=150.0, fassaden='standard', laden_erlaubt=True,
+                       ueberschreiben=False, log=print):
+    """LoD2-Gebaeude fuer eine Generator-Karte (omsigen.pipeline): alle Gebaeude, deren Mitte hoechstens `breite` m
+    von der Linie (Projektmeter) entfernt ist, als Objekte in Sceneryobjects/Aschaffenburg/<name>/LoD2/ (nach den
+    Kreuzungsobjekten aufrufen: install_objects ersetzt den Kartenordner; Fassaden wie in bauen()). Hoehe = NN - basis.
+    -> Liste dict(origin=(x, z) Projektmeter, rel=Pfad der .sco, fassade=bool)"""
+    from .kreuzung import x_file
+    from .utm import to_utm
+    if fassaden == 'standard':
+        fassaden = fassaden_ordner()
+    bs = '\\'
+    abbild = projekt_abbild(proj)
+    L = np.array([to_utm(*proj.to_ll(x, z)) for x, z in linie])
+    bez = dict(ost0=0.0, nord0=0.0, nn0=basis)
+    lo, hi = L.min(0) - breite, L.max(0) + breite
+    noetig = sorted({(e, n) for e in range(int(lo[0] // 2000 * 2), int(hi[0] // 2000 * 2) + 1, 2)
+                     for n in range(int(lo[1] // 2000 * 2), int(hi[1] // 2000 * 2) + 1, 2)})
+    a, b = L[:-1], L[1:]
+    ab = b - a
+
+    def nah(p):
+        t = np.clip(((p - a) * ab).sum(1) / np.maximum((ab * ab).sum(1), 1e-9), 0, 1)
+        return np.linalg.norm(a + t[:, None] * ab - p, axis=1).min() <= breite
+    ordner = os.path.join(root, 'Sceneryobjects', 'Aschaffenburg', name, 'LoD2')   # im eigenen Objektordner der Karte
+    rel0 = bs.join(['Sceneryobjects', 'Aschaffenburg', name, 'LoD2'])            # (sonst fragt der Editor nach "fremden" Objekten)
+    if os.path.exists(ordner):
+        if not ueberschreiben:
+            raise FileExistsError(f'Objektordner {ordner} existiert schon - anderen Kartennamen waehlen')
+        shutil.rmtree(ordner)
+    os.makedirs(os.path.join(ordner, 'model'))
+    texturen(os.path.join(ordner, 'texture'))
+    out, n_dr = [], 0
+    for e, n in noetig:
+        if not os.path.isfile(datei(e, n)):
+            if not laden_erlaubt:
+                continue
+            try:
+                laden(e, n)
+            except Exception as err:                   # ausserhalb Bayerns gibt es keine Kachel
+                log(f'    LoD2-Kachel {e}_{n} nicht verfuegbar: {err}')
+                continue
+        for g in gebaeude(datei(e, n), bez, lambda p: lo[0] <= p[0] <= hi[0] and lo[1] <= p[1] <= hi[1] and nah(p)):
+            gname = g['id'].replace('DEBY_LOD2_', 'B')
+            fa = fassade_laden(g['id'], fassaden)
+            # LoD2 in Projektmeter: Ringe und Mitte abbilden (die Hoehen bleiben)
+            utm_mitte = g['mitte'].copy()
+            g['flaechen'] = [(art, [np.c_[np.stack(abbild(r[:, 0], r[:, 1]), 1), r[:, 2]] for r in ringe])
+                             for art, ringe in g['flaechen']]
+            g['mitte'] = np.array(abbild(utm_mitte[0], utm_mitte[1])).ravel()
+            m, o = bauen_fassade(g, fa, bez, abbild) if fa else bauen_gebaeude(g)
+            if m.leer():
+                continue
+            if fa:
+                dds_bc1(fa['bild'], os.path.join(ordner, 'texture', gname + '.dds'))
+                mats = [('fassade', gname + '.dds')]
+            else:
+                mats = [(kk, TEX[kk]) for kk in m.mats]
+            with open(os.path.join(ordner, 'model', gname + '.x'), 'w', newline='') as f:
+                f.write(x_file(m.V, m.F, mats))
+            open(os.path.join(ordner, gname + '.sco'), 'w', encoding='cp1252', newline='').write(sco_text(gname, m.mats, bool(fa)))
+            out.append(dict(origin=(float(o[0]), float(o[1])), rel=bs.join([rel0, gname + '.sco']), fassade=bool(fa)))
+            n_dr += len(m.F)
+    log(f'    LoD2: {len(out)} Gebaeude ({sum(o["fassade"] for o in out)} mit Fassade), {n_dr} Dreiecke')
+    return out
 
 
 def main():
@@ -313,6 +479,8 @@ def main():
     ap.add_argument('--radius', type=float, default=300.0)
     ap.add_argument('--laden', action='store_true')
     ap.add_argument('--ohne-pruefung', action='store_true', help='Kacheln nicht gegen die gespeicherte Karte pruefen (Editor-Sitzung)')
+    ap.add_argument('--fassaden', help='Ordner der Fassaden je Gebaeude (Standard: Kartendaten/fassaden/gebaeude)')
+    ap.add_argument('--ohne-fassaden', action='store_true', help='nur erzeugte Texturen, auch wo es Fassaden gibt')
     a = ap.parse_args()
     try:
         if a.kacheln:
@@ -321,8 +489,10 @@ def main():
             ks = kacheln_im_kreis(a.mitte, a.radius)
         else:
             raise ValueError('--kacheln oder --mitte angeben')
-        pfade, n, d = bauen(a.omsi, a.karte, ks, a.laden, not a.ohne_pruefung)
-        erg = dict(jsons=pfade, gebaeude=n, dreiecke=d, kacheln=[list(k) for k in ks])
+        st = {}
+        pfade, n, d = bauen(a.omsi, a.karte, ks, a.laden, not a.ohne_pruefung,
+                            None if a.ohne_fassaden else (a.fassaden or 'standard'), st)
+        erg = dict(jsons=pfade, gebaeude=n, dreiecke=d, kacheln=[list(k) for k in ks], fassaden=st.get('fassaden', 0))
     except Exception as e:
         erg = dict(fehler=f'{type(e).__name__}: {e}')
     print(json.dumps(erg, ensure_ascii=False))

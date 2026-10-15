@@ -157,8 +157,9 @@ def berechne(projekt, name='Vorschau', omsi=None, korrekturen=None, kreuzungen='
 
 
 def erzeuge(projekt, name, omsi=None, ausgabe='build', korrekturen=None, ueberschreiben=False, kreuzungen='objekt',
-            titel=None, vorschau=None, ansicht_html=None, log=print, gelaende=True):
-    """Projekt -> OMSI-Karte. -> dict(rc, dir, offen, enden, stats, kreuzungen, vorfahrt)"""
+            titel=None, vorschau=None, ansicht_html=None, log=print, gelaende=True, gebaeude=None):
+    """Projekt -> OMSI-Karte. gebaeude: Korridor (m) fuer LoD2-Gebaeude (Bayern, nur mit Gelaende; Fassaden aus den
+    Kartendaten, siehe lod2.bauen_fuer_projekt), None = keine. -> dict(rc, dir, offen, enden, stats, kreuzungen, vorfahrt)"""
     B = berechne(projekt, name, omsi, korrekturen, kreuzungen, gelaende, log)
     proj, sdb, net, stops, junctions, V, hoe = (B['proj'], B['sdb'], B['net'], B['stops'], B['junctions'],
                                                 B['vorfahrt'], B['hoe'])
@@ -189,13 +190,22 @@ def erzeuge(projekt, name, omsi=None, ausgabe='build', korrekturen=None, uebersc
         if e and n not in namen:
             namen.add(n)
             entrypoints.append(dict(e, name=n[:60]))
+    if os.path.exists(os.path.join(root, 'maps', name)) and not ueberschreiben:
+        raise FileExistsError(f'Kartenordner {os.path.join(root, "maps", name)} existiert schon - anderen Namen waehlen')
+    kdir = None
+    if objekte:                  # vor den Gebaeuden: install_objects ersetzt den ganzen Objektordner der Karte
+        kdir, _ = kreuzung.install_objects(root, name, objekte, omsi_dir=omsi, overwrite=ueberschreiben)
+    geb = []
+    if gebaeude and hat_gelaende:
+        from . import lod2
+        log(f'    LoD2-Gebaeude im Korridor {gebaeude:.0f} m ...')
+        geb = lod2.bauen_fuer_projekt(root, name, proj, hoe.base, linie, gebaeude, ueberschreiben=ueberschreiben, log=log)
+    elif gebaeude:
+        log('    LoD2-Gebaeude nur mit Gelaende (absolute Hoehen) - uebersprungen')
     info = write_map(os.path.join(root, 'maps'), name, chains, stops, omsi_dir=omsi, friendly=titel or name,
                      description=desc, cam_xz=(entrypoints[0]['x'], entrypoints[0]['z']) if entrypoints else
                      tuple(linie[0]), overwrite=ueberschreiben, junctions=objekte, entrypoints=entrypoints,
-                     raster=hoe.raster if hat_gelaende else None)
-    kdir = None
-    if objekte:
-        kdir, _ = kreuzung.install_objects(root, name, objekte, omsi_dir=omsi, overwrite=ueberschreiben)
+                     raster=hoe.raster if hat_gelaende else None, gebaeude=geb)
     with open(os.path.join(info['dir'], 'omsigen.json'), 'w', encoding='utf-8') as f:
         json.dump(dict(projekt=projekt.get('name'), origin=[proj.lat0, proj.lon0], offset=info['offset'],
                        hoehe_basis=hoe.base if hat_gelaende else None,
@@ -204,7 +214,8 @@ def erzeuge(projekt, name, omsi=None, ausgabe='build', korrekturen=None, uebersc
                                         z=j['origin'][1] - info['offset'][1]) for j in junctions if j['vorfahrt']]),
                   f, ensure_ascii=False, indent=1)
     log(f'    {info["dir"]}: {info["tiles"]} Kacheln, {info["splines"]} Splines, '
-        f'{len(junctions)} Kreuzungsobjekte, {len(stops)} Haltestellen, {len(entrypoints)} Einsetzpunkte')
+        f'{len(junctions)} Kreuzungsobjekte, {len(stops)} Haltestellen, {len(entrypoints)} Einsetzpunkte'
+        + (f', {info["gebaeude"]} Gebaeude' if geb else ''))
     if junctions:
         log(f'    Kreuzungsobjekte: {kdir} ({sum(j["faces"] for j in junctions)} Dreiecke, '
             f'{sum(j["paths"] for j in junctions)} Pfade)')

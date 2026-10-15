@@ -28,11 +28,14 @@ def main(argv=None):
     ap.add_argument('--kreuzungen', choices=['objekt', 'spline'], default='objekt',
                     help='Kreuzungen als eigene Objekte mit Flaeche (Standard) oder nur aus Spur-Splines (alt)')
     ap.add_argument('--ohne-gelaende', action='store_true', help='flache Karte ohne DGM-Gelaende')
+    ap.add_argument('--gebaeude', type=float, nargs='?', const=150.0, metavar='BREITE',
+                    help='LoD2-Gebaeude bis BREITE m (Standard 150) um die Strecke (Bayern; Fassaden aus den Kartendaten)')
     a = ap.parse_args(argv)
     projekt = pipeline.importiere(a.von, a.nach, a.stadt, a.ueber, a.breite, a.cache, a.osm_datei)
     r = pipeline.erzeuge(projekt, a.name, omsi=a.omsi, ausgabe=a.ausgabe, korrekturen=a.korrekturen,
                          ueberschreiben=a.ueberschreiben, kreuzungen=a.kreuzungen, titel=a.titel,
-                         vorschau=a.vorschau, ansicht_html=a.ansicht, gelaende=not a.ohne_gelaende)
+                         vorschau=a.vorschau, ansicht_html=a.ansicht, gelaende=not a.ohne_gelaende,
+                         gebaeude=a.gebaeude)
     return r['rc']
 
 

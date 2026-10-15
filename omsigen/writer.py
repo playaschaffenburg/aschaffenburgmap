@@ -141,9 +141,10 @@ def karten_ursprung(chains, stops=(), junctions=()):
 
 
 def write_map(out_maps_dir, name, chains, stops, omsi_dir=None, friendly=None, description='', cam_xz=None,
-              overwrite=False, junctions=(), entrypoints=(), raster=None):
+              overwrite=False, junctions=(), entrypoints=(), raster=None, gebaeude=()):
     """chains: Liste Ketten (els in Metern, beliebiger Ursprung); junctions: Kreuzungsobjekte (kreuzung.py) mit
-    origin und rel (Pfad der .sco). Gibt Infos inkl. Verschiebung zurueck."""
+    origin und rel (Pfad der .sco); gebaeude: Objekte mit origin und rel ([absheight], Hoehe 0) - nur in Kacheln,
+    die die Karte ohnehin hat. Gibt Infos inkl. Verschiebung zurueck."""
     D = os.path.join(out_maps_dir, name)
     if os.path.exists(D) and not overwrite:
         raise FileExistsError(f'Kartenordner {D} existiert schon - anderen Namen waehlen')
@@ -216,6 +217,16 @@ def write_map(out_maps_dir, name, chains, stops, omsi_dir=None, friendly=None, d
     used = set(tiles) | set(objs)
     all_tiles = {(x + dx, z + dz) for x, z in used for dx in (-1, 0, 1) for dz in (-1, 0, 1)
                  if x + dx >= 0 and z + dz >= 0}
+    n_geb = 0
+    for g in gebaeude:             # LoD2-Gebaeude: absolute Hoehe im Modell, Objekt auf 0
+        x, z = g['origin'][0] - ox, g['origin'][1] - oz
+        t = (int(x // TILE), int(z // TILE))
+        if x < 0 or z < 0 or t not in all_tiles:
+            continue
+        objs[t].append(['[object]', '0', g['rel'], str(nid), fmt(x - TILE * t[0]), fmt(z - TILE * t[1]), '0', '0',
+                        '0', '0', '0', ''])
+        nid += 1
+        n_geb += 1
 
     stamp = datetime.datetime.now().strftime('%d.%m.%Y %H:%M:%S')
     tpl = os.path.join(omsi_dir, 'template', 'NewMap') if omsi_dir else None
@@ -256,7 +267,7 @@ def write_map(out_maps_dir, name, chains, stops, omsi_dir=None, friendly=None, d
         f.write(f'Erzeugt mit omsigen am {stamp}.\nStrassendaten (c) OpenStreetMap-Mitwirkende, ODbL 1.0 '
                 f'(https://www.openstreetmap.org/copyright).\n{description}\n')
     return dict(dir=D, offset=(ox, oz), tiles=len(all_tiles), splines=sum(len(v) for v in tiles.values()),
-                objects=sum(len(v) for v in objs.values()))
+                objects=sum(len(v) for v in objs.values()), gebaeude=n_geb)
 
 
 def install_splines(omsi_dir_or_out, extra=None):

@@ -395,6 +395,9 @@ Fassaden-/Dachtexturen nach Gebäudefunktion und Dachneigung; Brücken und Mauer
 LoD2-Kacheln (2 km, bis ~120 MB) liegen in `%LOCALAPPDATA%\omsi-editor\geodaten\lod2`, fehlende erst nach Rückfrage.
 Gebaut wird je OMSI-Kachel (Ordner `LoD2\<x>_<y>`): erneutes Einsetzen ersetzt nur die LoD2-Gebäude dieser Kachel.
 Im **World Editor → Kacheln bearbeiten** lädt „LoD2-Gebäude dieser Kachel laden“ direkt die gewählte Kachel.
+Gebäude mit **Fassaden** aus `earth-reverse-engineering/tools/lod2/korridor.py` (z. B. entlang Linie 16, liegen in
+`Documents\Aschaffenburg\fassaden\gebaeude\<gml-id>\`) bekommen dabei automatisch ihr Netz mit Texturatlas (Fenster,
+Farben aus Google-Earth-Fotos abgeleitet – nur private Nutzung); alle anderen behalten die erzeugten Texturen.
 
 **Messen** (Knopf oben, Menü): „Strecke messen (M)“ und „Bauwerk vermessen (Laserdaten)“.
 
