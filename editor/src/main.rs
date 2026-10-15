@@ -419,6 +419,10 @@ enum UiAktion {
     Lod2,
     /// LoD2-Gebaeude fuer diese Kacheln (World Editor)
     Lod2Kacheln(Vec<(i32, i32)>),
+    /// Boden (Malmasken) dieser Kacheln neu bauen (World Editor, omsigen.boden)
+    BodenKacheln(Vec<(i32, i32)>),
+    /// Boden gebaut: diese Kacheln neu laden, Schichten neu pruefen
+    BodenGebaut(Vec<(i32, i32)>),
     /// Aufmass gebaut: Sonderbau-JSON einsetzen, Objekte neu einlesen (auch ein Abschnitt der Kreuzung)
     AufmassGebaut(PathBuf, Vec<String>),
     /// Kreuzung nach dem Plan in Abschnitte teilen
@@ -1430,6 +1434,13 @@ impl App {
                     self.vermessen = Some(vm);
                 }
             }
+            if let Some((ks, m)) = self.schichten.boden_abholen() {
+                self.meldung = m;
+                aktionen.push(UiAktion::BodenGebaut(ks));
+            }
+            if self.schichten.boden_laeuft() {
+                ctx.ctx().request_repaint_after(std::time::Duration::from_millis(300));
+            }
             if let Some(l) = self.lod2.as_mut() {
                 let kk = self.viewer.as_ref().map(|v| v.map_tiles()).unwrap_or_default();
                 match l.ui(ctx.ctx(), self.kam.ziel.truncate(), &kk) {
@@ -1992,10 +2003,19 @@ impl App {
                                         && ui.small_button("neu bauen").on_hover_text("LoD2-Gebaeude dieser Kachel neu bauen und einsetzen").clicked() {
                                         aktionen.push(UiAktion::Lod2Kacheln(vec![k]));
                                     }
+                                    if (z == "veraltet" || z == "geaendert") && s == "boden"
+                                        && ui.add_enabled(!self.schichten.boden_laeuft(), egui::Button::new("neu bauen").small()).on_hover_text("Malmasken dieser Kachel neu bauen (Belaege aus Luftbild, OSM-Flaechen und den gespeicherten Strassen)").clicked() {
+                                        aktionen.push(UiAktion::BodenKacheln(vec![k]));
+                                    }
                                 });
                                 if !grund.is_empty() {
                                     ui.label(egui::RichText::new(grund).small().weak());
                                 }
+                            }
+                            if !zeilen.iter().any(|(s, _, _)| s == "boden") && self.karte.is_some()
+                                && ui.add_enabled(!self.schichten.boden_laeuft(), egui::Button::new("Boden dieser Kachel bauen"))
+                                    .on_hover_text("Malmasken (Gras, Erde, Schotter, Pflaster, Asphalt, Wasser) aus Luftbild DOP20, OSM-Flaechen und den gespeicherten Strassen bauen (omsigen.boden)").clicked() {
+                                aktionen.push(UiAktion::BodenKacheln(vec![k]));
                             }
                             if !self.schichten.meldung.is_empty() {
                                 ui.label(egui::RichText::new(&self.schichten.meldung).small().weak());
@@ -3512,6 +3532,21 @@ impl App {
             UiAktion::BauwerkeNeu => {
                 if let Some(v) = self.viewer.as_mut() {
                     self.strasse.bauwerke_aktualisieren(v);
+                }
+            }
+            UiAktion::BodenKacheln(ks) => {
+                if let Some(k) = self.karte.clone() {
+                    self.schichten.boden_bauen(&self.root, &k, ks);
+                }
+            }
+            UiAktion::BodenGebaut(ks) => {
+                if let Some(v) = self.viewer.as_mut() {
+                    if let Err(e) = v.reload_tiles(&ks) {
+                        self.meldung = format!("Kacheln nicht neu geladen: {e:#}");
+                    }
+                }
+                if let Some(k) = self.karte.clone() {
+                    self.schichten.pruefen(&self.root, &k);
                 }
             }
             UiAktion::Lod2Kacheln(ks) => {

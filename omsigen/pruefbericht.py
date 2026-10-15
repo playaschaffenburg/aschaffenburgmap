@@ -6,6 +6,7 @@ Gesammelt wird, was die Werkzeuge der Fundament-Phase liefern:
   - Schichten: veraltete oder gebaute, aber nicht eingesetzte Pakete (omsigen.schichten)
   - Ableitungen: netz.json und Belegung passen nicht mehr zur Karte (omsigen.netz_datei, omsigen.belegung)
   - Platzierung: Gebaeude ueber Fahrbahn/Kreuzung (Belegung)
+  - Boden (S4, omsigen.boden): Kacheln ohne Malmasken, Fahrbahn auf Gras/Erde (Masken passen nicht zur Belegung)
   - Budgets je Kachel (F6, vorlaeufig): Objekte, Dreiecke, Texturspeicher
 Prueforte (maps/<Karte>/pruefpunkte.json, sonst die Haltestellen der Karte) bekommen auf Wunsch ein Spielbild aus
 openOMSI (--bilder) und einen Luftbildvergleich von oben (--luftbild).
@@ -136,6 +137,48 @@ def strassen_funde(kartenordner, omsi):
     return funde, r['summary']
 
 
+# ---------------------------------------------------------------- Boden
+
+BODEN_M2 = 5.0           # Fahrbahn auf Gras/Erde ab dieser Flaeche je Kachel melden
+
+
+def boden_funde(kartenordner, bel):
+    """Funde der Schicht boden (nur Karten mit boden.json): Kacheln ohne Malmasken, Fahrbahn/Kreuzung der Belegung, die in
+    den Masken als Gras, Erde oder Grund erscheint (ohne den 1-m-Rand, der weich in die Nachbarschaft uebergeht)"""
+    import numpy as np
+    from . import belegung, boden
+    if not os.path.isfile(os.path.join(kartenordner, boden.DATEI)):
+        return []
+    from scipy import ndimage
+    funde = []
+    ix = schichten.index_lesen(kartenordner)['kacheln']
+    for k in schichten.kacheln(kartenordner):
+        mitte = (k[0] * KACHEL + 150, k[1] * KACHEL + 150)
+        if 'boden' not in ix.get(f'{k[0]}_{k[1]}', {}):
+            funde.append(dict(art='boden_fehlt', x=mitte[0], z=mitte[1], text='Boden nicht gebaut (python -m omsigen.boden)'))
+            continue
+        kl = boden.kachel_klassen(kartenordner, k)
+        if kl is None:                       # gebaut, aber ohne Masken: ueberall der Grund
+            kl = np.zeros((boden.MASKE, boden.MASKE), np.uint8)
+        r = bel.raster(k) if bel is not None else None
+        if r is None:
+            continue
+        strasse = np.isin(r, (belegung.FAHRBAHN, belegung.KREUZUNG))
+        strasse = ndimage.binary_erosion(strasse, iterations=2)
+        n = kl.shape[0]
+        idx = (np.arange(n) * belegung.N // n).astype(int)
+        s = strasse[np.ix_(idx, idx)]
+        falsch = s & np.isin(kl, (boden.GRUND, boden.GRAS, boden.ERDE))
+        m2 = float(falsch.sum()) * (KACHEL / n) ** 2
+        if m2 >= BODEN_M2:
+            jj, ii = np.nonzero(falsch)
+            x = k[0] * KACHEL + (ii.mean() + 0.5) * KACHEL / n
+            z = k[1] * KACHEL + KACHEL - (jj.mean() + 0.5) * KACHEL / n
+            funde.append(dict(art='boden_fahrbahn_gras', x=round(x, 1), z=round(z, 1),
+                              text=f'{m2:.0f} m2 Fahrbahn auf Gras/Erde - Boden neu bauen'))
+    return funde
+
+
 # ---------------------------------------------------------------- Prueforte und Bilder
 
 def prueforte(kartenordner):
@@ -262,6 +305,8 @@ def erstellen(kartenordner, omsi=None, mit_spiel=False, mit_luft=False, max_orte
             x, z = objpos.get(c['objekt'], (None, None))
             funde.append(dict(art=c['art'], x=x and round(x, 1), z=z and round(z, 1),
                               text=f'{os.path.basename(c["objekt"].replace(chr(92), "/"))}: {c["flaeche_m2"]} m2'))
+    # Boden (S4)
+    funde += boden_funde(kartenordner, bel)
     # Budgets
     bud = budgets(kartenordner, omsi)
     for key, b in bud.items():
@@ -299,6 +344,7 @@ NAMEN = {'spurende_offen': 'Spurende ohne Anschluss', 'beinahe_anschluss': 'Bein
          'schicht_veraltet': 'Schicht veraltet', 'schicht_gebaut': 'Schicht nicht eingesetzt',
          'netz_veraltet': 'netz.json veraltet', 'netz_fehlt': 'netz.json fehlt', 'belegung_veraltet': 'Belegung veraltet',
          'belegung_fehlt': 'Belegung fehlt', 'gebaeude_auf_fahrbahn': 'Gebaeude ueber Fahrbahn',
+         'boden_fehlt': 'Boden fehlt', 'boden_fahrbahn_gras': 'Fahrbahn auf Gras (Boden)',
          'budget_objekte': 'Budget Objekte', 'budget_dreiecke': 'Budget Dreiecke', 'budget_textur_mb': 'Budget Texturspeicher'}
 
 

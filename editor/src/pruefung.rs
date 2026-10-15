@@ -1,5 +1,5 @@
 //! Pruefbericht der Karte (omsigen.pruefbericht, Qualitaetsplan F8): je Kachel offene Spurenden, veraltete Schichten,
-//! Gebaeude ueber Fahrbahn, Budgets. Der World Editor zeigt die Funde der gewaehlten Kachel und erstellt den Bericht im
+//! Gebaeude ueber Fahrbahn, Boden (fehlende Malmasken, Fahrbahn auf Gras), Budgets. Der World Editor zeigt die Funde der gewaehlten Kachel und erstellt den Bericht im
 //! Hintergrund (ohne Bilder; Spielbilder und Luftbildvergleich: python -m omsigen.pruefbericht <Karte> --bilder --luftbild).
 use std::path::{Path, PathBuf};
 use std::sync::mpsc::{channel, Receiver};
@@ -21,6 +21,8 @@ pub fn name(art: &str) -> &str {
         "netz_veraltet" => "netz.json veraltet",
         "belegung_veraltet" => "Belegung veraltet",
         "gebaeude_auf_fahrbahn" => "Gebaeude ueber Fahrbahn",
+        "boden_fehlt" => "Boden fehlt",
+        "boden_fahrbahn_gras" => "Fahrbahn auf Gras (Boden)",
         "budget_objekte" => "Budget Objekte",
         "budget_dreiecke" => "Budget Dreiecke",
         "budget_textur_mb" => "Budget Texturspeicher",
