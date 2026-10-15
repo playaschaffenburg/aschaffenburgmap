@@ -269,7 +269,7 @@ Jede Etappe endet mit einer neuen Version (`_vN`, die alte kommt in den Papierko
 py -3.12 -m omsigen --omsi "C:\Program Files (x86)\Steam\steamapps\common\OMSI 2" --von 49.98015,9.14104 --nach 49.96144,9.22032 --ueber 49.97672,9.14859 --ueber 49.97700,9.15165 --ueber 49.97616,9.15848 --ueber 49.97585,9.16269 --ueber 49.97506,9.16737 --ueber 49.97446,9.17092 --ueber 49.97409,9.17441 --ueber 49.97491,9.18022 --ueber 49.97656,9.18695 --ueber 49.97005,9.19406 --ueber 49.96826,9.19660 --ueber 49.96719,9.20027 --ueber 49.96647,9.20518 --ueber 49.96471,9.20449 --ueber 49.96086,9.20640 --ueber 49.96041,9.21080 --ueber 49.96114,9.21705 --name Aschaffenburg_Linie16_vN --titel "Aschaffenburg Linie 16" --gebaeude 100
 py -3.12 -m omsigen.pruefbericht Aschaffenburg_Linie16_vN --bilder --luftbild --max 6
 ```
-Fassaden kommen aus `Documents\Aschaffenburgassaden` (earth-reverse-engineering `tools/lod2/korridor.py`).
+Fassaden kommen aus `Documents\Aschaffenburg\fassaden` (earth-reverse-engineering `tools/lod2/korridor.py`).
 Stand 15.10.2026: `Aschaffenburg_Linie16_v7`, 186 Funde (3 Spurenden, 183 Gebäude über Fahrbahn).
 
 ### Agenten
