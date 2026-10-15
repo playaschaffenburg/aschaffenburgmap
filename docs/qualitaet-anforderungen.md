@@ -239,11 +239,52 @@ Luftbild als großflächige Farbmodulation, eigene Belagsfarben für Tartan/Rotp
   Textur.
 
 ### G3 Straßenobjekte
+**Erledigt 15.10.2026:** `omsigen/ausstattung.py` – Schicht `objekte` (Pakete `Objekte\<kx>_<ky>\objekte.json`, veraltet
+nach Änderung von Netz, Gelände oder Gebäuden der Kachel). Plan für die ganze Karte, Pakete je Kachel; platziert wird nur
+über Kante + Station + Seite (netz.json) auf dem Seitenraum der Belegung (gehweg, dahinter frei/grün) mit Abständen
+(Bord 0,5 m, Gebäude 0,3 m, Kreuzungsenden 6 m, Zufahrten/Fußwege 2,5 m, Querungen 3 m, Laternen untereinander 8 m).
+Laternen: OSM `highway=street_lamp` (bis 15 m von der Straße, an den Bord gerückt), sonst Regel je Straßenklasse
+(Hauptstraße Peitsche alle 35 m, Wohnstraße Aufsatzleuchte alle 30 m, rechts; ab 12 m Fahrbahn beidseitig versetzt).
+Verkehrszeichen: Vorfahrt aus der Karte selbst gelesen (`[rule] priority` an den `K_*`: 64 = wartepflichtiger Arm, 192 =
+Hauptstraße, ohne Regel = rechts vor links) – Zeichen 205 an wartepflichtigen Armen (OSM 206 statt 205, wo OSM Stopp
+sagt), 215 über 205 an Kreisverkehrszufahrten, 306 an `priority_road`; ein OSM-Schild gegen diese Vorfahrt wird nicht
+gesetzt, sondern Fund „Schild widerspricht der Vorfahrt“; an Ampeln keine Vorfahrtzeichen. Weitere OSM-Zeichen (274,
+274.1/.2, 267, 350, 357 …) an ihrer Station, Tempowechsel aus `maxspeed` der Kanten. Poller, Bänke, Mülleimer (bis 30 m)
+und Zäune (Felder entlang `barrier=fence`, bis 25 m) aus OSM; Poller auf der Fahrbahn werden ausgelassen.
+Objektauswahl in `omsigen/ausstattung_katalog.json` (je Typ der erste installierte Kandidat, eigene Objekte vorn):
+Standard-OMSI (`Streetobjects_RUE\sodiumlight_L_whip_L`, `Streetobjects_MC\strlt_gwg_70s_1`), Add-on Rheinhausen (Wartehalle
+Avenue, Bank, Mülleimer, Sperrpfosten, Metallzaun), eigene Verkehrszeichen aus Vektoren (`omsigen/ausstattung_eigen.py`,
+`Sceneryobjects\Aschaffenburg\Ausstattung\VZ\`; die PAD-Labs-Schilder bleiben Rückfall – openOMSI zeigt sie grau, siehe
+omsi-format.md). Installierte Objekte stehen über `…\Objekte\<kx>_<ky>\..\..\..\..\<Ordner>\x.sco` in der Schicht.
+Nötige Add-ons stehen in Kartenbeschreibung und LIESMICH. CLI `python -m omsigen.ausstattung <Karte> [--kacheln]
+[--nur-pakete]`, Generator nach dem Boden, World Editor → Schichten „Ausstattung dieser Kachel bauen“/„neu bauen“
+(Paket wie LoD2 in die Sitzung). Prüfbericht: „Objekt auf der Fahrbahn“, „Schild widerspricht der Vorfahrt“.
+`Aschaffenburg_Linie16_G34` (gleiche Strecke wie v8): 1564 Objekte – 973 Laternen (72 OSM, 901 Regel), 50 Vorfahrtzeichen
+205 (6 OSM, 44 Regel), 6×306, 5×215, 8×274, 1×278 an 65 Masten, 143 Bänke, 91 Mülleimer, 15 Poller, 129 Zaunfelder;
+höchstens 349 Objekte je Kachel (Budget 600). 83 Funde (v8: 79): dieselben 79 und 3 OSM-Schilder gegen die Vorfahrt
+(1× 205 an einem Hauptarm, 2× 206 an Kreuzungen, die vorfahrt.py als Tempo 30 / rechts vor links führt) sowie
+1 Haltestelle ohne Wartehalle (G4). Offen: Vorfahrt-Konflikte mit OSM in vorfahrt.py klären; OSM-Laternen sind lückenhaft
+(Regel füllt auf, Masthöhe/-typ nicht aus Daten); Einbahn-/Richtungszeichen (220) und Ortstafeln brauchen eigene
+Schilder mit Text; Lichtpunkthöhe moderner LED-Masten (Am Wingert, Mapillary) passt nicht zu den Standardleuchten.
 - Laternen (Abstand/Seite nach Straßenklasse, OSM `highway=street_lamp` wo vorhanden), Verkehrszeichen aus OSM
   (heute nur für Vorfahrt genutzt), Poller, Zäune, Bänke, Mülleimer.
 - Platzierung über Kanten-ID + Station + Seite (F3) auf Gehweg-Klasse (F4).
 
 ### G4 Haltestellen
+**Erledigt 15.10.2026 (ohne Fahrplan):** `omsigen/haltestellen.py` (Teil der Schicht `objekte`) – je Steig aus OSM
+(`public_transport=platform`/`highway=bus_stop` mit Namen, Knoten und Flächen): Kante und Seite aus netz.json, Haltepunkt
+= der OMSI-Haltestellenwürfel gleichen Namens (`Generic\bus_stop.sco` des Generators bleibt unverändert – KI, Spielerbus,
+Einsetzpunkte und künftige TTData-IDs hängen daran), sonst die Lage des Steigs. Mast mit Zeichen 224 und Namensschild als
+eigenes Objekt je Name (`H_<Name>.sco` im Kachelordner, Schrift exakt aus Bahnschrift, Atlas 1024 × 256, beidseitig
+lesbar), 0,5 m vom Bord; Wartehalle bei `shelter=yes` 6 m dahinter, 1,2 m vom Bord, offen zur Fahrbahn (sonst schmale
+Halle, sonst Fund „Haltestelle ohne Wartehalle“); Bank (`bench=yes`, ohne Halle), Mülleimer (`bin=yes`); erhöhter Bord
+(`kerb=raised` 0,18 m bzw. `kerb:height` über 0,15 m) als eigenes Objekt mit `[absheight]` 16 m vor dem Mast, Rillenplatten
+bei `tactile_paving=yes`. Bucht/Kap (`bus_bay`) wird vermerkt – die Fahrbahn dafür ist S3. `Aschaffenburg_Linie16_G34`:
+50 Steige mit Mast und Namensschild (46 am Würfel gleichen Namens), 22 von 23 Wartehallen aus OSM gesetzt (Jahnstraße:
+Seitenraum 1,95 m), 21 Mülleimer, 8 Bänke, 6 erhöhte Borde. Nahbilder Hauptbahnhof (ROB), Klinikum, Am Wingert,
+Herstallturm, Lindenallee, Ludwigsallee in openOMSI geprüft; Herstallturm im Mapillary-Foto ebenfalls Glas-Wartehalle mit
+Aufsatzleuchten. Offen: Linienschilder/Fahrplanaushang am Mast (mit Linien aus GTFS), Haltestellen-Würfel bis 10 m neben
+dem OSM-Steig (Generator setzt ihn an die nächste Fahrbahn), Buchten/Kaps (S3).
 - Echte Haltestellen: Haltepunkt, Bordhöhe, Bucht oder Kap, Wartehäuschen, Mast mit Name (OSM `public_transport`).
 - Linien und Fahrpläne (TTData) – Roadmap 4, z. B. aus GTFS/VAB.
 
