@@ -16,7 +16,7 @@ import numpy as np
 
 from . import mapillary as M
 
-EDITOR = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'editor', 'target', 'release', 'omsi-editor.exe')
+EDITOR = os.environ.get('OMSIGEN_EDITOR') or os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'editor', 'target', 'release', 'omsi-editor.exe')
 BREITE = 1024
 
 
