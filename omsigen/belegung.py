@@ -134,11 +134,10 @@ def _modellpfad(omsi, rel):
 
 # ---------------------------------------------------------------- berechnen
 
-def berechnen(kartenordner, omsi=None):
-    """Belegung aller Kacheln -> dict (belegung.json); schreibt die PNGs"""
-    from PIL import Image
+def strassenraum(kartenordner, omsi=None, kacheln=None):
+    """Fahrbahn, Gehweg, Kreuzung, Bauwerk aller Kacheln (ohne Gebaeude) -> (_Leinwand, Zahl der Kreuzungsobjekte)"""
     omsi = omsi or schichten.STANDARD_OMSI
-    kacheln = schichten.kacheln(kartenordner)
+    kacheln = kacheln if kacheln is not None else schichten.kacheln(kartenordner)
     lw = _Leinwand(kacheln)
     netz = netz_datei.Netz.laden(kartenordner)
     # 1. Strassen aus netz.json
@@ -179,7 +178,13 @@ def berechnen(kartenordner, omsi=None):
         for f in F:
             hoch = float(P[f, 1].mean()) > 0.17
             lw.polygon([(x[i], z[i]) for i in f], GEHWEG if hoch else FAHRBAHN)
-    # 3. Gebaeude (Schicht gebaeude): Modell von oben = Grundriss
+            lw.polygon([(x[i], z[i]) for i in f], 'uebergang')      # nur fuer die Einordnung von Konflikten (G1)
+    return lw, n_kreuz
+
+
+def gebaeude_grundrisse(kartenordner, omsi=None):
+    """Gebaeude der Schicht gebaeude: Modell von oben -> [(rel, [Dreieck [(x, z) * 3]])] in Kartenmetern"""
+    omsi = omsi or schichten.STANDARD_OMSI
     gebaeude = _objekte(kartenordner, lambda r: schichten.schicht_von(r) is not None and schichten.schicht_von(r)[0] == 'gebaeude')
     grundrisse = []
     for rel, ox, oz, rot, k in gebaeude:
@@ -195,18 +200,47 @@ def berechnen(kartenordner, omsi=None):
             if abs((tri[1][0] - tri[0][0]) * (tri[2][1] - tri[0][1]) - (tri[2][0] - tri[0][0]) * (tri[1][1] - tri[0][1])) > 1e-4:
                 tris.append(tri)
         grundrisse.append((rel, tris))
-    # Konflikte vor dem Gebaeude-Zeichnen: Gebaeude gegen Fahrbahn/Kreuzung
-    konflikte = []
-    for rel, tris in grundrisse:
+    return grundrisse
+
+
+def berechnen(kartenordner, omsi=None):
+    """Belegung aller Kacheln -> dict (belegung.json); schreibt die PNGs"""
+    from PIL import Image
+    omsi = omsi or schichten.STANDARD_OMSI
+    kacheln = schichten.kacheln(kartenordner)
+    lw, n_kreuz = strassenraum(kartenordner, omsi, kacheln)
+    # 3. Gebaeude (Schicht gebaeude): Modell von oben = Grundriss
+    grundrisse = gebaeude_grundrisse(kartenordner, omsi)
+    # Konflikte vor dem Gebaeude-Zeichnen: Gebaeude gegen Fahrbahn/Kreuzung (mit Klasse und Hinweis, G1
+    # platzierung.Einordnung), sonst gegen Gehweg
+    from .platzierung import GEHWEG_M2, Einordnung
+    konflikte, einordnung = [], None
+    for i, (rel, tris) in enumerate(grundrisse):
         pruef = _Leinwand(kacheln)
         for tri in tris:
             pruef.polygon(tri, GEBAEUDE)
-        flaeche = 0.0
+        flaeche, gehweg, zf, zk = 0.0, 0.0, [], []
         for (k, _), b in pruef.bilder.items():
             m = np.asarray(b) > 0
-            flaeche += float((m & (lw.maske(k, FAHRBAHN) | lw.maske(k, KREUZUNG))).sum()) * ZELLE * ZELLE
+            fb, kr = m & lw.maske(k, FAHRBAHN), m & lw.maske(k, KREUZUNG) & ~lw.maske(k, FAHRBAHN)
+            flaeche += float((fb | kr).sum()) * ZELLE * ZELLE
+            gehweg += float((m & lw.maske(k, GEHWEG) & ~fb & ~kr).sum()) * ZELLE * ZELLE
+            ue = lw.maske(k, 'uebergang')                     # Fahrbahn eines Uebergangsobjekts zaehlt wie Kreuzung
+            for maske, liste in ((fb & ~ue, zf), (kr | (fb & ue), zk)):
+                ze, sp = np.nonzero(maske)
+                liste += list(zip(k[0] * KACHEL + (sp + 0.5) * ZELLE, k[1] * KACHEL + KACHEL - (ze + 0.5) * ZELLE))
         if flaeche >= KONFLIKT_M2:
-            konflikte.append(dict(art='gebaeude_auf_fahrbahn', objekt=rel, flaeche_m2=round(flaeche, 1)))
+            c = dict(art='gebaeude_auf_fahrbahn', objekt=rel, flaeche_m2=round(flaeche, 1))
+            try:
+                if einordnung is None:
+                    einordnung = Einordnung(kartenordner, netz_datei.Netz.laden(kartenordner, pruefen=False),
+                                            grundrisse, lw, KACHEL, ZELLE, omsi)
+                c.update(einordnung.einordnen(i, zf, zk))
+            except Exception as ex:               # die Belegung entsteht auch ohne Einordnung
+                c.update(klasse='', hinweis=f'nicht eingeordnet ({type(ex).__name__}: {ex})')
+            konflikte.append(c)
+        elif gehweg >= GEHWEG_M2:
+            konflikte.append(dict(art='gebaeude_auf_gehweg', objekt=rel, flaeche_m2=round(gehweg, 1)))
         for tri in tris:
             lw.polygon(tri, GEBAEUDE)
     # 4. zusammensetzen und schreiben

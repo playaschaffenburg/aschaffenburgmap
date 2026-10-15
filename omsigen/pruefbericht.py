@@ -5,7 +5,8 @@ Gesammelt wird, was die Werkzeuge der Fundament-Phase liefern:
     Sackgassen zaehlen nicht)
   - Schichten: veraltete oder gebaute, aber nicht eingesetzte Pakete (omsigen.schichten)
   - Ableitungen: netz.json und Belegung passen nicht mehr zur Karte (omsigen.netz_datei, omsigen.belegung)
-  - Platzierung: Gebaeude ueber Fahrbahn/Kreuzung (Belegung)
+  - Platzierung: Gebaeude ueber Fahrbahn/Kreuzung mit Klasse und Hinweis, ueber Gehweg (Belegung); Gebaeude, die
+    ueber dem Gelaende schweben oder im Gelaende versinken (G1, omsigen.platzierung)
   - Boden (S4, omsigen.boden): Kacheln ohne Malmasken, Fahrbahn auf Gras/Erde (Masken passen nicht zur Belegung)
   - Budgets je Kachel (F6, vorlaeufig): Objekte, Dreiecke, Texturspeicher
   - Querschnitte (S1, omsigen.querschnitt_pruefung): Pruefstellen der Kartendaten, an denen Fahrbahn- oder Gehwegbreite
@@ -305,8 +306,15 @@ def erstellen(kartenordner, omsi=None, mit_spiel=False, mit_luft=False, max_orte
                         pass
         for c in bel.daten.get('konflikte', []):
             x, z = objpos.get(c['objekt'], (None, None))
-            funde.append(dict(art=c['art'], x=x and round(x, 1), z=z and round(z, 1),
-                              text=f'{os.path.basename(c["objekt"].replace(chr(92), "/"))}: {c["flaeche_m2"]} m2'))
+            funde.append(dict(art=c['art'], x=x and round(x, 1), z=z and round(z, 1), klasse=c.get('klasse', ''),
+                              text=f'{os.path.basename(c["objekt"].replace(chr(92), "/"))}: {c["flaeche_m2"]} m2'
+                              + (f' - {c["hinweis"]}' if c.get('hinweis') else '')))
+    # Gebaeude gegen Gelaende (G1): schwebt / versunken
+    try:
+        from . import platzierung
+        funde += platzierung.hoehen_funde(kartenordner, omsi, log)
+    except Exception as e:
+        log(f'    Gebaeudehoehen nicht geprueft: {type(e).__name__}: {e}')
     # Boden (S4)
     funde += boden_funde(kartenordner, bel)
     # Querschnitte (S1): Pruefstellen gegen das Luftbild, Abbiegestreifen nach turn:lanes
@@ -352,6 +360,8 @@ NAMEN = {'spurende_offen': 'Spurende ohne Anschluss', 'beinahe_anschluss': 'Bein
          'schicht_veraltet': 'Schicht veraltet', 'schicht_gebaut': 'Schicht nicht eingesetzt',
          'netz_veraltet': 'netz.json veraltet', 'netz_fehlt': 'netz.json fehlt', 'belegung_veraltet': 'Belegung veraltet',
          'belegung_fehlt': 'Belegung fehlt', 'gebaeude_auf_fahrbahn': 'Gebaeude ueber Fahrbahn',
+         'gebaeude_auf_gehweg': 'Gebaeude ueber Gehweg', 'gebaeude_schwebt': 'Gebaeude schwebt',
+         'gebaeude_versunken': 'Gebaeude versunken',
          'boden_fehlt': 'Boden fehlt', 'boden_fahrbahn_gras': 'Fahrbahn auf Gras (Boden)',
          'budget_objekte': 'Budget Objekte', 'budget_dreiecke': 'Budget Dreiecke', 'budget_textur_mb': 'Budget Texturspeicher',
          'querschnitt_abweichung': 'Querschnitt weicht vom Luftbild ab', 'abbiegestreifen_fehlt': 'Abbiegestreifen fehlt'}

@@ -399,8 +399,12 @@ Abschnitt baut wie bisher aus dem Bauplan, setzt aber nur diesen Abschnitt ein; 
 
 **Import … → Gebäude aus LoD2** (Karten mit Geobezug, Bayern): die 3D-Gebäudemodelle der Bayerischen
 Vermessungsverwaltung (Open Data, CC BY 4.0: Grundrisse aus dem Kataster, Dächer aus Laserdaten) im Umkreis der
-Blickmitte als OMSI-Objekte (`omsigen/lod2.py`): je Gebäude ein Objekt mit absoluter Höhe, Wände 1 m unter den Boden,
-Fassaden-/Dachtexturen nach Gebäudefunktion und Dachneigung; Brücken und Mauern bleiben weg (die baut OMSIgen selbst).
+Blickmitte als OMSI-Objekte (`omsigen/lod2.py`): je Gebäude ein Objekt mit absoluter Höhe (`[absheight]`), Ursprung in
+der Grundrissmitte auf dem Boden des Gebäudes, gedreht nach seiner Hauptachse (Verschieben/Drehen im Editor wirkt
+also um die Gebäudemitte); die Wände reichen bis unter den tiefsten Punkt des Geländes der gespeicherten Karte im
+Grundriss (mindestens 1 m, höchstens 6 m unter den Boden – am Hang kein Spalt; `omsigen/platzierung.py`, Qualitätsplan
+G1). Fassaden-/Dachtexturen nach Gebäudefunktion und Dachneigung; Brücken und Mauern bleiben weg (die baut OMSIgen
+selbst).
 LoD2-Kacheln (2 km, bis ~120 MB) liegen in `%LOCALAPPDATA%\omsi-editor\geodaten\lod2`, fehlende erst nach Rückfrage.
 Gebaut wird je OMSI-Kachel (Ordner `LoD2\<x>_<y>`): erneutes Einsetzen ersetzt nur die LoD2-Gebäude dieser Kachel.
 Im **World Editor → Kacheln bearbeiten** lädt „LoD2-Gebäude dieser Kachel laden“ direkt die gewählte Kachel.
@@ -419,7 +423,10 @@ installiert, Add-on Rheinhausen und die PAD-Labs-Texturen (Köln); Gewässer erz
 (`Texture\Aschaffenburg\boden_wasser.dds`). Kommen neue Beläge in `global.cfg`, die Karte neu öffnen.
 In der Leiste neben dem Luftbild-Regler zeigt **Belegung** statt des Luftbilds die Belegungskarte der Karte
 (omsigen.belegung): Fahrbahn dunkel, Gehweg hell, Kreuzung lila, Gebäude rot, Grün, Wasser, Bauwerk orange. Netz und
-Belegung (`netz.json`, `belegung/`) schreibt der Editor nach jedem Speichern im Hintergrund neu.
+Belegung (`netz.json`, `belegung/`) schreibt der Editor nach jedem Speichern im Hintergrund neu. Unter **Prüfung**
+(World Editor → Kacheln bearbeiten) klappt jede Fundart der Kachel ihre Funde auf – bei Gebäuden über der Fahrbahn mit
+der Ursache (Kreuzungsplatte, Überbauung, Engstelle, Straßenachse versetzt) und was zu tun ist; dazu Gebäude über
+Gehweg, schwebende und versunkene Gebäude (G1).
 Gebäude mit **Fassaden** aus `earth-reverse-engineering/tools/lod2/korridor.py` (z. B. entlang Linie 16, liegen in
 `Documents\Aschaffenburg\fassaden\gebaeude\<gml-id>\`) bekommen dabei automatisch ihr Netz mit Texturatlas (Fenster,
 Farben aus Google-Earth-Fotos abgeleitet – nur private Nutzung); alle anderen behalten die erzeugten Texturen.
