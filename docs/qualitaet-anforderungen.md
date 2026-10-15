@@ -176,6 +176,23 @@ openOMSI an festen Prüfpunkten. Ein Lauf erzeugt einen Bericht je Kachel (Funde
 - Vorfahrt bleibt im Regelwerk `vorfahrt.py`; Korrekturen über Kartendaten.
 
 ### S4 Boden
+**Erledigt 15.10.2026:** `omsigen/boden.py` – Malmasken je Kachel (A8-DDS 512 × 512 wie die Standardkarten, Zeile 0 =
+Norden) für Gras, Erde, Schotter, Pflaster, Asphalt, Wasser über dem Grund (`texture\gras.bmp`); Klassifikation je
+0,5-m-Zelle: DOP20 (Vegetation, offen, dunkel/hell versiegelt, rötlich, Schatten = aus der Nachbarschaft), OSM-Flächen
+als Zusammenhang (Park, Feld, Bahn, Baustelle, Wald) und mit festem Belag (Parkplatz, Platz, Fußgängerzone, `surface`),
+OSM-Wege mit Breite (Fuß-/Radwege, Feldwege, Zufahrten, Gleise, Bäche), Gewässer, obenauf die Belegung (Fahrbahn/Kreuzung
+= Asphalt, Gehweg = Pflaster – Breiten aus netz.json, also nach S1 automatisch richtig); weiche Kanten (~1 m) mit
+exakter Umrechnung in Deckkräfte. Texturen: Rheinhausen `gras_wild`, `erde_feld01`, `schotter_neu`,
+`str_k_kopfstein_1`, PAD-Labs `Asphalt2` (alle mit Winterfassung), Rückfall auf Standard-OMSI; Gewässer
+erzeugt (`Texture\Aschaffenburg\boden_wasser.dds`). Das Luftbild ist nie sichtbare Textur. Quellen und nötige Add-ons
+stehen in der Kartenbeschreibung. Generator baut den Boden nach der Belegung; `python -m omsigen.boden <Karte>
+[--kacheln]` baut einzelne Kacheln neu; Schicht `boden` in schichten.json (veraltet nach Straßenänderung, „von Hand
+geändert“), im World Editor unter Schichten mit „neu bauen“; Prüfbericht: „Boden fehlt“, „Fahrbahn auf Gras“.
+Gelände (`hoehen.py`): Böschung 1 : 1,5 (4–30 m breit) statt fester 4-m-Übergang. Geprüft an
+`Aschaffenburg_Linie16_S4` (116 Kacheln, 574 Masken: Gras 70 %, Pflaster 14 %, Asphalt 10 %, Erde 2,5 %, Schotter 2 %,
+Wasser 2 %): Schöntal = Gras mit Schotterwegen und Teich, Main = Wasser, Altstadt/Höfe = Pflaster, Bahnanlagen =
+Schotter, Felder bei Haibach = Erde; 186 Funde wie v7, keine Bodenfunde. Offen: Wasseroberfläche (`tile.map.water`),
+Luftbild als großflächige Farbmodulation, eigene Belagsfarben für Tartan/Rotpflaster.
 - Malmasken je Kachel (`texture/map/tile_x_y.map.<n>.dds`) mit Ebenen: Gras, Erde, Pflaster, Asphalt, Schotter, Wasser.
 - Quelle: OSM landuse/surface + Klassifikation aus DOP20 (wie in `portal_modell.py`, verallgemeinert) + Belegungskarte.
 - Echte Texturen: hochwertige Kacheltexturen je Belag (selbst erzeugt oder freie Quellen); das Luftbild höchstens als
