@@ -124,7 +124,7 @@ Prüfung: Fund „Stufe an der Kreuzungskante“ (`gelaende_pruefung.naehte`).
 Querschnittswechsel in Kurven: Übergangsobjekte gibt es nur gerade. Gleich aufgebaute Nachbarn (nur andere Breiten)
 werden in einer Kurve > 6° deshalb angeglichen (`querschnitte.angleichen`). Die meisten Wechsel in Kurven sind aber
 echte Aufbauwechsel (Bus-, Radstreifen, Parken, Mittelinsel beginnt oder endet), die OSM zufällig in die Kurve legt.
-Dort bleibt vorerst eine kleine Platte; besser wäre es, den Wechselpunkt auf das nächste gerade Stück zu verschieben.
+Seit dem 15.10.2026 verschiebt `network.wechsel_auf_gerade` solche Wechsel auf das nächste gerade Stück einer der beiden Kanten (Fenster Übergangslänge + 2 × 3 m, gerade auf 0,6 m, höchstens 80 m entfernt, 10 m Platz für den Kurvenbogen, 15 m Abstand zum anderen Kantenende; Einbahnstraßen werden nie umgedreht). Linie 16 (v19): 33 Wechsel liegen schon gerade, 19 wurden verschoben, 12 bleiben Platten, weil beide Kanten zu kurz sind (zwei nahe Kreuzungen) – dafür bräuchte es gebogene oder sehr kurze Übergangsobjekte.
 
 ## 4. Kreuzungsaufbau
 

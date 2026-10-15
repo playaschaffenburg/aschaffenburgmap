@@ -131,6 +131,8 @@ def berechne(projekt, name='Vorschau', omsi=None, korrekturen=None, kreuzungen='
     st = net['stats']
     log(f'    {len(net["road_chains"])} Strassenzuege, {st["kreuzungen"]} Kreuzungen, '
         f'{st["verbindungen"]} Kreuzungsspuren {st["bewegungen"]}')
+    if st.get('wechsel_verschoben'):
+        log(f'    Querschnitte: {st["wechsel_verschoben"]} Wechsel aus Kurven auf gerade Stuecke verschoben')
     log(f'    {st["wendeschleifen"]} unsichtbare Wendeschleifen an Strassenenden'
         + (f', {st["enden_ohne_wende"]} Einbahn-Enden ohne Gegenspur' if st['enden_ohne_wende'] else ''))
     stops = place_stops([(s['name'], tuple(s['p'])) for s in projekt.get('haltestellen', [])], net['road_chains'], sdb)

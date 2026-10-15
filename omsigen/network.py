@@ -263,6 +263,106 @@ def kreuzungsspuren(arms, k=None):
     return conn_chains, conn_fail, n_moves
 
 
+
+WECHSEL_GERADE_TOL = 0.6    # m: so gerade muss die rohe OSM-Linie rund um ein Uebergangsobjekt sein (entzittert wird spaeter)
+WECHSEL_MAX = 80.0          # m: so weit darf ein Querschnittswechsel verschoben werden
+WECHSEL_FREI = 15.0         # m: Abstand des verschobenen Wechsels zum anderen Ende der Kante (Kreuzung dort)
+WECHSEL_BOGEN = 10.0        # m: Platz fuer den Kurvenbogen zwischen alter Stelle und Uebergangsobjekt
+
+
+def _punkt_bei(P, s):
+    return _at(P, max(0.0, min(s, plen(P))))[0]
+
+
+def _gerade(P, a, b, tol=WECHSEL_GERADE_TOL):
+    """liegt der Polygonzug P zwischen den Weglaengen a und b auf einer Geraden (Abweichung <= tol)?"""
+    if a < 0 or b > plen(P) + 1e-6 or b <= a:
+        return False
+    pa, pb = _punkt_bei(P, a), _punkt_bei(P, b)
+    L = math.dist(pa, pb)
+    if L < 1e-6:
+        return False
+    acc = 0.0
+    for q, r in zip(P, P[1:]):
+        if a < acc < b:
+            d = abs((pb[0] - pa[0]) * (pa[1] - q[1]) - (pa[0] - q[0]) * (pb[1] - pa[1])) / L
+            if d > tol:
+                return False
+        acc += math.dist(q, r)
+    return True
+
+
+def _teilen(P, s):
+    """Polygonzug bei Weglaenge s teilen -> (vorne, hinten)"""
+    acc = 0.0
+    for i in range(len(P) - 1):
+        d = math.dist(P[i], P[i + 1])
+        if acc + d >= s:
+            f = (s - acc) / d if d else 0.0
+            m = (P[i][0] + (P[i + 1][0] - P[i][0]) * f, P[i][1] + (P[i + 1][1] - P[i][1]) * f)
+            return P[:i + 1] + [m], [m] + P[i + 1:]
+        acc += d
+    return P, [P[-1]]
+
+
+def wechsel_auf_gerade(edges, uebergang):
+    """Querschnittswechsel (Knoten mit 2 Kanten, verschiedene Splines), an denen kein gerades Uebergangsobjekt passt
+    (Kurve, Knick), auf das naechste gerade Stueck einer der beiden Kanten verschieben: die Kante wird dort geteilt,
+    ihr Stueck bis zum alten Knoten bekommt den Querschnitt der anderen Seite (docs/musterbuch.md 3c - die Vorbilder
+    wechseln den Querschnitt nur auf Geraden). -> Anzahl verschobener Wechsel"""
+    an = collections.defaultdict(list)
+    for e in edges:
+        an[e['n0']].append((e, 0))
+        an[e['n1']].append((e, -1))
+    n = 0
+    for k, lst in list(an.items()):
+        if len(lst) != 2:
+            continue
+        (a, xa), (b, xb) = lst
+        if a is b or a['spl'] == b['spl'] or a['ring'] or b['ring'] or 'circle' in a or 'circle' in b:
+            continue
+        L = uebergang(lst)
+        if not L:
+            continue
+        halb = L / 2 + 3.0
+        # Polygonzug durch den Knoten: a zum Knoten hin, b vom Knoten weg; passt der Wechsel schon?
+        Pa = a['P'] if xa == -1 else a['P'][::-1]
+        Pb = b['P'] if xb == 0 else b['P'][::-1]
+        La = plen(Pa)
+        if _gerade(Pa + Pb[1:], La - halb, La + halb):
+            continue
+        best = None
+        for c, xc, o, xo in ((b, xb, a, xa), (a, xa, b, xb)):
+            Q = c['P'] if xc == 0 else c['P'][::-1]          # c vom Knoten weg
+            Lc = plen(Q)
+            s = halb + WECHSEL_BOGEN
+            while s <= min(WECHSEL_MAX, Lc - halb - WECHSEL_FREI):
+                if _gerade(Q, s - halb, s + halb):
+                    if best is None or s < best[0]:
+                        best = (s, c, xc, o, xo, Q)
+                    break
+                s += 2.0
+        if best is None:
+            continue
+        s, c, xc, o, xo, Q = best
+        einbahn = is_oneway(c['t'])
+        # Stueck vom Knoten bis zur neuen Stelle: Querschnitt von o, Richtung wie o durch den Knoten
+        vorne, hinten = _teilen(Q, s)
+        stueck_P = vorne if xo == -1 else vorne[::-1]       # o endet am Knoten -> Stueck beginnt dort
+        stueck_umgedreht = (xc == 0) != (xo == -1)
+        if einbahn and stueck_umgedreht:
+            continue                                         # Fahrtrichtung einer Einbahnstrasse nicht drehen
+        stueck = dict(c, P=stueck_P, spl=o['spl'], force=o['force'] or einbahn,
+                      osm_rev=(not c.get('osm_rev')) if stueck_umgedreht else c.get('osm_rev'))
+        rest_P = hinten if xc == 0 else hinten[::-1]
+        c['P'] = rest_P
+        stueck['n0'], stueck['n1'] = key(stueck['P'][0]), key(stueck['P'][-1])
+        c['n0'], c['n1'] = key(c['P'][0]), key(c['P'][-1])
+        edges.append(stueck)
+        n += 1
+    return n
+
+
 def build(ways_in, sdb, signs=(), waehle=None, angleichen=None, uebergang=None):
     """ways_in: Liste dict(tags, P=[(x,z),...]) in Metern; signs: Vorfahrt-Schilder/Ampeln dict(kind, p, direction). -> dict(road_chains, conn_chains, junctions, stats)
     Kette = dict(els=[[x, z, h, L, R, spline], ...], name, hw).
@@ -413,6 +513,7 @@ def build(ways_in, sdb, signs=(), waehle=None, angleichen=None, uebergang=None):
             if o['n1'] == drop:
                 o['n1'] = keep; o['P'][-1] = kp
     edges = [e for e in edges if e['n0'] != e['n1'] or plen(e['P']) > 20]
+    n_wechsel = wechsel_auf_gerade(edges, uebergang) if uebergang else 0
     node_edges = collections.defaultdict(list)
     for e in edges:
         node_edges[e['n0']].append((e, 0))
@@ -829,6 +930,6 @@ def build(ways_in, sdb, signs=(), waehle=None, angleichen=None, uebergang=None):
     return dict(road_chains=road_chains, conn_chains=conn_chains, junctions=[list(k) for k in JN],
                 wenden=wenden,
                 arms=dict(arm_meta), node_pos={k: tuple(k) for k in JN}, node_flags=dict(node_flags),
-                stats=dict(kreuzungen=len(JN), verbindungen=len(conn_chains), fehlgeschlagen=conn_fail,
+                stats=dict(kreuzungen=len(JN), wechsel_verschoben=n_wechsel, verbindungen=len(conn_chains), fehlgeschlagen=conn_fail,
                            wendeschleifen=len(wenden), enden_ohne_wende=ohne_wende,
                            bewegungen=dict(n_moves)))

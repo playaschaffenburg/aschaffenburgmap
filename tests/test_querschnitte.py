@@ -262,3 +262,20 @@ def test_im_knick_kein_querschnittswechsel():
     ways[1]['P'] = [(100, 0), (200, 0)]
     net = build(ways, sdb, waehle=qs.waehle, angleichen=qs.angleichen, uebergang=qs.uebergang)
     assert len([k for k, arms in net['arms'].items() if len(arms) == 2]) == 1
+
+
+def test_wechsel_aus_der_kurve_auf_die_gerade():
+    """echter Aufbauwechsel (Busspur kommt dazu) genau im 45-Grad-Knick: der Wechsel wandert auf das gerade Stueck,
+    dort entsteht ein (gerades) Uebergangsobjekt statt einer Kreuzungsplatte in der Kurve"""
+    from omsigen.network import key
+    sdb = SplineDB()
+    qs = Q.Querschnitte(sdb, 'osm', messungen={}, exe='x')
+    ways = [dict(tags={'highway': 'secondary', 'oneway': 'yes', 'lanes': '2', 'osm_id': '1'}, P=[(0, 0), (100, 0)]),
+            dict(tags={'highway': 'secondary', 'oneway': 'yes', 'lanes': '2', 'busway': 'lane', 'osm_id': '2'},
+                 P=[(100, 0), (170.7, 70.7), (240, 140)])]
+    net = build(ways, sdb, waehle=qs.waehle, angleichen=qs.angleichen, uebergang=qs.uebergang)
+    assert net['stats']['wechsel_verschoben'] == 1
+    zwei = [k for k, arms in net['arms'].items() if len(arms) == 2]
+    assert len(zwei) == 1 and math.dist(zwei[0], (100, 0)) > 18          # nicht mehr am Knick, Platz fuer den Bogen
+    ue = qs.uebergaenge_planen(net, 'T')
+    assert len(ue) == 1
