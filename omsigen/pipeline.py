@@ -227,7 +227,8 @@ def belegung_schreiben(info, root, log=print):
         return
     a = b['anteile']
     log(f'    Belegung: Fahrbahn {a["fahrbahn"] * 100:.1f} %, Gehweg {a["gehweg"] * 100:.1f} %, Kreuzung '
-        f'{a["kreuzung"] * 100:.1f} %, Gebaeude {a["gebaeude"] * 100:.1f} %; {len(b["konflikte"])} Gebaeude ueber Fahrbahn')
+        f'{a["kreuzung"] * 100:.1f} %, Gebaeude {a["gebaeude"] * 100:.1f} %; '
+        f'{sum(c["art"] == "gebaeude_auf_fahrbahn" for c in b["konflikte"])} Gebaeude ueber Fahrbahn')
 
 
 def gebaeude_schicht(root, name, info, linie, breite, log=print):
@@ -297,8 +298,11 @@ def erzeuge(projekt, name, omsi=None, ausgabe='build', korrekturen=None, uebersc
         kdir, _ = kreuzung.install_objects(root, name, objekte, omsi_dir=omsi, overwrite=ueberschreiben)
         B['querschnitte'].uebergaenge_bauen(root, kdir, objekte, log)
     utm = getattr(proj, 'art', '') == 'utm'
+    if gebaeude and hat_gelaende and utm:      # G1: Gelaende an den Gebaeuden nicht ueber DGM/Boden anheben
+        from . import platzierung
+        platzierung.gelaende_vorbereiten(hoe, proj, linie, gebaeude, log)
     geb = []
-    if gebaeude and hat_gelaende and not utm:      # alte ebene Projekte: Gebaeude direkt (ohne Geobezug, ohne Schicht)
+    if gebaeude and hat_gelaende and not utm:     # alte ebene Projekte: Gebaeude direkt (ohne Geobezug, ohne Schicht)
         from . import lod2
         log(f'    LoD2-Gebaeude im Korridor {gebaeude:.0f} m ...')
         geb = lod2.bauen_fuer_projekt(root, name, proj, hoe.base, linie, gebaeude, ueberschreiben=ueberschreiben, log=log)
