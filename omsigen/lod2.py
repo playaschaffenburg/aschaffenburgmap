@@ -2,8 +2,10 @@
 "Bayerische Vermessungsverwaltung - www.geodaten.bayern.de") als OMSI-Objekte.
 
 LoD2: Grundrisse aus dem Kataster, Daecher (13 Standardformen) aus den Laserdaten, Hoehen typisch auf 20-30 cm, ohne
-Texturen. Je Gebaeude ein Objekt (.sco + .x) mit absoluter Hoehe; Waende reichen 1 m unter den Boden (kein Spalt am
-Gelaende). Fassaden und Daecher bekommen erzeugte Texturen nach Gebaeudefunktion und Dachneigung.
+Texturen. Je Gebaeude ein Objekt (.sco + .x, [absheight]) mit Ursprung in der Grundrissmitte auf dem Boden des
+Gebaeudes, gedreht nach der Hauptachse; die Waende reichen bis unter den tiefsten Punkt des Kartengelaendes im Grundriss,
+mindestens 1 m unter den Boden (omsigen.platzierung, Qualitaetsplan G1). Fassaden und Daecher bekommen erzeugte Texturen
+nach Gebaeudefunktion und Dachneigung.
 
   laden:  km-Kacheln (2 km) im Zwischenspeicher %LOCALAPPDATA%\\omsi-editor\\geodaten\\lod2; fehlende nur mit --laden
   bauen:  python -m omsigen.lod2 --karte Aburg_Newgen_testring --kacheln 3 -2 3 -1   (OMSI-Kacheln kx ky ...)
@@ -162,19 +164,29 @@ def wand_material(funktion):
     return 'gewerbe'
 
 
-def bauen_gebaeude(g):
-    """Gebaeude -> Mesh (Objektursprung: Mitte des Grundrisses, Hoehe absolut)"""
+def _lage_alt(g):
+    """Objektlage vor G1: Mittel aller Punkte, Hoehe absolut im Modell, keine Drehung (alte ebene Projekte)"""
+    return dict(x=float(g['mitte'][0]), y=float(g['mitte'][1]), z=0.0, rot=0.0)
+
+
+def bauen_gebaeude(g, lage=None, unten=None):
+    """Gebaeude -> (Mesh in Objektkoordinaten, Lage dict(x, y, z, rot)). lage: Objektursprung und Drehung
+    (platzierung.lage: Grundrissmitte, Boden, Hauptachse; ohne: alte Lage _lage_alt); unten: Hoehe des Wandfusses
+    (platzierung.unten: bis unter das Kartengelaende; ohne: UNTER_BODEN unter dem Boden)"""
+    from .platzierung import lokal, lokal_richtung
     from .sonderbau_ring import Mesh
     m = Mesh()
-    o = np.array([g['mitte'][0], g['mitte'][1], 0.0])
+    lg = lage or _lage_alt(g)
     boden = g['boden']
+    fuss = boden - UNTER_BODEN if unten is None else min(unten, boden - UNTER_BODEN)
     wand = wand_material(g['funktion'])
     for art, ringe in g['flaechen']:
         if art == 'GroundSurface':
             continue
         if art == 'WallSurface':
-            # Waende 1 m unter den Boden (Gelaende der Karte weicht ab)
-            ringe = [np.where((np.abs(r[:, 2:3] - boden) < 0.05), r - [0, 0, UNTER_BODEN], r) for r in ringe]
+            # Waende unter den Boden bis unter das Gelaende der Karte (es weicht vom LoD2-Boden ab, am Hang mehr)
+            ringe = [np.where((np.abs(r[:, 2:3] - boden) < 0.05), np.c_[r[:, :2], np.full(len(r), fuss)], r)
+                     for r in ringe]
         tris, n = dreiecke(ringe)
         if not tris:
             continue
@@ -187,10 +199,11 @@ def bauen_gebaeude(g):
         else:
             mat = 'dach_flach' if abs(n[2]) > 0.97 else 'dach_ziegel'
             uvf = lambda p: (float(p[0]) / 2.5, float(p[1]) / 2.5)
+        nl = lokal_richtung(n, lg)
         for tri in tris:
-            pts = [tuple(np.asarray(p) - o) for p in tri]
-            m.dreieck(mat, pts, [uvf(np.asarray(p)) for p in tri], tuple(n))
-    return m, o
+            pts = [tuple(p) for p in lokal(np.asarray(tri, float), lg)]
+            m.dreieck(mat, pts, [uvf(np.asarray(p)) for p in tri], nl)
+    return m, lg
 
 
 # Fassaden aus earth-reverse-engineering/tools/lod2/korridor.py (je Gebaeude ein Netz in UTM 32 + NHN mit Texturatlas,
@@ -243,16 +256,22 @@ def fassade_laden(gid, ordner):
     return f if os.path.isfile(f['bild']) else None
 
 
-def bauen_fassade(g, f, bez, abbild=None):
-    """Gebaeude mit Fassade -> Mesh (Objektursprung wie bauen_gebaeude: Mitte des LoD2-Grundrisses, Hoehe absolut).
-    abbild(ost, nord) -> (x, y) Kartenkoordinaten (Arrays); ohne: UTM-Karte mit bez ost0/nord0"""
+def bauen_fassade(g, f, bez, abbild=None, lage=None, unten=None):
+    """Gebaeude mit Fassade -> (Mesh, Lage) wie bauen_gebaeude. abbild(ost, nord) -> (x, y) Kartenkoordinaten (Arrays);
+    ohne: UTM-Karte mit bez ost0/nord0. Die Schuerze der Fassade (korridor.py: 1 m unter ihrem tiefsten Punkt) reicht
+    mit unten bis dorthin"""
+    from .platzierung import lokal
     from .sonderbau_ring import Mesh
     m = Mesh()
-    o = np.array([g['mitte'][0], g['mitte'][1], 0.0])
+    lg = lage or _lage_alt(g)
     P = np.asarray(f['punkte'], float)
     E, N = P[:, 0] + f['ursprung'][0], P[:, 1] + f['ursprung'][1]
     X, Y = abbild(E, N) if abbild else (E - bez['ost0'], N - bez['nord0'])
-    P = np.c_[X - o[0], Y - o[1], P[:, 2] - bez['nn0']]
+    W = np.c_[X, Y, P[:, 2] - bez['nn0']]
+    if unten is not None:
+        z0 = W[:, 2].min()
+        W[np.abs(W[:, 2] - z0) < 0.05, 2] = min(z0, unten)
+    P = lokal(W, lg)
     UV = np.asarray(f['uv'], float)
     for a, b, c in f['dreiecke']:
         n = np.cross(P[b] - P[a], P[c] - P[a])
@@ -260,7 +279,7 @@ def bauen_fassade(g, f, bez, abbild=None):
             continue
         # glTF-uv (0,0 oben links) -> Mesh-uv (x_file schreibt -v)
         m.dreieck('fassade', [P[a], P[b], P[c]], [(UV[i, 0], -UV[i, 1]) for i in (a, b, c)], n)
-    return m, o
+    return m, lg
 
 
 TEX = {'wohnen': 'LOD2_fassade_wohnen.bmp', 'gewerbe': 'LOD2_fassade_gewerbe.bmp', 'putz': 'LOD2_putz.bmp',
@@ -356,13 +375,24 @@ def bauen(omsi, karte, omsi_kacheln, laden_erlaubt=False, pruefen=True, fassaden
     y1 = (max(k[1] for k in gewollt) + 1) * 300
     in_kachel = lambda p: (math.floor(p[0] / 300), math.floor(p[1] / 300)) in gewollt
     n_dr = 0
+    # G1: Lage = Grundrissmitte/Boden/Hauptachse, Waende bis unter das Kartengelaende (gespeicherte Karte; Kacheln der
+    # Sitzung ohne .terrain: 1 m wie bisher). Auswahl und Kachel nach der Grundrissmitte, vorab grob nach dem Mittel.
+    from . import platzierung
+    from .sonderbau_ring import Kartengelaende
+    kg = Kartengelaende(kdir)
     for e, n in noetig:
-        for g in gebaeude(datei(e, n), bez, lambda p: x0 <= p[0] < x1 and y0 <= p[1] < y1 and in_kachel(p)
-                                                     and (auswahl is None or auswahl(p))):
-            k = (math.floor(g['mitte'][0] / 300), math.floor(g['mitte'][1] / 300))
+        for g in gebaeude(datei(e, n), bez, lambda p: x0 - 50 <= p[0] < x1 + 50 and y0 - 50 <= p[1] < y1 + 50):
+            poly = platzierung.grundriss(g)
+            lg = platzierung.lage(g, poly)
+            mitte = (lg['x'], lg['y'])
+            if not (x0 <= mitte[0] < x1 and y0 <= mitte[1] < y1 and in_kachel(mitte)
+                    and (auswahl is None or auswahl(mitte))):
+                continue
+            k = (math.floor(mitte[0] / 300), math.floor(mitte[1] / 300))
             name = g['id'].replace('DEBY_LOD2_', 'B')
             fa = fassade_laden(g['id'], fassaden)
-            m, o = bauen_fassade(g, fa, bez) if fa else bauen_gebaeude(g)
+            u = platzierung.unten(g['boden'], platzierung.gelaende_min(kg.hoehe, poly))
+            m, lg = bauen_fassade(g, fa, bez, lage=lg, unten=u) if fa else bauen_gebaeude(g, lg, u)
             if m.leer():
                 continue
             ordner = os.path.join(basis, f'{k[0]}_{k[1]}')
@@ -379,8 +409,9 @@ def bauen(omsi, karte, omsi_kacheln, laden_erlaubt=False, pruefen=True, fassaden
             with open(os.path.join(ordner, 'model', name + '.x'), 'w', newline='') as f:
                 f.write(x_file(m.V, m.F, mats))
             open(os.path.join(ordner, name + '.sco'), 'w', encoding='cp1252', newline='').write(sco_text(name, m.mats, bool(fa)))
-            je[k].append(dict(name=name, rel=bs.join([rel0, f'{k[0]}_{k[1]}', name + '.sco']), x=round(float(o[0]), 3), y=round(float(o[1]), 3),
-                              z=0.0, funktion=g['funktion'], dach=g['dach'], hoehe=g['hoehe'], fassade=bool(fa)))
+            je[k].append(dict(name=name, rel=bs.join([rel0, f'{k[0]}_{k[1]}', name + '.sco']), x=lg['x'], y=lg['y'],
+                              z=lg['z'], rot=lg['rot'], funktion=g['funktion'], dach=g['dach'], hoehe=g['hoehe'],
+                              fassade=bool(fa), sockel=round(float(g['boden'] - min(u, g['boden'] - UNTER_BODEN)), 2)))
             n_dr += len(m.F)
     pfade = []
     for (kx, ky), objekte in sorted(je.items()):
@@ -388,7 +419,8 @@ def bauen(omsi, karte, omsi_kacheln, laden_erlaubt=False, pruefen=True, fassaden
         os.makedirs(ordner, exist_ok=True)
         quellen = [QUELLE] + ([QUELLE_FASSADE] if any(o.get('fassade') for o in objekte) else [])
         man = schichten.manifest(kdir, 'gebaeude', (kx, ky), 'omsigen.lod2',
-                                 dict(fassaden=bool(fassaden), auswahl=auswahl is not None), quellen)
+                                 dict(fassaden=bool(fassaden), auswahl=auswahl is not None, lage='grundriss',
+                                      gruendung='kartengelaende'), quellen)
         out = schichten.paket(karte, 'gebaeude', (kx, ky), objekte, man, quellen)
         pfad = os.path.join(ordner, 'lod2.json')
         json.dump(out, open(pfad, 'w', encoding='utf-8'), indent=1, ensure_ascii=False)
@@ -463,7 +495,7 @@ def bauen_fuer_projekt(root, name, proj, basis, linie, breite=150.0, fassaden='s
             g['flaechen'] = [(art, [np.c_[np.stack(abbild(r[:, 0], r[:, 1]), 1), r[:, 2]] for r in ringe])
                              for art, ringe in g['flaechen']]
             g['mitte'] = np.array(abbild(utm_mitte[0], utm_mitte[1])).ravel()
-            m, o = bauen_fassade(g, fa, bez, abbild) if fa else bauen_gebaeude(g)
+            m, lg = bauen_fassade(g, fa, bez, abbild) if fa else bauen_gebaeude(g)
             if m.leer():
                 continue
             if fa:
@@ -474,7 +506,7 @@ def bauen_fuer_projekt(root, name, proj, basis, linie, breite=150.0, fassaden='s
             with open(os.path.join(ordner, 'model', gname + '.x'), 'w', newline='') as f:
                 f.write(x_file(m.V, m.F, mats))
             open(os.path.join(ordner, gname + '.sco'), 'w', encoding='cp1252', newline='').write(sco_text(gname, m.mats, bool(fa)))
-            out.append(dict(origin=(float(o[0]), float(o[1])), rel=bs.join([rel0, gname + '.sco']), fassade=bool(fa)))
+            out.append(dict(origin=(lg['x'], lg['y']), rel=bs.join([rel0, gname + '.sco']), fassade=bool(fa)))
             n_dr += len(m.F)
     log(f'    LoD2: {len(out)} Gebaeude ({sum(o["fassade"] for o in out)} mit Fassade), {n_dr} Dreiecke')
     return out
