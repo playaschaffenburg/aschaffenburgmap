@@ -419,11 +419,18 @@ class Hoehen:
         aussen = (n - 1) * schritt + rand
         H0 = H.copy()
         best = np.full((n, n), np.inf, dtype=np.float32)      # Lage in der Boeschung der massgebenden Strasse
+        deckel = np.full((n, n), np.inf, dtype=np.float32)    # hoechstens so hoch: Punkte, deren Dreiecke die Strasse
+                                                              # beruehren koennen (innerhalb einer Zellendiagonale)
+        diag = schritt * math.sqrt(2.0)
+        d_deckel = np.full((n, n), np.inf, dtype=np.float32)  # Abstand zum Strassenpunkt, der die Obergrenze gibt
         ziel = np.zeros((n, n), dtype=np.float32)              # (0 = auf der Strasse, 1 = Gelaende)
         for (x, z, h, innen) in self.proben + [(x, z, h, 2.0) for x, z, h in self.flaechen]:
             if x < x0 - rand or z < z0 - rand or x > x0 + aussen or z > z0 + aussen:
                 continue
             d = np.hypot(X - x, Z - z) - innen
+            nah = (d < diag) & (d < d_deckel)                   # naechster Strassenpunkt gibt die Hoehe vor
+            deckel = np.where(nah, h - UNTER_FAHRBAHN, deckel)
+            d_deckel = np.where(nah, d, d_deckel)
             r = np.maximum(d, 0.0) / boeschung_breite(h - UNTER_FAHRBAHN - H0)
             m = r < np.minimum(best, 1.0)
             best = np.where(m, r, best)
@@ -431,6 +438,10 @@ class Hoehen:
         w = np.clip(best, 0, 1)
         m = np.isfinite(best)
         H = np.where(m, ziel * (1 - w) + H * w, H)
+        # OMSI legt das Gelaende als Dreiecke zwischen den 5-m-Punkten: ein hoeherer Punkt neben dem Bordstein hebt das
+        # Dreieck quer ueber Gehweg und Fahrbahn (Bodentextur auf der Strasse). Deshalb liegt jeder Punkt in Reichweite
+        # einer Zellendiagonale hoechstens auf Strassenhoehe; die Boeschung beginnt erst dahinter.
+        H = np.minimum(H, deckel)
         if getattr(self, 'gebaeude', None) is not None:          # G1: an Gebaeuden nicht ueber DGM/Boden anheben
             H = self.gebaeude.klemmen(X, Z, H, H0, ~(best <= 1e-9))
         for (xa, za, xb, zb, h, innen) in getattr(self, 'graeben', ()):  # Tunnelgraben bis auf die Sohle

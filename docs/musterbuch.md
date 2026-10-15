@@ -92,6 +92,25 @@ an 354 von 750 Armen ein Knick von mindestens 2 %, an 89 Armen von mindestens 8 
 - **T-4:** Die Höhe folgt einer Gradiente mit Ausrundungen (Steigung Anfang ≠ Ende), nicht einem Treppenzug aus
   Elementen mit fester Steigung.
 
+**Umsetzung im Generator (15.10.2026), `network.fillet_chain`:**
+- Die OSM-Linie wird zuerst vereinfacht (Douglas-Peucker 0,5 m), sodass zittrige Geraden wirklich gerade werden.
+  Wechsel von Querschnitt und Ebene bleiben dabei als Punkte erhalten.
+- Jede verbleibende Ecke bekommt den größten Bogen, der zwischen die Nachbarstücke passt und höchstens 1,5 m innen an
+  der Ecke vorbeigeht (`BOGEN_TOL`), höchstens 1000 m. Der Klassenradius (`config.RADIUS`) gilt nur noch als Untergrenze
+  an echten Ecken. Ein Bogen belegt höchstens 80 % des ersten bzw. letzten Stücks, damit die Arme gerade an die
+  Kreuzung anschließen.
+- Test: Eine OSM-Kurve mit R = 80 m (6-m-Stücke, ±0,3 m Zittern) ergab früher lauter 15-m-Bögen, jetzt Bögen über
+  50 m mit höchstens 1,6 m Abstand zur OSM-Linie.
+
+## 3b. Gelände unter der Straße
+
+OMSI spannt das Gelände als Dreiecke zwischen Punkten im 5-m-Raster. Liegt ein Punkt neben dem Bordstein höher als
+die Straße (Einschnitt, Böschung), hebt sein Dreieck die Bodentextur quer über Gehweg und Fahrbahn. In v11 war das an
+438 Straßen- und Plattenelementen der Fall (≥ 10 cm). Seit dem 15.10.2026 darf jeder Rasterpunkt in Reichweite einer
+Zellendiagonale (7,07 m) höchstens auf der Höhe des nächsten Straßenpunkts liegen (`hoehen.raster`); in v12 bleiben
+29 Elemente, alle am Ring-Trog (Richtungsfahrbahnen auf verschiedener Höhe, gehört zum Sonderbau Ring).
+Prüfung: `python -m omsigen.gelaende_pruefung <Karte>`, im Prüfbericht als „Gelände über der Straße“.
+
 ## 4. Kreuzungsaufbau
 
 - **K-1:** 3- und 4-armig, 5 und mehr Arme fast nie (3 von 820). v9 hat 27 Knoten mit 5–12 Armen (Busbahnhof,

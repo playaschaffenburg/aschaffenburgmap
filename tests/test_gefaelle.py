@@ -103,3 +103,59 @@ def test_spline_h_schreiben_und_lesen(tmp_path):
     assert abs(netz_datei.hoehe_bei(a, 20.0) - b['y']) < 1e-9          # Ende = Anfang des naechsten
     assert abs(netz_datei.hoehe_bei(a, 10.0) - hoehe_im_element(0.0, 0.0, 4.0, 0.4, 20.0, 10.0)) < 1e-12
     assert os.path.isfile(os.path.join(info['dir'], 'global.cfg'))
+
+
+def test_gelaende_im_einschnitt_bleibt_unter_der_strasse():
+    # Strasse quer zum 5-m-Raster versetzt (z = 1,3) in einem Einschnitt: daneben steigt das Gelaende mit 30 % an.
+    # OMSI legt das Gelaende als Dreiecke zwischen den Rasterpunkten - kein Punkt der Strasse darf darunter liegen
+    from omsigen.splinedb import SplineDB
+    ways = [dict(tags=dict(highway='residential', name='A'), P=[(-400.0, 1.3), (400.0, 1.3)])]
+    sdb = SplineDB()
+    net = build(ways, sdb)
+    hoe = Hoehen(Hang(lambda x, z: 100 + 0.3 * abs(z - 1.3)), log=lambda *a: None).berechnen(net, sdb)
+    x0, z0, n, schritt = -150.0, -150.0, 61, 5.0
+    H = hoe.raster(x0, z0, n, schritt)
+
+    def gel(x, z):                              # wie OMSI / ausstattung.Gelaende.hoehe
+        fx, fz = (x - x0) / schritt, (z - z0) / schritt
+        ix, iz = int(fx), int(fz)
+        tx, tz = fx - ix, fz - iz
+        h00, h10, h01, h11 = H[iz, ix], H[iz, ix + 1], H[iz + 1, ix], H[iz + 1, ix + 1]
+        if tx >= tz:
+            return h00 + (h10 - h00) * tx + (h11 - h10) * tz
+        return h00 + (h11 - h01) * tx + (h01 - h00) * tz
+    q = sdb[net['road_chains'][0]['els'][0][5]]
+    ch = net['road_chains'][0]
+    ueber = 0.0
+    for e, y in zip(ch['els'], ch['y']):
+        if not -140 < e[0] < 140:
+            continue
+        for d in range(int(q['ol'] * 4), int(q['or_'] * 4) + 1):
+            z = e[1] - d / 4.0                  # Strasse nach Osten: rechts = Sueden
+            ueber = max(ueber, gel(e[0], z) - (y + 0.10))
+    assert ueber < 0.02, ueber
+
+
+def test_trassierung_kurve_mit_echtem_radius():
+    # OSM zeichnet eine Kurve (R = 80 m) als Polygonzug mit 8-m-Stuecken und etwas Zittern: frueher wurde jede Ecke
+    # mit 15 m ausgerundet (eckig), jetzt entsteht ein Bogen mit dem echten Radius, der nah an der Linie bleibt
+    import random
+    from omsigen.splinedb import SplineDB
+    from omsigen.geom import sample
+    random.seed(3)
+    R0, P = 80.0, []
+    for k in range(0, 21):
+        a = math.radians(k * 4.5)                       # 90 Grad in 21 Punkten, Abstand ~6,3 m
+        r = R0 + random.uniform(-0.3, 0.3)
+        P.append((R0 - r * math.cos(a), r * math.sin(a)))
+    # Gerade davor (von Sueden nach Norden) und danach (nach Osten)
+    P = [(P[0][0], P[0][1] - 60.0)] + P + [(P[-1][0] + 60.0, P[-1][1])]
+    net = build([dict(tags=dict(highway='residential', name='K'), P=P)], SplineDB())
+    els = net['road_chains'][0]['els']
+    boegen = [abs(e[4]) for e in els if e[4] != 0]
+    assert boegen and sorted(boegen)[len(boegen) // 2] > 50, boegen
+    # Abstand der neuen Achse zur OSM-Kurve
+    from shapely.geometry import LineString, Point
+    osm = LineString(P)
+    abw = max(osm.distance(Point(q)) for e in els for q, _ in sample(e, 1.0))
+    assert abw < 1.6, abw

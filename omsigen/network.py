@@ -8,6 +8,36 @@ from .geom import heading, norm180, rvec, end_of, straight, connect
 
 
 CORNER_ROOM = 6.0      # zusaetzliche Kuerzung der Arme an Kreuzungen (Platz fuer Bordsteinradien)
+# Trassierung (docs/musterbuch.md, Abschnitt 3: Vorbilder Radius-Median 50-80 m, v9 15 m):
+GLAETTEN_TOL = 0.5     # m: OSM-Punkte, die weniger abweichen, fallen weg (Douglas-Peucker) - Zittern wird gerade
+BOGEN_TOL = 1.5        # m: so weit darf ein Bogen innen an einer OSM-Ecke vorbeigehen
+R_MAX = 1000.0         # m: groesster Bogenradius
+ENDE_FAKTOR = 0.8      # Anteil des ersten/letzten Stuecks, den ein Bogen hoechstens belegt (Arme enden gerade)
+
+
+def vereinfachen(pts, fest, tol=GLAETTEN_TOL):
+    """Douglas-Peucker: Indizes der Punkte, die bleiben (Anfang, Ende und fest[i] bleiben immer)"""
+    keep = {0, len(pts) - 1} | {i for i, f in enumerate(fest) if f}
+    teil = sorted(keep)
+    stapel = list(zip(teil, teil[1:]))
+    while stapel:
+        a, b = stapel.pop()
+        if b - a < 2:
+            continue
+        pa, pb = pts[a], pts[b]
+        L = math.dist(pa, pb)
+        best, bi = -1.0, None
+        for i in range(a + 1, b):
+            if L < 1e-9:
+                d = math.dist(pts[i], pa)
+            else:
+                d = abs((pb[0] - pa[0]) * (pa[1] - pts[i][1]) - (pa[0] - pts[i][0]) * (pb[1] - pa[1])) / L
+            if d > best:
+                best, bi = d, i
+        if best > tol:
+            keep.add(bi)
+            stapel += [(a, bi), (bi, b)]
+    return sorted(keep)
 
 
 def key(p):
@@ -512,6 +542,8 @@ def build(ways_in, sdb, signs=(), waehle=None, angleichen=None, uebergang=None):
         a, b = e['trim']
         P = cut(e['P'], a)
         e['P'] = cut(P[::-1], b)[::-1]
+        if len(e['P']) > 2 and 'circle' not in e:         # Zittern der OSM-Linie weg (Trassierung, musterbuch.md 3)
+            e['P'] = [e['P'][i] for i in vereinfachen(e['P'], [False] * len(e['P']))]
 
     # Querschnittswechsel mit Uebergangsobjekt (S1): beide Enden auf eine Gerade legen (leichte Knicke bis 6 Grad am
     # Knoten), damit die Spuren des geraden Objekts genau auf die der Splines treffen
@@ -614,10 +646,14 @@ def build(ways_in, sdb, signs=(), waehle=None, angleichen=None, uebergang=None):
             th = norm180(hd[i] - hd[i - 1]); dth[i] = th
             if abs(th) < 0.3:
                 continue
-            r = max(seg_rad[i - 1], seg_rad[i])
-            t = r * math.tan(math.radians(abs(th)) / 2)
-            t = min(t, L[i - 1] * (0.5 if i - 1 > 0 else 0.95), L[i] * (0.5 if i < n - 2 else 0.95))
-            tl[i] = t; R[i] = t / math.tan(math.radians(abs(th)) / 2) * (1 if th > 0 else -1)
+            # groesster Bogen, der zwischen die Nachbarstuecke passt und hoechstens BOGEN_TOL innen an der Ecke
+            # vorbeigeht; der Klassenradius (config.RADIUS) ist nur noch die Untergrenze an echten Ecken
+            halb = math.radians(abs(th)) / 2
+            t_max = min(L[i - 1] * (0.5 if i - 1 > 0 else ENDE_FAKTOR), L[i] * (0.5 if i < n - 2 else ENDE_FAKTOR))
+            r_tol = BOGEN_TOL / (1 / math.cos(halb) - 1) if halb > 1e-6 else R_MAX
+            r = min(max(seg_rad[i - 1], seg_rad[i], r_tol), R_MAX)
+            t = min(r * math.tan(halb), t_max)
+            tl[i] = t; R[i] = t / math.tan(halb) * (1 if th > 0 else -1)
         els, lvls, cur = [], [], pts[0]
         for i in range(1, n):
             a = pts[i - 1]

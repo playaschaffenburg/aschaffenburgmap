@@ -367,8 +367,8 @@ py -3.12 -m omsigen --omsi "C:\Program Files (x86)\Steam\steamapps\common\OMSI 2
 py -3.12 -m omsigen.pruefbericht Aschaffenburg_Linie16_vN --bilder --luftbild --max 6
 ```
 Fassaden kommen aus `Documents\Aschaffenburg\fassaden` (earth-reverse-engineering `tools/lod2/korridor.py`).
-Stand 15.10.2026 nach dem Gefälle-Fix (docs/musterbuch.md): `Aschaffenburg_Linie16_v11`, 151 Funde (3 Spurenden, 27 Gebäude über Fahrbahn, 51 über Gehweg, 46 versunken, 1 schwebt, 19 Querschnitt-Prüfstellen, 1 Haltestelle, 3 Schilder). Knick an Kreuzungsplatten 1/1/0 von 638 Armen (≥ 2/4/8 %; v9: 338/215/88; Ahlheim 2/1/0).
-Vorher: v7 186, v8 79, v9 136 Funde.
+Stand 15.10.2026 nach Gefälle-Fix, Gelände unter Straßen und Trassierung (docs/musterbuch.md): `Aschaffenburg_Linie16_v14`, 176 Funde (3 Spurenden, 30 Gebäude über Fahrbahn, 49 über Gehweg, 41 versunken, 3 schwebend, 19 Querschnitt-Prüfstellen, 1 Haltestelle, 2 Schilder, 28 Gelände über der Straße – alle am Ring-Trog). Knick an Kreuzungsplatten 1/1/0 von 630 Armen; Bogenradius Median 68 m (v9: 15 m; Vorbilder 50–80 m).
+Vorher: v7 186, v8 79, v9 136, v11 151 Funde (ohne Geländeprüfung).
 Hinweis: Der Generator endet mit Rückgabe ≠ 0, solange offene Spurenden gefunden werden – den Prüfbericht dann
 getrennt starten. Der OSM-Zwischenspeicher liegt relativ zum Arbeitsordner (`.cache`).
 

@@ -120,7 +120,8 @@ def kreuzungen_lesen(kartenordner):
                 continue
             try:
                 o = dict(id=int(float(b[3])), rel=rel, x=float(b[4]) + k[0] * KACHEL, z=float(b[5]) + k[1] * KACHEL,
-                         art='kreuzung' if name.startswith('K_') else 'wechsel', rot=float(b[7]), laenge=0.0)
+                         y=float(b[6]), art='kreuzung' if name.startswith('K_') else 'wechsel', rot=float(b[7]),
+                         laenge=0.0)
             except (ValueError, IndexError):
                 continue
             if o['art'] == 'wechsel':

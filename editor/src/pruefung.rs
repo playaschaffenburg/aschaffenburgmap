@@ -33,6 +33,7 @@ pub fn name(art: &str) -> &str {
         "budget_textur_mb" => "Budget Texturspeicher",
         "querschnitt_abweichung" => "Querschnitt weicht vom Luftbild ab",
         "abbiegestreifen_fehlt" => "Abbiegestreifen fehlt",
+        "gelaende_ueber_strasse" => "Gelaende ueber der Strasse",
         "objekt_auf_fahrbahn" => "Objekt auf der Fahrbahn",
         "haltestelle_ohne_wartehalle" => "Haltestelle ohne Wartehalle (OSM: shelter=yes)",
         "schild_widerspricht_vorfahrt" => "Schild widerspricht der Vorfahrt",

@@ -332,6 +332,12 @@ def erstellen(kartenordner, omsi=None, mit_spiel=False, mit_luft=False, max_orte
         funde += querschnitt_pruefung.funde(kartenordner)
     except Exception as e:                       # Luftbild nicht erreichbar o. ae.: der Bericht entsteht trotzdem
         log(f'    Querschnitte nicht geprueft: {type(e).__name__}: {e}')
+    # Gelaende ueber Strasse/Kreuzungsplatte (wie OMSI in Dreiecken): je Element ein Fund ab 10 cm
+    try:
+        from . import gelaende_pruefung
+        funde += gelaende_pruefung.funde(kartenordner, omsi)
+    except Exception as e:
+        log(f'    Gelaende ueber Strassen nicht geprueft: {type(e).__name__}: {e}')
     # Budgets
     bud = budgets(kartenordner, omsi)
     for key, b in bud.items():
@@ -372,6 +378,7 @@ NAMEN = {'spurende_offen': 'Spurende ohne Anschluss', 'beinahe_anschluss': 'Bein
          'gebaeude_auf_gehweg': 'Gebaeude ueber Gehweg', 'gebaeude_schwebt': 'Gebaeude schwebt',
          'gebaeude_versunken': 'Gebaeude versunken',
          'boden_fehlt': 'Boden fehlt', 'boden_fahrbahn_gras': 'Fahrbahn auf Gras (Boden)',
+         'gelaende_ueber_strasse': 'Gelaende ueber der Strasse',
          'budget_objekte': 'Budget Objekte', 'budget_dreiecke': 'Budget Dreiecke', 'budget_textur_mb': 'Budget Texturspeicher',
          'querschnitt_abweichung': 'Querschnitt weicht vom Luftbild ab', 'abbiegestreifen_fehlt': 'Abbiegestreifen fehlt',
          'objekt_auf_fahrbahn': 'Objekt auf der Fahrbahn', 'haltestelle_ohne_wartehalle': 'Haltestelle ohne Wartehalle (OSM: shelter=yes)',

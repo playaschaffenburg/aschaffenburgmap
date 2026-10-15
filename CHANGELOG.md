@@ -20,6 +20,8 @@ Qualitaetsoffensive fuer die Pilotkarte Linie 16 (Plan: docs/qualitaet-anforderu
 - **Strassenlogik nach Vorbild:** Vorbildstudie Ahlheim 5 / Staedtedreieck V3 (`omsigen.vorbildstudie`, Musterbuch).
   Kreuzungen am Gefaelle: Platten als geneigte Ebene, Arme ohne Knick, stetige Steigung mit `[spline_h]`
   (Knick an Platten 338 -> 1 von 638 Armen).
+- **Gelaende unter der Strasse:** Rasterpunkte neben der Strasse liegen hoechstens auf Strassenhoehe (OMSI-Dreiecke hoben die Bodentextur ueber Gehweg und Fahrbahn; 438 -> 28 Elemente); neue Pruefung `omsigen.gelaende_pruefung`.
+- **Trassierung:** OSM-Linien entzittert, Kurven mit dem echten Radius statt 15-m-Ecken (Median 15 -> 68 m).
 - Fehlerbehebungen: netz.json las `[spline_h]` falsch; Pruefbericht stuerzte bei Add-on-Modellen ab.
 
 ## v0.1.0 (2026-10-12)
