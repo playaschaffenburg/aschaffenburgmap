@@ -90,19 +90,22 @@ def grundrisse(bez, bereich, log=print):
     return out
 
 
-def flucht(P, baum, polys):
-    """Weglinie P [(x, z)] -> (Abstaende links, rechts je Station: Liste, None = kein Gebaeude in Reichweite)"""
+def flucht(P, baum, polys, schritt=None, ende_frei=None):
+    """Weglinie P [(x, z)] -> (Abstaende links, rechts je Station: Liste, None = kein Gebaeude in Reichweite);
+    Stationen alle `schritt` m ohne `ende_frei` m an beiden Enden (Standard SCHRITT, ENDE_FREI)"""
     from shapely.geometry import LineString, Point
+    schritt = SCHRITT if schritt is None else schritt
+    ende_frei = ENDE_FREI if ende_frei is None else ende_frei
     L = [0.0]
     for a, b in zip(P, P[1:]):
         L.append(L[-1] + math.dist(a, b))
     gesamt = L[-1]
     if gesamt < 2.0:
         return [], []
-    if gesamt < 2 * ENDE_FREI + SCHRITT:
+    if gesamt < 2 * ende_frei + schritt:
         stationen = [gesamt / 2]
     else:
-        stationen = list(np.arange(ENDE_FREI, gesamt - ENDE_FREI + 1e-6, SCHRITT))
+        stationen = list(np.arange(ende_frei, gesamt - ende_frei + 1e-6, schritt))
     li, re = [], []
     j = 0
     for s in stationen:
