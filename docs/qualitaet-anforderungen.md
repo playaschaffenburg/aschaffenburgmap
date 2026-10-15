@@ -354,7 +354,7 @@ Pilotgebiet: Linie 16, zuerst die Kachel am Herstallturm (Altstadtrand + Park), 
 | 1 | S1 Querschnitte, S4 Bodenmasken | Straßen in echter Breite, Boden mit Belägen |
 | 2 | G1 Platzierung, G3 Laternen/Schilder, G4 Haltestellen | Gebäude sitzen, Straßenraum möbliert |
 | 3 | V1/V2 Bäume, V3 Parks | Grün an den echten Stellen |
-| 4 | S2 Markierungen/Fußgängerampeln, G2 Fassaden, V4/V5 Backdrop und Enden | Feinschliff |
+| 4 | S2 Markierungen/Fußgängerampeln, G2 Fassaden, V4/V5 Backdrop und Enden, Texturwerkstatt (eigene Modelle/Texturen) | Feinschliff |
 | 5 | F6 LOD/Budgets, G4 Fahrplan | flüssig spielbar, Linie nach Fahrplan |
 
 Phase 1–3 können nach Phase 0 parallel laufen, weil sie nur über Ebenen und Belegungskarte gekoppelt sind.
@@ -390,7 +390,7 @@ getrennt starten. Der OSM-Zwischenspeicher liegt relativ zum Arbeitsordner (`.ca
    in ihrer Beschreibung (LIESMICH), damit klar ist, was installiert sein muss.
 4. **Generator:** Python bleibt der Generator, der Rust-Editor die Oberfläche (wie heute).
 5. **Reihenfolge:** Fundament → Straßen/Boden → Gebäude/Objekte → Vegetation/Backdrops.
-6. **Texturwerkstatt (Phase 2):** eigene Texturen fuer eigene Objekte aus vier Quellen - Fotos (entzerrt, kachelbar),
+6. **Texturwerkstatt (verschoben auf Phase 4, Nutzerwunsch 15.10.2026):** eigene Texturen fuer eigene Objekte aus vier Quellen - Fotos (entzerrt, kachelbar),
    prozedural in Blender (Blender MCP, als DDS gebacken), CC0-Materialien (Poly Haven, ambientCG) und ein lokaler
    KI-Bildgenerator (ComfyUI auf der RTX 3070, mit MCP) fuer Plakate, Ladenschilder, Graffiti und Gebaeude-Varianten.
    Schilder mit Schrift (Haltestelle, Verkehrszeichen) exakt aus Vektoren, nicht per KI.
