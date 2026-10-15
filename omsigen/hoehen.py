@@ -6,8 +6,9 @@ Alle Hoehen in der Karte sind relativ zu einer Basishoehe (Meter ueber NN, Stand
 - Bruecke / Tunnel (OSM bridge / tunnel): linear zwischen den Hoehen an ihren Enden (das DGM zeigt dort den
   Boden darunter bzw. darueber, nicht die Fahrbahn).
 - Spline: Starthoehe + gleichbleibende Steigung (Prozent) je Element; Elemente sind hoechstens TEILEN m lang.
-- Gelaende: DGM im 5-m-Raster der Kacheln; unter Strassen und Kreuzungen auf Fahrbahnhoehe abgesenkt (nicht unter
-  Bruecken und ueber Tunneln), mit Uebergang zum Gelaende."""
+- Gelaende: DGM im 5-m-Raster der Kacheln; unter Strassen und Kreuzungen auf Fahrbahnhoehe angeglichen (nicht unter
+  Bruecken und ueber Tunneln), daneben eine Boeschung 1 : BOESCHUNG zum Gelaende (mindestens UEBERGANG breit) statt
+  einer Stufe - je groesser der Hoehenunterschied, desto breiter der Uebergang (S4)."""
 import math
 import numpy as np
 from .geom import end_of, sample
@@ -15,7 +16,9 @@ from .geom import end_of, sample
 TEILEN = 20.0          # m: laengere Elemente werden geteilt (Hoehenverlauf folgt dem Gelaende)
 GLAETTEN = 30.0        # m: Fenster des gleitenden Mittels
 UNTER_FAHRBAHN = 0.05  # m: Gelaende unter der Fahrbahn so weit unter der Spline-Hoehe
-UEBERGANG = 4.0        # m: Breite des Uebergangs von der Strasse zum Gelaende
+UEBERGANG = 4.0        # m: Breite des Uebergangs von der Strasse zum Gelaende (mindestens)
+BOESCHUNG = 1.5        # Boeschungsneigung 1 : 1,5 (wie Damm/Einschnitt im Editor): Breite = 1,5 x Hoehenunterschied
+BOESCHUNG_MAX = 30.0   # m: breiter wird keine Boeschung (grosse Unterschiede: Bauwerk, kein Gelaende)
 STEIGUNG_GEWICHT = 4.0  # Gewicht der Steigungsstrafe in der Ausgleichsrechnung
 LICHTE_HOEHE = 5.5      # m: Brueckenfahrbahn mindestens so weit ueber dem Boden darunter
 UEBERDECKUNG = 6.0      # m: Tunnelfahrbahn mindestens so weit unter der Oberflaeche
@@ -36,6 +39,12 @@ def zerlegen(els, lvls, maxlen=TEILEN):
             out.append(e); ol.append(lv)
             (x, z), h = end_of(e)
     return out, ol
+
+
+def boeschung_breite(dh):
+    """Breite des Uebergangs Strasse -> Gelaende bei Hoehenunterschied dh (m): Boeschung 1 : BOESCHUNG, mindestens
+    UEBERGANG, hoechstens BOESCHUNG_MAX"""
+    return np.clip(np.abs(dh) * BOESCHUNG, UEBERGANG, BOESCHUNG_MAX)
 
 
 def _glaetten(s, h, fest, fenster=GLAETTEN):
@@ -257,11 +266,12 @@ class Hoehen:
         if not len(P):
             return g
         d = np.hypot(P[:, 0] - x, P[:, 1] - z) - P[:, 3]
-        k = int(np.argmin(d))
-        if d[k] >= UEBERGANG:
+        ziel = P[:, 2] - UNTER_FAHRBAHN
+        r = np.maximum(d, 0.0) / boeschung_breite(ziel - g)
+        k = int(np.argmin(r))
+        if r[k] >= 1.0:
             return g
-        w = max(0.0, d[k] / UEBERGANG)
-        return (P[k, 2] - UNTER_FAHRBAHN) * (1 - w) + g * w
+        return ziel[k] * (1 - r[k]) + g * r[k]
 
     def raster(self, x0, z0, n=61, schritt=5.0):
         """Hoehen (relativ) einer Kachel ab Welt-Ecke (x0, z0): Array [iz][ix], Zeile 0 = Sueden.
@@ -275,21 +285,24 @@ class Hoehen:
                 v = self.gelaende(x, z)
                 H[j, i] = 0.0 if v is None else v
         X, Z = np.meshgrid(xs, zs)
-        rand = (n - 1) * schritt + 30
-        best = np.full((n, n), np.inf, dtype=np.float32)      # Abstand zur naechsten Strasse ausserhalb
-        ziel = np.zeros((n, n), dtype=np.float32)
+        rand = BOESCHUNG_MAX + 10                               # Strassen so weit ausserhalb wirken noch
+        aussen = (n - 1) * schritt + rand
+        H0 = H.copy()
+        best = np.full((n, n), np.inf, dtype=np.float32)      # Lage in der Boeschung der massgebenden Strasse
+        ziel = np.zeros((n, n), dtype=np.float32)              # (0 = auf der Strasse, 1 = Gelaende)
         for (x, z, h, innen) in self.proben + [(x, z, h, 2.0) for x, z, h in self.flaechen]:
-            if x < x0 - 30 or z < z0 - 30 or x > x0 + rand or z > z0 + rand:
+            if x < x0 - rand or z < z0 - rand or x > x0 + aussen or z > z0 + aussen:
                 continue
             d = np.hypot(X - x, Z - z) - innen
-            m = d < np.minimum(best, UEBERGANG)
-            best = np.where(m, d, best)
+            r = np.maximum(d, 0.0) / boeschung_breite(h - UNTER_FAHRBAHN - H0)
+            m = r < np.minimum(best, 1.0)
+            best = np.where(m, r, best)
             ziel = np.where(m, h - UNTER_FAHRBAHN, ziel)
-        w = np.clip(best / UEBERGANG, 0, 1)                      # 0 = auf der Strasse, 1 = Gelaende
+        w = np.clip(best, 0, 1)
         m = np.isfinite(best)
         H = np.where(m, ziel * (1 - w) + H * w, H)
         for (xa, za, xb, zb, h, innen) in getattr(self, 'graeben', ()):  # Tunnelgraben bis auf die Sohle
-            if max(xa, xb) < x0 - 30 or max(za, zb) < z0 - 30 or min(xa, xb) > x0 + rand or min(za, zb) > z0 + rand:
+            if max(xa, xb) < x0 - 30 or max(za, zb) < z0 - 30 or min(xa, xb) > x0 + aussen or min(za, zb) > z0 + aussen:
                 continue
             dx, dz = xb - xa, zb - za
             ll = dx * dx + dz * dz

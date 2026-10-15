@@ -235,3 +235,30 @@ def test_groundtex_fremde_masken_bleiben(tmp_path):
         assert False, 'haette abbrechen muessen'
     except RuntimeError as e:
         assert 'gemalte Masken' in str(e)
+
+
+# ---------------------------------------------------------------- Gelaende: Boeschung statt Stufe
+
+def test_boeschung_statt_stufe():
+    from omsigen import hoehen
+
+    class Flach:
+        def hoehe(self, x, z):
+            return 100.0
+    h = hoehen.Hoehen(Flach(), log=lambda *a: None)
+    h.base = 100.0
+    # Strasse (Mitte x = 50, halbe Breite 4 m) 3 m ueber dem Gelaende, quer durch die Kachel
+    h.proben = [(50.0, float(z), 3.0, 4.0) for z in range(-40, 345, 2)]
+    H = h.raster(0.0, 0.0)
+    zeile = H[30]                                     # x = 0, 5, 10 ... m
+    assert abs(zeile[10] - (3.0 - hoehen.UNTER_FAHRBAHN)) < 1e-3           # x = 50: auf der Strasse
+    breite = hoehen.boeschung_breite(3.0 - hoehen.UNTER_FAHRBAHN)
+    assert abs(breite - 1.5 * (3.0 - hoehen.UNTER_FAHRBAHN)) < 1e-6
+    # x = 55: 1 m hinter der Strassenkante, x = 60: 6 m (jenseits der 4,4-m-Boeschung) -> Gelaende
+    assert abs(zeile[11] - (3.0 - hoehen.UNTER_FAHRBAHN) * (1 - 1.0 / breite)) < 1e-3
+    assert abs(zeile[12]) < 1e-6
+    # grosser Unterschied: breitere Boeschung, Neigung hoechstens 1 : 1,5
+    h.proben = [(50.0, float(z), 10.0, 4.0) for z in range(-40, 345, 2)]
+    zeile = h.raster(0.0, 0.0)[30]
+    neigung = np.abs(np.diff(zeile[10:16])) / 5.0
+    assert neigung.max() <= 1 / 1.5 + 1e-6 and zeile[12] > 0
