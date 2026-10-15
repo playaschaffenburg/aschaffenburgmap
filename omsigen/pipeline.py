@@ -173,6 +173,30 @@ def geo_schreiben(kartenordner, proj, offset, nn0, ort=''):
         f.write(CRLF.join(zeilen))
 
 
+def gebaeude_schicht(root, name, info, linie, breite, log=print):
+    """Schicht "gebaeude" einer neuen UTM-Karte: derselbe Weg wie der Editor (omsigen.lod2.bauen je Kachel ueber den
+    Geobezug, Schicht-Pakete LoD2/<kx>_<ky>/lod2.json), nur Gebaeude mit Mitte bis `breite` m um die Linie; die Pakete
+    werden gleich eingesetzt (schichten.einsetzen) - spaeter ersetzt der Editor sie je Kachel."""
+    import numpy as np
+    from . import lod2, schichten
+    ox, oz = info['offset']
+    L = np.array([(x - ox, z - oz) for x, z in linie], float)
+    a, b = L[:-1], L[1:]
+    ab = b - a
+
+    def im_korridor(p):
+        t = np.clip(((p - a) * ab).sum(1) / np.maximum((ab * ab).sum(1), 1e-9), 0, 1)
+        return float(np.linalg.norm(a + t[:, None] * ab - p, axis=1).min()) <= breite
+    log(f'    LoD2-Gebaeude im Korridor {breite:.0f} m (Schicht gebaeude je Kachel) ...')
+    st = {}
+    pfade, n, dr = lod2.bauen(root, name, schichten.kacheln(info['dir']), laden_erlaubt=True, statistik=st,
+                              auswahl=lambda p: im_korridor(np.asarray(p[:2], float)))
+    eingesetzt = sum(schichten.einsetzen(info['dir'], pf) for pf in pfade)
+    info['gebaeude'] = eingesetzt
+    log(f'    LoD2: {n} Gebaeude ({st.get("fassaden", 0)} mit Fassade), {dr} Dreiecke, {len(pfade)} Kachel-Pakete, '
+        f'{eingesetzt} eingesetzt')
+
+
 def erzeuge(projekt, name, omsi=None, ausgabe='build', korrekturen=None, ueberschreiben=False, kreuzungen='objekt',
             titel=None, vorschau=None, ansicht_html=None, log=print, gelaende=True, gebaeude=None):
     """Projekt -> OMSI-Karte. gebaeude: Korridor (m) fuer LoD2-Gebaeude (Bayern, nur mit Gelaende; Fassaden aus den
@@ -212,22 +236,25 @@ def erzeuge(projekt, name, omsi=None, ausgabe='build', korrekturen=None, uebersc
     kdir = None
     if objekte:                  # vor den Gebaeuden: install_objects ersetzt den ganzen Objektordner der Karte
         kdir, _ = kreuzung.install_objects(root, name, objekte, omsi_dir=omsi, overwrite=ueberschreiben)
+    utm = getattr(proj, 'art', '') == 'utm'
     geb = []
-    if gebaeude and hat_gelaende:
+    if gebaeude and hat_gelaende and not utm:      # alte ebene Projekte: Gebaeude direkt (ohne Geobezug, ohne Schicht)
         from . import lod2
         log(f'    LoD2-Gebaeude im Korridor {gebaeude:.0f} m ...')
         geb = lod2.bauen_fuer_projekt(root, name, proj, hoe.base, linie, gebaeude, ueberschreiben=ueberschreiben, log=log)
-    elif gebaeude:
+    elif gebaeude and not hat_gelaende:
         log('    LoD2-Gebaeude nur mit Gelaende (absolute Hoehen) - uebersprungen')
     info = write_map(os.path.join(root, 'maps'), name, chains, stops, omsi_dir=omsi, friendly=titel or name,
                      description=desc, cam_xz=(entrypoints[0]['x'], entrypoints[0]['z']) if entrypoints else
                      tuple(linie[0]), overwrite=ueberschreiben, junctions=objekte, entrypoints=entrypoints,
                      raster=hoe.raster if hat_gelaende else None, gebaeude=geb)
-    if getattr(proj, 'art', '') == 'utm':
+    if utm:
         geo_schreiben(info['dir'], proj, info['offset'], hoe.base if hat_gelaende else 0.0,
                       projekt.get('beschreibung') or projekt.get('name', ''))
         log(f'    Geobezug: UTM {proj.zone}, Kachel 0 0 bei Ost {proj.e0 + info["offset"][0]:.0f} / '
             f'Nord {proj.n0 + info["offset"][1]:.0f} (omsi-editor-geo.cfg)')
+        if gebaeude and hat_gelaende:
+            gebaeude_schicht(root, name, info, linie, gebaeude, log)
     with open(os.path.join(info['dir'], 'omsigen.json'), 'w', encoding='utf-8') as f:
         json.dump(dict(projekt=projekt.get('name'), origin=[proj.lat0, proj.lon0], offset=info['offset'],
                        projektion=getattr(proj, 'art', 'eben'),
@@ -238,7 +265,7 @@ def erzeuge(projekt, name, omsi=None, ausgabe='build', korrekturen=None, uebersc
                   f, ensure_ascii=False, indent=1)
     log(f'    {info["dir"]}: {info["tiles"]} Kacheln, {info["splines"]} Splines, '
         f'{len(junctions)} Kreuzungsobjekte, {len(stops)} Haltestellen, {len(entrypoints)} Einsetzpunkte'
-        + (f', {info["gebaeude"]} Gebaeude' if geb else ''))
+        + (f', {info["gebaeude"]} Gebaeude' if info.get('gebaeude') else ''))
     if junctions:
         log(f'    Kreuzungsobjekte: {kdir} ({sum(j["faces"] for j in junctions)} Dreiecke, '
             f'{sum(j["paths"] for j in junctions)} Pfade)')

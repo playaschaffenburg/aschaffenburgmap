@@ -7,13 +7,17 @@ use anyhow::{Context, Result};
 use glam::DVec2;
 use std::path::Path;
 
-/// ein Objekt des Sonderbaus: .sco relativ zum OMSI-Ordner, Ursprung in Kartenkoordinaten, Hoehe absolut ([absheight])
+/// ein Objekt des Sonderbaus bzw. Schicht-Pakets (omsigen.schichten): .sco relativ zum OMSI-Ordner, Ursprung in
+/// Kartenkoordinaten, Hoehe absolut ([absheight]), Drehung (Grad) und Beschriftungen (z. B. Baum: Textur, Hoehe,
+/// Verhaeltnis) - beides optional
 #[derive(Clone, Debug)]
 pub struct Teil {
     pub name: String,
     pub rel: String,
     pub pos: DVec2,
     pub hoehe: f64,
+    pub rot: f64,
+    pub texte: Vec<String>,
 }
 
 pub fn lesen(datei: &Path) -> Result<Vec<Teil>> {
@@ -27,6 +31,8 @@ pub fn lesen(datei: &Path) -> Result<Vec<Teil>> {
                 rel: o["rel"].as_str()?.to_string(),
                 pos: DVec2::new(o["x"].as_f64()?, o["y"].as_f64()?),
                 hoehe: o["z"].as_f64()?,
+                rot: o["rot"].as_f64().unwrap_or(0.0),
+                texte: o["texte"].as_array().map(|a| a.iter().map(|t| t.as_str().unwrap_or("").to_string()).collect()).unwrap_or_default(),
             })
         })
         .collect())
@@ -290,8 +296,11 @@ pub fn einsetzen_nur(ae: &mut crate::aendern::Aendern, gel: &mut crate::gelaende
     for t in &teile {
         let k = kachel_von(t.pos);
         let id = ae.neue_ids(v, 1);
-        je.entry(k).or_default().push(vec!["[object]".to_string(), "0".into(), t.rel.clone(), id.to_string(), z(t.pos.x - k.0 as f64 * ts),
-                                            z(t.pos.y - k.1 as f64 * ts), z(t.hoehe), "0".into(), "0".into(), "0".into(), "0".into()]);
+        // Drehung und Beschriftungen aus dem Schicht-Paket (Baum: Textur, Hoehe, Verhaeltnis ...)
+        let mut blk = vec!["[object]".to_string(), "0".into(), t.rel.clone(), id.to_string(), z(t.pos.x - k.0 as f64 * ts),
+                           z(t.pos.y - k.1 as f64 * ts), z(t.hoehe), z(t.rot), "0".into(), "0".into(), t.texte.len().to_string()];
+        blk.extend(t.texte.iter().cloned());
+        je.entry(k).or_default().push(blk);
         n_obj += 1;
     }
     let mut n_spl = 0;

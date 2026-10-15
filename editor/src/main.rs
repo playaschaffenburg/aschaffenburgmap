@@ -34,6 +34,7 @@ mod objekteditor;
 mod orte;
 mod protokoll;
 mod querschnitt;
+mod schichten;
 mod sonderbau;
 mod speichern;
 mod spuren;
@@ -311,6 +312,8 @@ struct App {
     vermessen: Option<vermessen::Vermessen>,
     /// Import Gebaeude aus LoD2
     lod2: Option<lod2::Lod2>,
+    /// Zustand der Schichten je Kachel (World Editor, omsigen.schichten)
+    schichten: schichten::Schichten,
     vm_druck: Option<(f32, f32)>,
     vermessen_auto_erledigt: bool,
     mess_a: Option<DVec3>,
@@ -589,6 +592,7 @@ impl App {
             markierer: markieren::Markierer::neu(),
             vermessen: None,
             lod2: None,
+            schichten: schichten::Schichten::neu(),
             vm_druck: None,
             vermessen_auto_erledigt: false,
             mess_a: None,
@@ -1944,6 +1948,42 @@ impl App {
                                 if ui.button("LoD2-Gebaeude dieser Kachel laden").on_hover_text("3D-Gebaeudemodelle der Bayerischen Vermessungsverwaltung (CC BY 4.0) fuer diese Kachel bauen und einsetzen; ersetzt nur fruehere LoD2-Gebaeude dieser Kachel").clicked() {
                                     aktionen.push(UiAktion::Lod2Kacheln(vec![k]));
                                 }
+                            }
+                            // Schichten (F2): welche Pakete dieser Kachel gegen einen alten Stand von Netz/Boden gebaut sind
+                            ui.separator();
+                            ui.label(egui::RichText::new("Schichten").strong());
+                            if self.schichten.abholen() {
+                                ui.ctx().request_repaint();
+                            }
+                            if self.schichten.laeuft() {
+                                ui.ctx().request_repaint_after(std::time::Duration::from_millis(300));
+                            }
+                            if let Some(karte) = self.karte.clone() {
+                                if ui.add_enabled(!self.schichten.laeuft(), egui::Button::new("Zustand pruefen"))
+                                    .on_hover_text("vergleicht die gespeicherte Karte mit schichten.json: Schichten, die gegen einen alten Stand von Strassen oder Gelaende gebaut wurden, sind veraltet").clicked() {
+                                    self.schichten.pruefen(&self.root, &karte);
+                                }
+                            }
+                            let zeilen = self.schichten.zeilen(k);
+                            if zeilen.is_empty() && !self.schichten.meldung.is_empty() {
+                                ui.label(egui::RichText::new("keine Schicht-Pakete in dieser Kachel").small().weak());
+                            }
+                            for (s, z, grund) in &zeilen {
+                                let (text, farbe) = schichten::anzeige(z);
+                                ui.horizontal(|ui| {
+                                    ui.label(format!("{}:", schichten::name(s)));
+                                    ui.colored_label(farbe, text);
+                                    if z == "veraltet" && s == "gebaeude" && self.luftbild.bezug.is_some()
+                                        && ui.small_button("neu bauen").on_hover_text("LoD2-Gebaeude dieser Kachel neu bauen und einsetzen").clicked() {
+                                        aktionen.push(UiAktion::Lod2Kacheln(vec![k]));
+                                    }
+                                });
+                                if !grund.is_empty() {
+                                    ui.label(egui::RichText::new(grund).small().weak());
+                                }
+                            }
+                            if !self.schichten.meldung.is_empty() {
+                                ui.label(egui::RichText::new(&self.schichten.meldung).small().weak());
                             }
                         }
                     }

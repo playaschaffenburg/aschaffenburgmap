@@ -60,6 +60,17 @@ Projektmeter direkt, Editor das 5×5-Mittel).
   Luftbildvergleich < 0,5 m daneben.
 
 ### F2 Ebenenmodell mit festen Kennungen
+**Erledigt 15.10.2026 (Grundgerüst):** `omsigen/schichten.py` – Schichten netz, boden, gebaeude (Ordner `LoD2`),
+objekte, gruen, backdrop; Schicht-Paket = Sonderbau-Format mit `format`, `schicht`, `marker`, `manifest` (Werkzeug,
+Parameter, Quellen, Fingerabdrücke der Schichten davor), Objekte mit optionaler Drehung und Beschriftungen (Rust
+`sonderbau.rs` setzt beides ein); Verzeichnis `maps/<Karte>/schichten.json`; `python -m omsigen.schichten <Karte>` zeigt je
+Kachel aktuell/veraltet/gebaut; Python-`einsetzen` für neu erzeugte Karten. `omsigen.lod2` schreibt Pakete mit Manifest,
+der Generator baut Gebäude bei UTM-Karten über denselben Weg wie der Editor. World Editor → Kacheln bearbeiten →
+„Schichten: Zustand prüfen“, bei veralteten Gebäuden „neu bauen“. Geprüft an `Aschaffenburg_Linie16_v4`: 116 Kacheln
+aktuell; eine Straßenänderung in Kachel 1/7 macht genau deren Gebäude veraltet. Noch offen: Fingerabdruck der Sitzung
+(heute zählt die gespeicherte Karte), weitere Schichten nutzen das Gerüst ab Phase 2/3.
+(Begriff im Code: „Schicht“, weil „Ebene“ in omsigen schon Boden/Brücke/Tunnel heißt.)
+
 Jede Ebene wird getrennt erzeugt und je Kachel eingesetzt; erneutes Einsetzen ersetzt **nur ihre eigenen** Einträge
 (verallgemeinert aus dem LoD2-Marker `\LoD2\<kx>_<ky>\`).
 

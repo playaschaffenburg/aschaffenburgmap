@@ -317,12 +317,15 @@ def kacheln_im_kreis(mitte, radius):
     return out
 
 
-def bauen(omsi, karte, omsi_kacheln, laden_erlaubt=False, pruefen=True, fassaden='standard', statistik=None):
+def bauen(omsi, karte, omsi_kacheln, laden_erlaubt=False, pruefen=True, fassaden='standard', statistik=None, auswahl=None):
     """LoD2-Gebaeude je OMSI-Kachel (Gebaeudemitte in der Kachel): Objekte in LoD2/<kx>_<ky>/ und je Kachel ein
     lod2.json mit Kennung LoD2/<kx>_<ky>/ im Pfad - erneutes Einsetzen ersetzt nur die Gebaeude dieser Kachel.
     fassaden: Ordner der Fassaden je Gebaeude ('standard' = Kartendaten/fassaden/gebaeude, None = keine);
-    statistik (dict) bekommt 'fassaden' = Zahl der Gebaeude mit Fassade
+    statistik (dict) bekommt 'fassaden' = Zahl der Gebaeude mit Fassade; auswahl(mitte) -> bool: nur diese Gebaeude
+    (Kartenkoordinaten, z. B. Korridor des Generators). Jedes lod2.json ist ein Schicht-Paket "gebaeude"
+    (omsigen.schichten) und steht im Verzeichnis der Karte (schichten.json).
     -> (Liste json-Pfade, Gebaeude, Dreiecke)"""
+    from . import schichten
     if fassaden == 'standard':
         fassaden = fassaden_ordner()
     n_fassaden = 0
@@ -354,7 +357,8 @@ def bauen(omsi, karte, omsi_kacheln, laden_erlaubt=False, pruefen=True, fassaden
     in_kachel = lambda p: (math.floor(p[0] / 300), math.floor(p[1] / 300)) in gewollt
     n_dr = 0
     for e, n in noetig:
-        for g in gebaeude(datei(e, n), bez, lambda p: x0 <= p[0] < x1 and y0 <= p[1] < y1 and in_kachel(p)):
+        for g in gebaeude(datei(e, n), bez, lambda p: x0 <= p[0] < x1 and y0 <= p[1] < y1 and in_kachel(p)
+                                                     and (auswahl is None or auswahl(p))):
             k = (math.floor(g['mitte'][0] / 300), math.floor(g['mitte'][1] / 300))
             name = g['id'].replace('DEBY_LOD2_', 'B')
             fa = fassade_laden(g['id'], fassaden)
@@ -382,10 +386,14 @@ def bauen(omsi, karte, omsi_kacheln, laden_erlaubt=False, pruefen=True, fassaden
     for (kx, ky), objekte in sorted(je.items()):
         ordner = os.path.join(basis, f'{kx}_{ky}')
         os.makedirs(ordner, exist_ok=True)
-        out = dict(karte=karte, marker=bs + 'LoD2' + bs + f'{kx}_{ky}' + bs, kachel=[kx, ky], objekte=objekte, strassen=[], kreuzungen=[],
-                   gelaende=[], gelaende_zurueck=[], quellen=[QUELLE] + ([QUELLE_FASSADE] if any(o.get('fassade') for o in objekte) else []))
+        quellen = [QUELLE] + ([QUELLE_FASSADE] if any(o.get('fassade') for o in objekte) else [])
+        man = schichten.manifest(kdir, 'gebaeude', (kx, ky), 'omsigen.lod2',
+                                 dict(fassaden=bool(fassaden), auswahl=auswahl is not None), quellen)
+        out = schichten.paket(karte, 'gebaeude', (kx, ky), objekte, man, quellen)
         pfad = os.path.join(ordner, 'lod2.json')
         json.dump(out, open(pfad, 'w', encoding='utf-8'), indent=1, ensure_ascii=False)
+        if os.path.isdir(kdir):
+            schichten.vermerken(kdir, pfad, out)
         pfade.append(pfad)
     if statistik is not None:
         statistik['fassaden'] = n_fassaden
