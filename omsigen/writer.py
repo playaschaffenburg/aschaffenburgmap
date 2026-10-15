@@ -4,6 +4,7 @@ import os, math, shutil, datetime, collections, json
 from .geom import end_of, heading, rvec
 from .network import proj_point
 from .custom_splines import SPLINES as CUSTOM, TEXTURE_FILES
+from .boden import groundtex_zeilen
 
 TILE = 300.0
 TEMPLATE_FILES = ['drivers.txt', 'gras1.bmp', 'Holidays.txt', 'Holidays_DEU.txt', 'Holidays_ENG.txt',
@@ -93,7 +94,8 @@ def spur_punkt(p, road_chains, sdb):
     return dict(x=cx + x * rv[0], z=cz + x * rv[1], rot=rot)
 
 
-def global_cfg(name, friendly, description, next_id, tiles, cam, entrypoints=()):
+def global_cfg(name, friendly, description, next_id, tiles, cam, entrypoints=(), groundtex=None):
+    """groundtex: Zeilen der [groundtex]-Eintraege (Standard: Belaege von omsigen.boden, siehe dort)"""
     tx, tz, cx, cz = cam
     L = ['File created with omsigen', '', '[name]', name, '', '[friendlyname]', friendly, '',
          '[description]', description, '[end]', '', '[version]', '14', '', '[NextIDCode]', str(next_id), '',
@@ -101,9 +103,7 @@ def global_cfg(name, friendly, description, next_id, tiles, cam, entrypoints=())
          '[mapcam]', str(tx), str(tz), f'{cx:.3f}', '0.95', f'{cz:.3f}', '0', '-30', '250', '',
          '[moneysystem]', 'Money\\DM\\DM.cfg', '', '[repair_time_min]', '10.000', '',
          '[ticketpack]', 'TicketPacks\\Berlin_1\\Berlin_1.otp', '', '[years]', '1988', '2000', '',
-         '[standarddepot]', 'Hof Spandau', '',
-         '[groundtex]', 'texture\\gras.bmp', 'texture\\gras_det.bmp', '0', '1', '60', '',
-         '[groundtex]', 'Texture\\str_k_kopfstein.bmp', 'Texture\\noise_low.bmp', '9', '20', '1', '']
+         '[standarddepot]', 'Hof Spandau', ''] + (groundtex if groundtex is not None else groundtex_zeilen())
     for code, a, b in ((4, 0, 38), (3, 38, 79), (1, 79, 172), (2, 264, 355), (3, 355, 370)):
         L += ['[addseason]', str(code), str(a), str(b), '']
     for h, v in ((0, .2), (4, 0), (6, 1), (7, 1.2), (8, 1), (10, .6), (15, .8), (16, 1.2), (17, 1.2), (20, .8), (24, .2)):
@@ -264,7 +264,8 @@ def write_map(out_maps_dir, name, chains, stops, omsi_dir=None, friendly=None, d
     for e in eps:
         e['kachel'] = reihenfolge.index(e['tile'])
     write_utf16(os.path.join(D, 'global.cfg'),
-                global_cfg(name, friendly or name, description, nid + 10, all_tiles, cam, eps))
+                global_cfg(name, friendly or name, description, nid + 10, all_tiles, cam, eps,
+                           groundtex_zeilen(omsi_dir)))
     with open(os.path.join(D, 'LIESMICH_omsigen.txt'), 'w', encoding='utf-8') as f:
         f.write(f'Erzeugt mit omsigen am {stamp}.\nStrassendaten (c) OpenStreetMap-Mitwirkende, ODbL 1.0 '
                 f'(https://www.openstreetmap.org/copyright).\n{description}\n')

@@ -4,7 +4,8 @@ omsigen schon Boden/Bruecke/Tunnel, siehe ebenen.py.)
 
 Reihenfolge (eine Schicht liest alle davor, aendert sie nie):
   netz      Strassen-Splines und Kreuzungsobjekte (K_*)         - die Karte selbst, kein Paket
-  boden     Gelaende (.terrain) und Malmasken (texture/map)      - die Karte selbst, kein Paket
+  boden     Gelaende (.terrain) und Malmasken (texture/map)      - die Karte selbst, kein Paket; omsigen.boden baut die
+            Masken je Kachel und vermerkt sie in schichten.json (spaetere Schichten haengen nur vom Gelaende ab)
   gebaeude  LoD2-Gebaeude          Ordner LoD2\\<kx>_<ky>\\
   objekte   Laternen, Schilder ... Ordner Objekte\\<kx>_<ky>\\
   gruen     Baeume, Hecken, Parks  Ordner Gruen\\<kx>_<ky>\\
@@ -129,12 +130,14 @@ def _ohne_id(block):
             and not z.startswith('Object Nr.') and z.strip()]
 
 
-def fingerabdruck(kartenordner, k, schicht):
-    """Inhalt einer Schicht in einer Kachel der gespeicherten Karte"""
+def fingerabdruck(kartenordner, k, schicht, nur_gelaende=False):
+    """Inhalt einer Schicht in einer Kachel der gespeicherten Karte. Boden = Gelaende und Malmasken; nur_gelaende: nur
+    das Gelaende (das ist alles, wovon spaetere Schichten abhaengen - neue Malmasken machen Gebaeude nicht veraltet)"""
     if schicht == 'boden':
         teile = []
-        for f in [kachel_datei(kartenordner, k) + '.terrain'] + sorted(glob.glob(os.path.join(
-                kartenordner, 'texture', 'map', f'tile_{k[0]}_{k[1]}.map.*'))):
+        masken = [] if nur_gelaende else sorted(glob.glob(os.path.join(
+            kartenordner, 'texture', 'map', f'tile_{k[0]}_{k[1]}.map.*')))
+        for f in [kachel_datei(kartenordner, k) + '.terrain'] + masken:
             if os.path.isfile(f):
                 teile += [os.path.basename(f), open(f, 'rb').read()]
         return _hash(teile)
@@ -174,7 +177,12 @@ def manifest(kartenordner, schicht, kachel, werkzeug, parameter=None, quellen=()
     """Manifest eines neuen Pakets: Werkzeug, Parameter, Zeit und die Fingerabdruecke der Schichten davor"""
     return dict(schicht=schicht, kachel=list(kachel), werkzeug=werkzeug, parameter=parameter or {},
                 quellen=list(quellen), erzeugt=datetime.datetime.now().isoformat(timespec='seconds'),
-                eingaben={s: fingerabdruck(kartenordner, kachel, s) for s in vorher(schicht)})
+                eingaben={s: eingabe(kartenordner, kachel, s) for s in vorher(schicht)})
+
+
+def eingabe(kartenordner, k, schicht):
+    """Fingerabdruck einer Schicht als Eingabe spaeterer Schichten (Boden: nur das Gelaende)"""
+    return fingerabdruck(kartenordner, k, schicht, nur_gelaende=schicht == 'boden')
 
 
 def vermerken(kartenordner, paket_pfad, paket):
@@ -235,14 +243,37 @@ def status(kartenordner):
             alt = []
             for v, h in e.get('eingaben', {}).items():
                 if v not in jetzt:
-                    jetzt[v] = fingerabdruck(kartenordner, k, v)
+                    jetzt[v] = eingabe(kartenordner, k, v)
                 if h != jetzt[v]:
                     alt.append(v)
             zeile[s] = dict(zustand='veraltet' if alt else 'aktuell',
                             grund=('geaendert: ' + ', '.join(alt)) if alt else '', erzeugt=e.get('erzeugt', ''))
+        zeile = dict(boden=boden_zustand(kartenordner, k, eintraege.get('boden'), jetzt), **zeile)
         if any(z['zustand'] != 'fehlt' for z in zeile.values()):
             out[key] = zeile
     return out
+
+
+def boden_zustand(kartenordner, k, e, jetzt=None):
+    """Zustand der Schicht boden einer Kachel (Malmasken von omsigen.boden): aktuell | veraltet (netz geaendert) |
+    geaendert (Masken nach dem Bau von Hand geaendert) | eingesetzt (Masken ohne Verzeichnis) | fehlt"""
+    jetzt = {} if jetzt is None else jetzt
+    masken = glob.glob(os.path.join(kartenordner, 'texture', 'map', f'tile_{k[0]}_{k[1]}.map.*.dds'))
+    if not e:
+        return dict(zustand='eingesetzt', grund='Malmasken ohne Verzeichnis') if masken else dict(zustand='fehlt', grund='')
+    alt = []
+    for v, h in e.get('eingaben', {}).items():
+        if v not in jetzt:
+            jetzt[v] = eingabe(kartenordner, k, v)
+        if h != jetzt[v]:
+            alt.append(v)
+    if alt:
+        return dict(zustand='veraltet', grund='geaendert: ' + ', '.join(alt), erzeugt=e.get('erzeugt', ''))
+    from .boden import masken_hash
+    if e.get('inhalt') and e['inhalt'] != masken_hash(kartenordner, k):
+        return dict(zustand='geaendert', grund='Malmasken seit dem Bau geaendert (neu bauen ersetzt sie)',
+                    erzeugt=e.get('erzeugt', ''))
+    return dict(zustand='aktuell', grund='', erzeugt=e.get('erzeugt', ''))
 
 
 # ---------------------------------------------------------------- Einsetzen (Python, fuer neu erzeugte Karten)
