@@ -26,6 +26,8 @@ pub fn name(art: &str) -> &str {
         "budget_objekte" => "Budget Objekte",
         "budget_dreiecke" => "Budget Dreiecke",
         "budget_textur_mb" => "Budget Texturspeicher",
+        "querschnitt_abweichung" => "Querschnitt weicht vom Luftbild ab",
+        "abbiegestreifen_fehlt" => "Abbiegestreifen fehlt",
         a => a,
     }
 }

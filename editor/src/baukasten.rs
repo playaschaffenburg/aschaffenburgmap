@@ -97,7 +97,14 @@ impl Baukasten {
                 self.geaendert();
             }
             let (vor, zur, geh) = self.q.spuren();
-            ui.label(format!("Gesamtbreite {:.2} m  |  Fahrspuren {} vor, {} zurueck  |  Gehwege {}", self.q.gesamtbreite(), vor, zur, geh));
+            ui.horizontal(|ui| {
+                ui.label(format!("Gesamtbreite {:.2} m  |  Fahrspuren {} vor, {} zurueck  |  Gehwege {}  |", self.q.gesamtbreite(), vor, zur, geh));
+                ui.label("Achsversatz");
+                if ui.add(egui::DragValue::new(&mut self.q.versatz).speed(0.05).range(-10.0..=10.0).suffix(" m"))
+                    .on_hover_text("so weit liegt die Mitte der Fahrspuren rechts der Spline-Achse (negativ: links); der Generator setzt ihn, wenn die OSM-Linie nicht mittig liegt").changed() {
+                    self.geaendert();
+                }
+            });
             ui.separator();
             ui.horizontal_top(|ui| {
                 ui.vertical(|ui| {

@@ -89,6 +89,15 @@ Teile in Streifen, damit die Textur nicht verzerrt), Markierungen als eigene Pro
 Gespeichert nach `Splines\Aschaffenburg\AB_<Name>.sli` mit Bauanleitung `AB_<Name>.qs.json` (wieder öffnen und ändern);
 Texturen in `Splines\Aschaffenburg\texture` (Beläge aus `Splines\Marcel\texture` kopiert, Markierungen und roter
 Asphalt erzeugt). Herkunft im Katalog: „Eigene (Baukasten)“. „Speichern und damit bauen“ wechselt gleich zu Straße bauen.
+**Achsversatz** (neben der Gesamtbreite): so weit liegt die Mitte der Fahrspuren rechts der Spline-Achse – der Generator
+setzt ihn, wenn die OSM-Linie nicht mittig liegt; in der Bauanleitung nur, wenn er nicht 0 ist.
+
+**Querschnitte des Generators** (S1, `omsigen/querschnitte.py`): der Generator leitet je Straße einen Querschnitt aus
+OSM (Breite, Spuren, Abbiegestreifen, Gehweg, Rad, Parken, Belag), der Gebäudeflucht (LoD2) und Regeln ab und lässt die
+`.sli` hier bauen – `omsi-editor --querschnitte <auftrag.json>` (ohne Fenster, `src/generator.rs`; auch die
+Übergangsobjekte). Gleiche Querschnitte teilen eine Datei `Splines\Aschaffenburg\Q\Q_<Spuren>_<Fahrbahn cm>_<Prüfsumme>.sli`
+mit Bauanleitung daneben (Texturen in `Q\texture`); gewählt in „Straße bauen“ lassen sie sich wie eigene Querschnitte
+„bearbeiten“. Ohne gebauten Editor nimmt der Generator die alten Standard-Splines.
 
 **Brücken und Rampen** (wie Transport Fever 2; Höhe der Punkte beim Bauen mit Bild ↑/↓): was gebaut wird, folgt aus
 Lage und Höhe der eigenen Straßen und dem Gelände darunter und wird nach jeder Änderung neu berechnet – Strg+Z auf die

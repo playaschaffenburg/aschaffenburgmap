@@ -273,6 +273,9 @@ pub struct Querschnitt {
     pub teile: Vec<Teil>,
     /// Markierung je Grenze (teile.len() - 1)
     pub marken: Vec<Marke>,
+    /// Achsversatz: so weit liegt die Mitte der Fahrspuren rechts der Spline-Achse (m, links negativ). Der Generator
+    /// setzt ihn, wenn die OSM-Linie nicht in der Fahrbahnmitte liegt (Messung im Luftbild / Gebaeudeflucht)
+    pub versatz: f64,
 }
 
 impl Default for Querschnitt {
@@ -280,7 +283,7 @@ impl Default for Querschnitt {
     fn default() -> Self {
         let mut z = Teil::neu(Art::Fahrspur);
         z.richtung = Richtung::Zurueck;
-        let mut q = Querschnitt { name: "Neue Strasse".into(), teile: vec![Teil::neu(Art::Gehweg), z, Teil::neu(Art::Fahrspur), Teil::neu(Art::Gehweg)], marken: vec![] };
+        let mut q = Querschnitt { name: "Neue Strasse".into(), teile: vec![Teil::neu(Art::Gehweg), z, Teil::neu(Art::Fahrspur), Teil::neu(Art::Gehweg)], marken: vec![], versatz: 0.0 };
         q.marken_anpassen();
         q
     }
@@ -296,7 +299,7 @@ impl Querschnitt {
         self.teile.iter().map(|t| t.breite).sum()
     }
 
-    /// x des linken Rands (Achse = Mitte der Fahrspuren; ohne Fahrspur: Mitte des Ganzen)
+    /// x des linken Rands (Achse = Mitte der Fahrspuren; ohne Fahrspur: Mitte des Ganzen; plus Achsversatz)
     pub fn links(&self) -> f64 {
         let mut x = 0.0;
         let (mut a, mut b) = (None, None);
@@ -308,8 +311,8 @@ impl Querschnitt {
             x += t.breite;
         }
         match (a, b) {
-            (Some(a), Some(b)) => -(a + b) / 2.0,
-            _ => -x / 2.0,
+            (Some(a), Some(b)) => -(a + b) / 2.0 + self.versatz,
+            _ => -x / 2.0 + self.versatz,
         }
     }
 
@@ -467,14 +470,18 @@ impl Querschnitt {
     // ------------------------------------------------------------ Bauanleitung (.qs.json)
 
     pub fn json(&self) -> serde_json::Value {
-        serde_json::json!({
+        let mut v = serde_json::json!({
             "name": self.name,
             "teile": self.teile.iter().map(|t| serde_json::json!({
                 "art": t.art.schluessel(), "breite": t.breite, "belag": t.belag.schluessel(),
                 "richtung": if t.richtung == Richtung::Vor { "vor" } else { "zurueck" },
             })).collect::<Vec<_>>(),
             "marken": self.marken.iter().map(|m| m.schluessel()).collect::<Vec<_>>(),
-        })
+        });
+        if self.versatz != 0.0 {
+            v["versatz"] = serde_json::json!(self.versatz);
+        }
+        v
     }
 
     pub fn aus_json(v: &serde_json::Value) -> Option<Querschnitt> {
@@ -485,7 +492,8 @@ impl Querschnitt {
             richtung: if t["richtung"].as_str() == Some("zurueck") { Richtung::Zurueck } else { Richtung::Vor },
         })).collect::<Option<Vec<_>>>()?;
         let marken = v["marken"].as_array().map(|l| l.iter().map(|m| m.as_str().and_then(Marke::aus).unwrap_or(Marke::Auto)).collect()).unwrap_or_default();
-        let mut q = Querschnitt { name: v["name"].as_str().unwrap_or("").to_string(), teile, marken };
+        let versatz = v["versatz"].as_f64().filter(|x| x.is_finite()).unwrap_or(0.0);
+        let mut q = Querschnitt { name: v["name"].as_str().unwrap_or("").to_string(), teile, marken, versatz };
         q.marken_anpassen();
         Some(q)
     }
@@ -527,17 +535,35 @@ pub fn speichern(root: &Path, q: &Querschnitt) -> Result<String> {
 
 /// .sli unter `datei` (ohne Endung) in den eigenen Spline-Ordner schreiben (auch fuer die Vorschau)
 pub fn schreiben(root: &Path, q: &Querschnitt, datei: &str) -> Result<String> {
-    let d = ordner(root);
+    schreiben_unter(root, q, "", datei)
+}
+
+/// wie `schreiben`, aber in einen Unterordner der eigenen Splines (z. B. "Q": die Querschnitte des Generators); die
+/// Texturen kommen nach `<Unterordner>\texture` (OMSI sucht sie neben der .sli)
+pub fn schreiben_unter(root: &Path, q: &Querschnitt, unterordner: &str, datei: &str) -> Result<String> {
+    let (rel, texturordner, texturen) = sli_schreiben_unter(root, q, unterordner, datei)?;
+    texturen_bereitstellen_nach(root, &texturordner, &texturen)?;
+    Ok(rel)
+}
+
+/// nur .sli und Bauanleitung schreiben (ohne Texturen) -> (Pfad relativ zum OMSI-Ordner, Texturordner, gebrauchte Texturen)
+pub fn sli_schreiben_unter(root: &Path, q: &Querschnitt, unterordner: &str, datei: &str) -> Result<(String, PathBuf, Vec<&'static str>)> {
+    let mut d = ordner(root);
+    let mut rel = format!("Splines\\{}\\", crate::speichern::EIGEN);
+    for teil in unterordner.split(['\\', '/']).filter(|t| !t.is_empty()) {
+        d = d.join(teil);
+        rel.push_str(teil);
+        rel.push('\\');
+    }
     std::fs::create_dir_all(d.join("texture"))?;
     let (text, texturen) = q.sli();
-    texturen_bereitstellen(root, &texturen)?;
     // .sli in der ANSI-Codepage (wie OMSI sie liest): Umlaute im Kommentar fallen auf '?'
     let ansi: Vec<u8> = text.chars().map(|c| if (c as u32) < 256 { c as u8 } else { b'?' }).collect();
     std::fs::write(d.join(format!("{datei}.sli")), ansi).with_context(|| format!("{datei}.sli schreiben"))?;
     if !datei.starts_with('_') {
         std::fs::write(d.join(format!("{datei}.qs.json")), serde_json::to_string_pretty(&q.json())?)?;
     }
-    Ok(format!("Splines\\{}\\{datei}.sli", crate::speichern::EIGEN))
+    Ok((format!("{rel}{datei}.sli"), d.join("texture"), texturen))
 }
 
 /// eigene Querschnitte (Bauanleitungen) -> (Datei ohne Endung, Querschnitt)
@@ -555,7 +581,12 @@ pub fn eigene(root: &Path) -> Vec<(String, Querschnitt)> {
 /// Texturen in Splines\Aschaffenburg\texture: Belaege aus Splines\Marcel\texture kopieren (mit .cfg/.surf),
 /// Markierungen und roten Asphalt erzeugen (nur wenn sie fehlen)
 pub fn texturen_bereitstellen(root: &Path, texturen: &[&str]) -> Result<()> {
-    let ziel = ordner(root).join("texture");
+    texturen_bereitstellen_nach(root, &ordner(root).join("texture"), texturen)
+}
+
+/// wie `texturen_bereitstellen`, in einen beliebigen Texturordner (z. B. den eines Unterordners der eigenen Splines)
+pub fn texturen_bereitstellen_nach(root: &Path, ziel: &Path, texturen: &[&str]) -> Result<()> {
+    std::fs::create_dir_all(ziel)?;
     let marcel = root.join("Splines").join("Marcel").join("texture");
     for t in texturen {
         let z = ziel.join(t);
@@ -677,6 +708,19 @@ mod tests {
         assert_eq!(text.matches("Bordstein:").count(), 4);
     }
 
+    /// Achsversatz: alles liegt um den Versatz weiter rechts, die Bauanleitung behaelt ihn (ohne Versatz wie bisher)
+    #[test]
+    fn achsversatz() {
+        let mut q = Querschnitt::default();
+        assert!(q.json().get("versatz").is_none(), "alte Bauanleitungen bleiben gleich");
+        q.versatz = 1.25;
+        assert!((q.links() + 5.75 - 1.25).abs() < 1e-9);
+        let (text, _) = q.sli();
+        let pfade = werte(&text, "[path]", 5);
+        assert!((pfade[1][1] - (-1.625 + 1.25)).abs() < 1e-9 && (pfade[2][1] - (1.625 + 1.25)).abs() < 1e-9);
+        assert_eq!(Querschnitt::aus_json(&q.json()), Some(q.clone()));
+    }
+
     /// breite Teile werden gekachelt (eine Textur deckt nur ~3,5 m), u bleibt im nutzbaren Bereich
     #[test]
     fn breiter_gehweg_gekachelt() {
@@ -695,7 +739,7 @@ mod tests {
     fn markierungen_und_einbahn() {
         let mut q = Querschnitt { name: "Einbahn mit Bus".into(), teile: vec![
             Teil::neu(Art::Gehweg), Teil::neu(Art::Parkstreifen), Teil::neu(Art::Fahrspur), Teil::neu(Art::Fahrspur),
-            Teil::neu(Art::Busspur), Teil::neu(Art::Radfahrstreifen), Teil::neu(Art::Gehweg)], marken: vec![] };
+            Teil::neu(Art::Busspur), Teil::neu(Art::Radfahrstreifen), Teil::neu(Art::Gehweg)], marken: vec![], versatz: 0.0 };
         q.marken_anpassen();
         assert_eq!((0..6).map(|i| q.marke(i)).collect::<Vec<_>>(),
                    vec![Marke::Keine, Marke::Voll, Marke::Strich, Marke::Breitstrich, Marke::Breitstrich, Marke::Keine]);
@@ -708,7 +752,7 @@ mod tests {
         assert_eq!(q.datei(), "AB_Einbahn_mit_Bus");
         // Bauanleitung hin und zurueck
         assert_eq!(Querschnitt::aus_json(&q.json()), Some(q.clone()));
-        let leer = Querschnitt { name: "x".into(), teile: vec![Teil::neu(Art::Gehweg)], marken: vec![] };
+        let leer = Querschnitt { name: "x".into(), teile: vec![Teil::neu(Art::Gehweg)], marken: vec![], versatz: 0.0 };
         assert!(leer.pruefen().is_err());
     }
 
@@ -757,7 +801,7 @@ mod tests {
         let omsi = Path::new(crate::bearbeiten::tests::OMSI);
         // (die Vorschau liegt wie im Editor im eigenen Spline-Ordner der Installation und wird danach entfernt)
         let mut v = crate::bearbeiten::tests::grundorf();
-        let mut gross = Querschnitt { name: "Ring".into(), teile: vec![], marken: vec![] };
+        let mut gross = Querschnitt { name: "Ring".into(), teile: vec![], marken: vec![], versatz: 0.0 };
         for (art, r) in [(Art::Gehweg, Richtung::Vor), (Art::Radweg, Richtung::Vor), (Art::Parkstreifen, Richtung::Vor), (Art::Busspur, Richtung::Zurueck),
                          (Art::Fahrspur, Richtung::Zurueck), (Art::Mittelinsel, Richtung::Vor), (Art::Fahrspur, Richtung::Vor), (Art::Fahrspur, Richtung::Vor),
                          (Art::Radfahrstreifen, Richtung::Vor), (Art::Gehweg, Richtung::Vor)] {

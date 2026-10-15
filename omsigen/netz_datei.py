@@ -10,7 +10,8 @@ Karte an der Stelle gleich bleibt. Aendert sich das Netz einer Kachel, aendert s
 und netz.json gilt als veraltet (Netz.laden prueft das).
 
   {"format": "omsigen-netz", "version": 1, "karte": ..., "fingerabdruck": {"kx_ky": ...},
-   "knoten": [{"id", "pos": [x, y, z], "art": kreuzung|wechsel|ende, "kanten": [...], "objekt": ID des K_*-Objekts}],
+   "knoten": [{"id", "pos": [x, y, z], "art": kreuzung|wechsel|ende, "kanten": [...], "objekt": ID des K_*-Objekts
+               (Kreuzung "J<ID>") bzw. des UE_*-Objekts (Uebergang zwischen Querschnitten "U<ID>", S1)}],
    "kanten": [{"id", "splines": [IDs], "sli", "spiegel", "art": strasse|unsichtbar|bauwerk, "von", "nach", "laenge",
                "punkte": [[x, y, z, station], ...] (alle ~2 m), "querschnitt": {"fahrbahn": [links, rechts],
                "aussen": [links, rechts], "spuren": [[querlage, richtung], ...], "gehwege": [querlage, ...]},
@@ -92,20 +93,53 @@ def splines_lesen(kartenordner):
     return out
 
 
+def _ue_laenge(kartenordner, rel):
+    """Laenge eines Uebergangsobjekts (UE_*.sco, uebergang.rs): groesstes y seiner Pfade"""
+    sco = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(kartenordner))), *rel.split(chr(92)))
+    try:
+        z = [l.strip() for l in open(sco, encoding='cp1252', errors='replace')]
+    except OSError:
+        return 0.0
+    ys = []
+    for i, l in enumerate(z):
+        if l == '[path]' and i + 6 < len(z):
+            try:
+                y0, h, L = float(z[i + 2]), math.radians(float(z[i + 4])), float(z[i + 6])
+                ys += [y0, y0 + L * math.cos(h)]
+            except ValueError:
+                pass
+    return max(ys, default=0.0)
+
+
 def kreuzungen_lesen(kartenordner):
-    """Kreuzungsobjekte (K_*.sco) -> [dict(id, rel, x, z)]"""
+    """Kreuzungsobjekte (K_*.sco) und Uebergaenge zwischen Querschnitten (UE_*.sco, S1) -> [dict(id, rel, x, z, art,
+    rot, laenge)]"""
     out = []
     for k in schichten.kacheln(kartenordner):
         _, bl = schichten.bloecke(schichten.lesen(kartenordner, k))
         for b in bl:
             rel = schichten.objekt_pfad(b)
-            if b[0].strip() != '[object]' or not os.path.basename(rel.replace(chr(92), '/')).upper().startswith('K_'):
+            name = os.path.basename(rel.replace(chr(92), '/')).upper()
+            if b[0].strip() != '[object]' or not name.startswith(('K_', 'UE_')):
                 continue
             try:
-                out.append(dict(id=int(float(b[3])), rel=rel, x=float(b[4]) + k[0] * KACHEL, z=float(b[5]) + k[1] * KACHEL))
+                o = dict(id=int(float(b[3])), rel=rel, x=float(b[4]) + k[0] * KACHEL, z=float(b[5]) + k[1] * KACHEL,
+                         art='kreuzung' if name.startswith('K_') else 'wechsel', rot=float(b[7]), laenge=0.0)
             except (ValueError, IndexError):
-                pass
+                continue
+            if o['art'] == 'wechsel':
+                o['laenge'] = _ue_laenge(kartenordner, rel)
+            out.append(o)
     return out
+
+
+def _abstand_objekt(o, x, z):
+    """Abstand eines Punkts zum Objekt (Uebergang: zur Strecke von seinem Ursprung bis zum anderen Ende)"""
+    if not o.get('laenge'):
+        return math.hypot(o['x'] - x, o['z'] - z)
+    d = richtung_v(o['rot'])
+    t = max(0.0, min(o['laenge'], (x - o['x']) * d[0] + (z - o['z']) * d[1]))
+    return math.hypot(o['x'] + d[0] * t - x, o['z'] + d[1] * t - z)
 
 
 def ende(s):
@@ -145,7 +179,8 @@ def _art(sli, qs):
 def ableiten(kartenordner, omsi=None):
     """Netz aus der Karte -> dict (Format siehe oben)"""
     from .splinedb import SplineDB
-    sdb = SplineDB(omsi)
+    # ohne OMSI-Ordner: die Wurzel der Karte (maps/<Karte>/../..) - dort liegen die eigenen Splines (z. B. Querschnitte)
+    sdb = SplineDB(omsi or os.path.dirname(os.path.dirname(os.path.abspath(kartenordner))))
     sp = splines_lesen(kartenordner)
     attr_pfad = os.path.join(kartenordner, ATTRIBUTE)
     attr = json.load(open(attr_pfad, encoding='utf-8')) if os.path.isfile(attr_pfad) else {}
@@ -213,11 +248,12 @@ def ableiten(kartenordner, omsi=None):
     fertig = {}
     for kn in knoten.values():
         x, z = kn['pos'][0], kn['pos'][2]
-        nah = min(kreuz, key=lambda o: math.hypot(o['x'] - x, o['z'] - z), default=None)
-        if nah and len(kn['kanten']) < 2 and math.hypot(nah['x'] - x, nah['z'] - z) <= KREUZUNG_RADIUS:
-            jid = f'J{nah["id"]}'
+        nah = min(kreuz, key=lambda o: _abstand_objekt(o, x, z), default=None)
+        grenze = 0.5 if nah and nah['art'] == 'wechsel' else KREUZUNG_RADIUS
+        if nah and len(kn['kanten']) < 2 and _abstand_objekt(nah, x, z) <= grenze:
+            jid = f'{"J" if nah["art"] == "kreuzung" else "U"}{nah["id"]}'
             j = fertig.setdefault(jid, dict(id=jid, pos=[round(nah['x'], 3), kn['pos'][1], round(nah['z'], 3)],
-                                            art='kreuzung', objekt=nah['id'], kanten=[]))
+                                            art=nah['art'], objekt=nah['id'], kanten=[]))
             for eid in kn['kanten']:
                 e = kante[eid]
                 for wo in ('von', 'nach'):

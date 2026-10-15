@@ -105,7 +105,7 @@ def fetch(bbox, cache_dir=None):
     """bbox = (sued, west, nord, ost) -> normalisierte Daten (siehe normalize)"""
     s, w, n, e = bbox
     b = f'{s:.6f},{w:.6f},{n:.6f},{e:.6f}'
-    cached = _cache_get(cache_dir, 'osm3', b)
+    cached = _cache_get(cache_dir, 'osm4', b)
     if cached:
         return cached
     q = f"""[out:json][timeout:120];
@@ -126,7 +126,7 @@ out tags geom;"""
         except req.exceptions.RequestException as ex:      # Zeitueberschreitung, Verbindung
             last = type(ex).__name__
             continue
-        if r.status_code in (429, 502, 503, 504):
+        if r.status_code in (429, 500, 502, 503, 504):
             last = f'HTTP {r.status_code}'
             time.sleep(5 * (attempt // len(servers) + 1))
             continue
@@ -138,7 +138,7 @@ out tags geom;"""
     if 'runtime error' in js.get('remark', ''):   # Abbruch auf dem Server -> Daten unvollstaendig
         raise RuntimeError(f'Overpass-Abfrage abgebrochen: {js["remark"]}')
     data = normalize(js, bbox)
-    _cache_put(cache_dir, 'osm3', b, data)
+    _cache_put(cache_dir, 'osm4', b, data)
     return data
 
 
@@ -176,9 +176,15 @@ def normalize(overpass_json, bbox=None):
         elif el['type'] == 'way' and 'geometry' in el:
             tt = classify(t)
             if tt:
+                tt['osm_id'] = str(el['id'])        # Messungen (Kartendaten) und Herkunft je OSM-Weg
                 ways.append(dict(id=el['id'], tags=tt, coords=[[p['lat'], p['lon']] for p in el['geometry']]))
     return dict(source='OpenStreetMap (ODbL)', bbox=list(bbox) if bbox else None, ways=ways, stops=stops,
                 signs=signs)
+
+
+# Tags fuer den Querschnitt (S1, omsigen.querschnitte): Breite, Spuren, Abbiegestreifen, Seitenraum
+QUERSCHNITT_TAGS = ('width', 'est_width', 'lanes:', 'turn:lanes', 'sidewalk', 'cycleway', 'parking', 'busway',
+                    'bus:lanes', 'psv:lanes', 'oneway:')
 
 
 def classify(t, include_service=False):
@@ -190,7 +196,7 @@ def classify(t, include_service=False):
     tt = {k: v for k, v in t.items() if k in (
         'highway', 'name', 'lanes', 'lanes:forward', 'lanes:backward', 'oneway', 'junction', 'layer',
         'tunnel', 'bridge', 'service', 'access', 'psv', 'bus', 'covered', 'priority_road', 'maxspeed',
-        'zone:maxspeed', 'zone:traffic')}
+        'zone:maxspeed', 'zone:traffic', 'surface', 'lane_markings') or k.startswith(QUERSCHNITT_TAGS)}
     if hw == 'service' or hw == 'busway':
         if bus and t.get('access') in ('no', 'private', None) and (t.get('psv') or t.get('bus') or hw == 'busway'):
             tt['highway'] = 'bus'

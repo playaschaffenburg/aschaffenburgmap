@@ -276,6 +276,8 @@ def build_objects(net, sdb, map_name, korrekturen=(), to_ll=None):
             if best and best[0] <= 30:
                 kor_at[best[1]] = c
     for n, (k, arms) in enumerate(sorted(net['arms'].items())):
+        if k in net.get('uebergang_knoten', {}):
+            continue                       # Querschnittswechsel: Uebergangsobjekt (querschnitte.uebergaenge_planen)
         J = build_junction(arms, sdb)
         if J is None or J['asphalt'].is_empty:
             continue
@@ -334,6 +336,8 @@ def install_objects(root, map_name, objects, omsi_dir=None, overwrite=False):
         shutil.rmtree(d)
     os.makedirs(os.path.join(d, 'model')); os.makedirs(os.path.join(d, 'texture'))
     for o in objects:
+        if 'sco' not in o:
+            continue                       # vom Editor gebaut (Uebergaenge, S1)
         with open(os.path.join(d, o['name'] + '.sco'), 'w', encoding='cp1252', newline='') as f:
             f.write(o['sco'])
         with open(os.path.join(d, 'model', o['name'] + '.x'), 'w', encoding='ascii', newline='') as f:

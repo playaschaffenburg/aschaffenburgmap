@@ -7,6 +7,7 @@ Projekt (JSON, Endung .omsiprojekt): siehe neues_projekt(). Koordinaten in Meter
 Projektion route.Projection)."""
 import collections, json, math, os
 from . import osm, ansicht, kreuzung, vorfahrt, bauwerke, ebenen, gelaende as gel_mod, hoehen as hoe_mod
+from . import querschnitte as querschnitte_mod
 from .route import Projection, projektion_fuer, route, corridor
 from .network import build, proj_point
 from .splinedb import SplineDB
@@ -106,10 +107,12 @@ def wege(projekt, gel=None):
 
 
 def berechne(projekt, name='Vorschau', omsi=None, korrekturen=None, kreuzungen='objekt', gelaende=True, log=print,
-             gel=None):
+             gel=None, querschnitte='standard', messen=False):
     """Projekt -> alles, was die Karte ausmacht, ohne Dateien zu schreiben (auch fuer die 3D-Vorschau im Editor):
-    dict(proj, sdb, net, signs, stops, junctions, vorfahrt, hoe, hat_gelaende, bw, chains, objekte).
-    gel: vorhandenes Gelaende-Objekt (Editor), sonst wird es angelegt."""
+    dict(proj, sdb, net, signs, stops, junctions, vorfahrt, hoe, hat_gelaende, bw, chains, objekte, querschnitte).
+    gel: vorhandenes Gelaende-Objekt (Editor), sonst wird es angelegt.
+    querschnitte: 'osm' = Querschnitte aus OSM/Messung/Regeln (S1, omsigen.querschnitte; die .sli baut erzeuge),
+    'standard' = feste Liste; messen: Gebaeudeflucht (LoD2) der Strassen messen (omsigen.querschnitt_messung)"""
     proj = projektion_fuer(projekt)
     if gelaende and gel is None:
         gel = gel_mod.Gelaende(proj, log=log)
@@ -122,7 +125,9 @@ def berechne(projekt, name='Vorschau', omsi=None, korrekturen=None, kreuzungen='
     log('4/6 Strassennetz und Kreuzungen bauen ...')
     sdb = SplineDB(omsi)
     signs = [dict(kind=g['kind'], p=tuple(g['p']), direction=g.get('direction')) for g in projekt.get('schilder', [])]
-    net = build(ways, sdb, signs)
+    qs = querschnitte_mod.vorbereiten(projekt, proj, sdb, querschnitte, messen, log)
+    net = build(ways, sdb, signs, waehle=qs.waehle, angleichen=qs.angleichen, uebergang=qs.uebergang)
+    qs.ketten_kennzeichnen(net['road_chains'], net)
     st = net['stats']
     log(f'    {len(net["road_chains"])} Strassenzuege, {st["kreuzungen"]} Kreuzungen, '
         f'{st["verbindungen"]} Kreuzungsspuren {st["bewegungen"]}')
@@ -131,8 +136,10 @@ def berechne(projekt, name='Vorschau', omsi=None, korrekturen=None, kreuzungen='
     stops = place_stops([(s['name'], tuple(s['p'])) for s in projekt.get('haltestellen', [])], net['road_chains'], sdb)
     chains, junctions, V = net['road_chains'] + net['wenden'], [], []
     if kreuzungen == 'objekt':
+        uebergaenge = qs.uebergaenge_planen(net, name)       # S1: Querschnittswechsel als Objekt (Editor)
         junctions = kreuzung.build_objects(net, sdb, name, vorfahrt.load_corrections(korrekturen) if
                                            isinstance(korrekturen, str) else (korrekturen or []), proj.to_ll)
+        junctions += uebergaenge
         V = [j['vorfahrt'] for j in junctions if j['vorfahrt']]
         q = collections.Counter(v['quelle'] for v in V)
         log(f'    Vorfahrt: {len(signs)} Schilder/Ampeln aus OSM; Quelle je Kreuzung: ' +
@@ -155,7 +162,8 @@ def berechne(projekt, name='Vorschau', omsi=None, korrekturen=None, kreuzungen='
         log(f"    Bauwerke: {b['bruecken']} Brueckenabschnitte mit {b['pfeiler']} Pfeilern, {b['tunnel']} "
             f"Tunnelabschnitte mit {b['portale']} Portalen und {b['deckel']} Deckeln ueber dem Tunnelgraben")
     return dict(proj=proj, sdb=sdb, net=net, signs=signs, stops=stops, junctions=junctions, vorfahrt=V, hoe=hoe,
-                hat_gelaende=hat_gelaende, bw=bw, chains=chains + bw['ketten'], objekte=junctions + bw['objekte'])
+                hat_gelaende=hat_gelaende, bw=bw, chains=chains + bw['ketten'], objekte=junctions + bw['objekte'],
+                querschnitte=qs)
 
 
 CRLF = chr(13) + chr(10)
@@ -185,6 +193,8 @@ def netz_schreiben(info, chains, omsi=None, log=print):
         a = dict(art=art, name=c.get('name', ''), highway=hw or '')
         if c.get('tags'):
             a['tags'] = {k: v for k, v in c['tags'].items() if isinstance(v, (str, int, float))}
+        if c.get('querschnitt'):                  # S1: Datei und Herkunft der Werte (tag / messung / regel)
+            a['querschnitt'] = c['querschnitt']
         for sid in ids:
             attribute[sid] = a
     netz_datei.attribute_schreiben(info['dir'], attribute)
@@ -245,10 +255,11 @@ def gebaeude_schicht(root, name, info, linie, breite, log=print):
 
 
 def erzeuge(projekt, name, omsi=None, ausgabe='build', korrekturen=None, ueberschreiben=False, kreuzungen='objekt',
-            titel=None, vorschau=None, ansicht_html=None, log=print, gelaende=True, gebaeude=None):
+            titel=None, vorschau=None, ansicht_html=None, log=print, gelaende=True, gebaeude=None, querschnitte='osm',
+            messen=False):
     """Projekt -> OMSI-Karte. gebaeude: Korridor (m) fuer LoD2-Gebaeude (Bayern, nur mit Gelaende; Fassaden aus den
     Kartendaten, siehe lod2.bauen_fuer_projekt), None = keine. -> dict(rc, dir, offen, enden, stats, kreuzungen, vorfahrt)"""
-    B = berechne(projekt, name, omsi, korrekturen, kreuzungen, gelaende, log)
+    B = berechne(projekt, name, omsi, korrekturen, kreuzungen, gelaende, log, querschnitte=querschnitte, messen=messen)
     proj, sdb, net, stops, junctions, V, hoe = (B['proj'], B['sdb'], B['net'], B['stops'], B['junctions'],
                                                 B['vorfahrt'], B['hoe'])
     hat_gelaende, bw, chains, objekte, st = B['hat_gelaende'], B['bw'], B['chains'], B['objekte'], net['stats']
@@ -256,6 +267,7 @@ def erzeuge(projekt, name, omsi=None, ausgabe='build', korrekturen=None, uebersc
     root = omsi if omsi else ausgabe
     os.makedirs(root, exist_ok=True)
     install_splines(root, bw['splines'])
+    B['querschnitte'].bauen(root, omsi, log)
     desc = (f'Erzeugt mit omsigen: {projekt.get("beschreibung") or projekt.get("name", "")}.\n'
             + ('Strassendaten (c) OpenStreetMap-Mitwirkende, ODbL.' if 'OpenStreetMap' in projekt.get('quelle', '')
                else '') + (('\n' + gel_mod.QUELLE) if hat_gelaende else ''))
@@ -283,6 +295,7 @@ def erzeuge(projekt, name, omsi=None, ausgabe='build', korrekturen=None, uebersc
     kdir = None
     if objekte:                  # vor den Gebaeuden: install_objects ersetzt den ganzen Objektordner der Karte
         kdir, _ = kreuzung.install_objects(root, name, objekte, omsi_dir=omsi, overwrite=ueberschreiben)
+        B['querschnitte'].uebergaenge_bauen(root, kdir, objekte, log)
     utm = getattr(proj, 'art', '') == 'utm'
     geb = []
     if gebaeude and hat_gelaende and not utm:      # alte ebene Projekte: Gebaeude direkt (ohne Geobezug, ohne Schicht)
@@ -295,6 +308,7 @@ def erzeuge(projekt, name, omsi=None, ausgabe='build', korrekturen=None, uebersc
                      description=desc, cam_xz=(entrypoints[0]['x'], entrypoints[0]['z']) if entrypoints else
                      tuple(linie[0]), overwrite=ueberschreiben, junctions=objekte, entrypoints=entrypoints,
                      raster=hoe.raster if hat_gelaende else None, gebaeude=geb)
+    B['querschnitte'].datei_schreiben(info['dir'], chains, info['ketten_ids'])
     netz_schreiben(info, chains, omsi, log)
     if utm:
         geo_schreiben(info['dir'], proj, info['offset'], hoe.base if hat_gelaende else 0.0,
