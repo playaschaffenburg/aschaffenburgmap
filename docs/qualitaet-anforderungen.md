@@ -367,9 +367,11 @@ py -3.12 -m omsigen --omsi "C:\Program Files (x86)\Steam\steamapps\common\OMSI 2
 py -3.12 -m omsigen.pruefbericht Aschaffenburg_Linie16_vN --bilder --luftbild --max 6
 ```
 Fassaden kommen aus `Documents\Aschaffenburg\fassaden` (earth-reverse-engineering `tools/lod2/korridor.py`).
-Stand 15.10.2026 nach Phase 1: `Aschaffenburg_Linie16_v8`, 79 Funde (3 Spurenden, 57 Gebäude über Fahrbahn,
-19 Querschnitt-Prüfstellen ≥ 0,5 m vom Luftbild; Boden 0). Vorher v7: 186 Funde.
-Hinweis: Der Generator endet mit Rückgabe 1, solange offene Spurenden gefunden werden – den Prüfbericht dann
+Stand 15.10.2026 nach Phase 2: `Aschaffenburg_Linie16_v9`, 136 Funde – davon die bisherigen Arten 49 (3 Spurenden,
+27 Gebäude über Fahrbahn, 19 Querschnitt-Prüfstellen; v8: 79) und neue Prüfungen 87 (51 Gebäude über Gehweg,
+31 versunken, 1 schwebt, 1 Haltestelle ohne Wartehalle, 3 Schilder gegen die Vorfahrt). 1570 Ausstattungsobjekte.
+Vorher: v7 186, v8 79 Funde.
+Hinweis: Der Generator endet mit Rückgabe ≠ 0, solange offene Spurenden gefunden werden – den Prüfbericht dann
 getrennt starten. Der OSM-Zwischenspeicher liegt relativ zum Arbeitsordner (`.cache`).
 
 ### Agenten
